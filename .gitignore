@@ -1,0 +1,38 @@
+## ==========================================
+## 1. Build outputs & NuGet (.NET / C#)
+## ==========================================
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+packages/
+*.nuget.props
+*.nuget.targets
+
+## ==========================================
+## 2. Visual Studio & Cấu hình cá nhân (Quan trọng)
+## ==========================================
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+
+## ==========================================
+## 3. File hệ điều hành & IDE khác
+## ==========================================
+.vscode/
+.idea/
+*.code-workspace
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+## ==========================================
+## 4. Môi trường & DB riêng (Tránh lộ thông tin nhạy cảm)
+## ==========================================
+appsettings.Local.json
+appsettings.*.local.json
+secrets.json

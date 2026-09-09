@@ -19,12 +19,18 @@ public static class SharedModuleExtensions
             ?? "Server=localhost;Database=R_WFM_DB;Trusted_Connection=True;TrustServerCertificate=True;";
         var sqliteConn = configuration.GetConnectionString("SqliteConnection") 
             ?? "Data Source=rwfm_local.db";
+        var mySqlConn = configuration.GetConnectionString("MySqlConnection") 
+            ?? "Server=localhost;Port=3306;Database=rwfm_db;Uid=root;Pwd=;";
 
         services.AddDbContext<RWFMDbContext>(options =>
         {
             if (provider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase))
             {
                 options.UseSqlite(sqliteConn);
+            }
+            else if (provider.Equals("MySql", StringComparison.OrdinalIgnoreCase))
+            {
+                options.UseMySql(mySqlConn, ServerVersion.AutoDetect(mySqlConn));
             }
             else
             {

@@ -37,7 +37,8 @@ public partial class RWFMDbContext : DbContext
     {
         if (!optionsBuilder.IsConfigured)
         {
-            optionsBuilder.UseSqlServer("Server=localhost;Database=R_WFM_DB;Trusted_Connection=True;TrustServerCertificate=True;");
+            var mySqlConn = "Server=localhost;Port=3306;Database=rwfm_db;Uid=root;Pwd=12345;";
+            optionsBuilder.UseMySql(mySqlConn, ServerVersion.AutoDetect(mySqlConn));
         }
     }
 
@@ -47,7 +48,7 @@ public partial class RWFMDbContext : DbContext
         {
             entity.HasKey(e => e.ExceptionId).HasName("PK__Attendan__26981D8886A6E369");
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Description).HasMaxLength(500);
             entity.Property(e => e.ExceptionType).HasMaxLength(30);
             entity.Property(e => e.Status)
@@ -79,7 +80,7 @@ public partial class RWFMDbContext : DbContext
 
             entity.Property(e => e.CheckInMethod).HasMaxLength(20);
             entity.Property(e => e.CheckOutMethod).HasMaxLength(20);
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Status)
                 .HasMaxLength(30)
                 .HasDefaultValue("Present");
@@ -105,7 +106,7 @@ public partial class RWFMDbContext : DbContext
             entity.HasKey(e => e.AuditLogId).HasName("PK__AuditLog__EB5F6CBDF6B5B4CE");
 
             entity.Property(e => e.Action).HasMaxLength(100);
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Description).HasMaxLength(1000);
             entity.Property(e => e.EntityName).HasMaxLength(100);
             entity.Property(e => e.IpAddress)
@@ -122,9 +123,9 @@ public partial class RWFMDbContext : DbContext
             entity.HasKey(e => e.CashHandoverId).HasName("PK__CashHand__F3BBCA164C9D4280");
 
             entity.Property(e => e.ActualCash).HasColumnType("decimal(18, 2)");
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.DifferenceAmount)
-                .HasComputedColumnSql("(case when [ActualCash] IS NULL then NULL else [ActualCash]-[OpeningFloat] end)", true)
+                .HasComputedColumnSql("(case when `ActualCash` IS NULL then NULL else `ActualCash`-`OpeningFloat` end)", true)
                 .HasColumnType("decimal(19, 2)");
             entity.Property(e => e.DifferenceNote).HasMaxLength(500);
             entity.Property(e => e.OpeningFloat).HasColumnType("decimal(18, 2)");
@@ -152,7 +153,7 @@ public partial class RWFMDbContext : DbContext
 
             entity.HasIndex(e => e.EmployeeCode, "UQ__Employee__1F642548DAE225BC").IsUnique();
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Email)
                 .HasMaxLength(150)
                 .IsUnicode(false);
@@ -187,7 +188,7 @@ public partial class RWFMDbContext : DbContext
 
             entity.HasIndex(e => new { e.EmployeeId, e.IsRead }, "IX_Notifications_Employee");
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Message).HasMaxLength(1000);
             entity.Property(e => e.Title).HasMaxLength(200);
             entity.Property(e => e.Type).HasMaxLength(30);
@@ -216,7 +217,7 @@ public partial class RWFMDbContext : DbContext
         {
             entity.HasKey(e => e.SecurityHandoverId).HasName("PK__Security__9E160887FF713161");
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.SecurityNote).HasMaxLength(500);
 
             entity.HasOne(d => d.Handover).WithMany(p => p.SecurityHandovers)
@@ -251,7 +252,7 @@ public partial class RWFMDbContext : DbContext
 
             entity.HasIndex(e => new { e.StoreId, e.WorkDate }, "IX_ShiftAssignments_Store_WorkDate");
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValue("Scheduled");
@@ -282,7 +283,7 @@ public partial class RWFMDbContext : DbContext
             entity.HasKey(e => e.HandoverId).HasName("PK__ShiftHan__DB2A1F81EB4E7EA3");
 
             entity.Property(e => e.ManagerNote).HasMaxLength(1000);
-            entity.Property(e => e.OpenedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.OpenedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValue("Open");
@@ -311,7 +312,7 @@ public partial class RWFMDbContext : DbContext
         {
             entity.HasKey(e => e.SwapRequestId).HasName("PK__ShiftSwa__EEF5A489E9A0BB3E");
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Reason).HasMaxLength(500);
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
@@ -344,7 +345,7 @@ public partial class RWFMDbContext : DbContext
             entity.HasIndex(e => e.StoreCode, "UQ__Stores__02A384F8D8EB8161").IsUnique();
 
             entity.Property(e => e.Address).HasMaxLength(255);
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.IsActive).HasDefaultValue(true);
             entity.Property(e => e.Phone)
                 .HasMaxLength(20)
@@ -361,7 +362,7 @@ public partial class RWFMDbContext : DbContext
 
             entity.HasIndex(e => new { e.EmployeeId, e.StartDate, e.EndDate }, "IX_Dispatch_Employee_Date");
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Reason).HasMaxLength(500);
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
@@ -398,7 +399,7 @@ public partial class RWFMDbContext : DbContext
 
             entity.HasIndex(e => e.Username, "UQ__Users__536C85E49C6B9BC8").IsUnique();
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.IsActive).HasDefaultValue(true);
             entity.Property(e => e.PasswordHash).HasMaxLength(500);
             entity.Property(e => e.Role).HasMaxLength(30);
@@ -409,7 +410,7 @@ public partial class RWFMDbContext : DbContext
         {
             entity.HasKey(e => e.ScheduleId).HasName("PK__WorkSche__9C8A5B492182D683");
 
-            entity.Property(e => e.CreatedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValue("Draft");

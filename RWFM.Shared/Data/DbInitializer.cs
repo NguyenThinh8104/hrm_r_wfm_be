@@ -8,43 +8,61 @@ public static class DbInitializer
 {
     public static async Task InitializeAsync(RWFMDbContext context)
     {
-        // Kiểm tra xem đã có Users chưa
-        if (await context.Users.AnyAsync())
-        {
-            return; // Đã seed dữ liệu
-        }
-
         var defaultPasswordHash = PasswordHasher.Hash("Password@123");
         var defaultPinHash = PasswordHasher.Hash("1234");
         var now = DateTime.UtcNow;
 
-        // 1. Cửa hàng trưởng Store 1 (StoreManager)
-        var mgrUser1 = new User
+        if (!await context.Stores.AnyAsync())
         {
-            Username = "manager.store01",
-            PasswordHash = defaultPasswordHash,
-            Role = "StoreManager",
-            IsActive = true,
-            CreatedAt = now
-        };
-        context.Users.Add(mgrUser1);
-        await context.SaveChangesAsync();
+            context.Stores.AddRange(
+                new Store { StoreCode = "ST001", StoreName = "Chi nhánh Nguyễn Trãi", Address = "Q5, TP.HCM", IsActive = true, CreatedAt = now },
+                new Store { StoreCode = "ST002", StoreName = "Chi nhánh Lê Văn Việt", Address = "Q9, TP.HCM", IsActive = true, CreatedAt = now }
+            );
+            await context.SaveChangesAsync();
+        }
 
-        var mgrEmp1 = new Employee
+        if (!await context.Positions.AnyAsync())
         {
-            UserId = mgrUser1.UserId,
-            EmployeeCode = "MGR001",
-            FullName = "Trần Thị Mai (QL Nguyễn Trãi)",
-            Email = "manager.store01@rwfm.vn",
-            Phone = "0909000001",
-            HireDate = new DateOnly(2023, 1, 15),
-            PositionId = 1, // STORE_MANAGER
-            PrimaryStoreId = 1,
-            PinHash = defaultPinHash,
-            IsActive = true,
-            CreatedAt = now
-        };
-        context.Employees.Add(mgrEmp1);
+            context.Positions.AddRange(
+                new Position { PositionCode = "STORE_MANAGER", PositionName = "Cửa hàng trưởng", IsActive = true },
+                new Position { PositionCode = "SHIFT_LEADER", PositionName = "Trưởng ca", IsActive = true },
+                new Position { PositionCode = "CASHIER", PositionName = "Thu ngân", IsActive = true },
+                new Position { PositionCode = "SALES_STAFF", PositionName = "Nhân viên bán hàng", IsActive = true },
+                new Position { PositionCode = "SECURITY_GUARD", PositionName = "Bảo vệ", IsActive = true }
+            );
+            await context.SaveChangesAsync();
+        }
+
+        if (!await context.Users.AnyAsync(u => u.Username == "manager.store01"))
+        {
+            // 1. Cửa hàng trưởng Store 1 (StoreManager)
+            var mgrUser1 = new User
+            {
+                Username = "manager.store01",
+                PasswordHash = defaultPasswordHash,
+                Role = "StoreManager",
+                IsActive = true,
+                CreatedAt = now
+            };
+            context.Users.Add(mgrUser1);
+            await context.SaveChangesAsync();
+
+            var mgrEmp1 = new Employee
+            {
+                UserId = mgrUser1.UserId,
+                EmployeeCode = "MGR001",
+                FullName = "Trần Thị Mai (QL Nguyễn Trãi)",
+                Email = "manager.store01@rwfm.vn",
+                Phone = "0909000001",
+                HireDate = new DateOnly(2023, 1, 15),
+                PositionId = 1, // STORE_MANAGER
+                PrimaryStoreId = 1,
+                PinHash = defaultPinHash,
+                IsActive = true,
+                CreatedAt = now
+            };
+            context.Employees.Add(mgrEmp1);
+        }
 
         // 2. Trưởng ca Store 1 (ShiftLeader)
         var leaderUser1 = new User
@@ -186,74 +204,157 @@ public static class DbInitializer
         };
         context.Employees.Add(mgrEmp2);
 
+        if (!await context.Users.AnyAsync(u => u.Username == "admin"))
+        {
+            // 8. Admin Hệ Thống
+            var adminUser = new User
+            {
+                Username = "admin",
+                PasswordHash = defaultPasswordHash,
+                Role = "SystemAdmin",
+                IsActive = true,
+                CreatedAt = now
+            };
+            context.Users.Add(adminUser);
+            await context.SaveChangesAsync();
+
+            var adminEmp = new Employee
+            {
+                UserId = adminUser.UserId,
+                EmployeeCode = "ADM001",
+                FullName = "Quản trị viên Hệ thống",
+                Email = "admin@rwfm.vn",
+                Phone = "0909999999",
+                HireDate = new DateOnly(2022, 1, 1),
+                PositionId = 1, // Store Manager hoặc Admin
+                PrimaryStoreId = 1,
+                PinHash = defaultPinHash,
+                IsActive = true,
+                CreatedAt = now
+            };
+            context.Employees.Add(adminEmp);
+        }
+
+        if (!await context.Users.AnyAsync(u => u.Username == "hr.manager"))
+        {
+            // 9. HR Manager
+            var hrUser = new User
+            {
+                Username = "hr.manager",
+                PasswordHash = defaultPasswordHash,
+                Role = "HRManager",
+                IsActive = true,
+                CreatedAt = now
+            };
+            context.Users.Add(hrUser);
+            await context.SaveChangesAsync();
+
+            var hrEmp = new Employee
+            {
+                UserId = hrUser.UserId,
+                EmployeeCode = "HRM001",
+                FullName = "Nguyễn Văn Nhân Sự",
+                Email = "hr@rwfm.vn",
+                Phone = "0909888888",
+                HireDate = new DateOnly(2022, 1, 1),
+                PositionId = 1,
+                PrimaryStoreId = 1,
+                PinHash = defaultPinHash,
+                IsActive = true,
+                CreatedAt = now
+            };
+            context.Employees.Add(hrEmp);
+        }
+
         await context.SaveChangesAsync();
 
-        // 7. Tạo WorkSchedule và ShiftAssignments hôm nay cho Cửa hàng 1 (Nguyễn Trãi)
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        var dayOfWeek = (int)today.DayOfWeek;
-        var diffToMonday = dayOfWeek == 0 ? -6 : 1 - dayOfWeek;
-        var weekStart = today.AddDays(diffToMonday);
-        var weekEnd = weekStart.AddDays(6);
-
-        var schedule = new WorkSchedule
+        if (!await context.WorkSchedules.AnyAsync(ws => ws.StoreId == 1))
         {
-            StoreId = 1,
-            WeekStartDate = weekStart,
-            WeekEndDate = weekEnd,
-            Status = "Published",
-            PublishedAt = now,
-            PublishedBy = mgrEmp1.EmployeeId,
-            CreatedAt = now
-        };
-        context.WorkSchedules.Add(schedule);
-        await context.SaveChangesAsync();
+            // 10. Tạo WorkSchedule và ShiftAssignments hôm nay cho Cửa hàng 1 (Nguyễn Trãi)
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var dayOfWeek = (int)today.DayOfWeek;
+            var diffToMonday = dayOfWeek == 0 ? -6 : 1 - dayOfWeek;
+            var weekStart = today.AddDays(diffToMonday);
+            var weekEnd = weekStart.AddDays(6);
 
-        // Ca sáng (ShiftId = 1: 08:00 - 14:00) cho Trưởng ca, Thu ngân, Bán hàng, Bảo vệ
-        var assignments = new List<ShiftAssignment>
-        {
-            new()
+            var mgrEmp1Id = await context.Employees.Where(e => e.EmployeeCode == "MGR001").Select(e => e.EmployeeId).FirstOrDefaultAsync();
+            var leaderEmp1Id = await context.Employees.Where(e => e.EmployeeCode == "SLD001").Select(e => e.EmployeeId).FirstOrDefaultAsync();
+            var cashierEmp1Id = await context.Employees.Where(e => e.EmployeeCode == "CSH001").Select(e => e.EmployeeId).FirstOrDefaultAsync();
+            var salesEmp1Id = await context.Employees.Where(e => e.EmployeeCode == "SAL001").Select(e => e.EmployeeId).FirstOrDefaultAsync();
+            var secEmp1Id = await context.Employees.Where(e => e.EmployeeCode == "SEC001").Select(e => e.EmployeeId).FirstOrDefaultAsync();
+
+            if (mgrEmp1Id > 0 && leaderEmp1Id > 0)
             {
-                ScheduleId = schedule.ScheduleId,
-                StoreId = 1,
-                EmployeeId = leaderEmp1.EmployeeId,
-                ShiftId = 1, // Ca sáng
-                WorkDate = today,
-                Status = "Scheduled",
-                CreatedAt = now
-            },
-            new()
-            {
-                ScheduleId = schedule.ScheduleId,
-                StoreId = 1,
-                EmployeeId = cashierEmp1.EmployeeId,
-                ShiftId = 1, // Ca sáng
-                WorkDate = today,
-                Status = "Scheduled",
-                CreatedAt = now
-            },
-            new()
-            {
-                ScheduleId = schedule.ScheduleId,
-                StoreId = 1,
-                EmployeeId = salesEmp1.EmployeeId,
-                ShiftId = 1, // Ca sáng
-                WorkDate = today,
-                Status = "Scheduled",
-                CreatedAt = now
-            },
-            new()
-            {
-                ScheduleId = schedule.ScheduleId,
-                StoreId = 1,
-                EmployeeId = secEmp1.EmployeeId,
-                ShiftId = 1, // Ca sáng
-                WorkDate = today,
-                Status = "Scheduled",
-                CreatedAt = now
+                var schedule = new WorkSchedule
+                {
+                    StoreId = 1,
+                    WeekStartDate = weekStart,
+                    WeekEndDate = weekEnd,
+                    Status = "Published",
+                    PublishedAt = now,
+                    PublishedBy = mgrEmp1Id,
+                    CreatedAt = now
+                };
+                context.WorkSchedules.Add(schedule);
+                await context.SaveChangesAsync();
+
+                // Ca sáng (ShiftId = 1: 08:00 - 14:00) cho Trưởng ca, Thu ngân, Bán hàng, Bảo vệ
+                if (!await context.Shifts.AnyAsync())
+                {
+                    context.Shifts.AddRange(
+                        new Shift { ShiftCode = "MORNING", ShiftName = "Ca sáng (08:00 - 14:00)", StartTime = new TimeSpan(8, 0, 0), EndTime = new TimeSpan(14, 0, 0), IsActive = true },
+                        new Shift { ShiftCode = "AFTERNOON", ShiftName = "Ca chiều (14:00 - 22:00)", StartTime = new TimeSpan(14, 0, 0), EndTime = new TimeSpan(22, 0, 0), IsActive = true }
+                    );
+                    await context.SaveChangesAsync();
+                }
+
+                var assignments = new List<ShiftAssignment>
+                {
+                    new()
+                    {
+                        ScheduleId = schedule.ScheduleId,
+                        StoreId = 1,
+                        EmployeeId = leaderEmp1Id,
+                        ShiftId = 1, // Ca sáng
+                        WorkDate = today,
+                        Status = "Scheduled",
+                        CreatedAt = now
+                    },
+                    new()
+                    {
+                        ScheduleId = schedule.ScheduleId,
+                        StoreId = 1,
+                        EmployeeId = cashierEmp1Id,
+                        ShiftId = 1,
+                        WorkDate = today,
+                        Status = "Scheduled",
+                        CreatedAt = now
+                    },
+                    new()
+                    {
+                        ScheduleId = schedule.ScheduleId,
+                        StoreId = 1,
+                        EmployeeId = salesEmp1Id,
+                        ShiftId = 1,
+                        WorkDate = today,
+                        Status = "Scheduled",
+                        CreatedAt = now
+                    },
+                    new()
+                    {
+                        ScheduleId = schedule.ScheduleId,
+                        StoreId = 1,
+                        EmployeeId = secEmp1Id,
+                        ShiftId = 1,
+                        WorkDate = today,
+                        Status = "Scheduled",
+                        CreatedAt = now
+                    }
+                };
+
+                context.ShiftAssignments.AddRange(assignments);
+                await context.SaveChangesAsync();
             }
-        };
-
-        context.ShiftAssignments.AddRange(assignments);
-        await context.SaveChangesAsync();
+        }
     }
 }

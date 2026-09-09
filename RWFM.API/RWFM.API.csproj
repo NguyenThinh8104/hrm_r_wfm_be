@@ -20,8 +20,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RWFM.Domain\RWFM.Domain.csproj" />
-    <ProjectReference Include="..\RWFM.Application\RWFM.Application.csproj" />
-    <ProjectReference Include="..\RWFM.Infrastructure\RWFM.Infrastructure.csproj" />
+    <ProjectReference Include="..\RWFM.Shared\RWFM.Shared.csproj" />
+    <ProjectReference Include="..\RWFM.Modules.Auth\RWFM.Modules.Auth.csproj" />
+    <ProjectReference Include="..\RWFM.Modules.Stores\RWFM.Modules.Stores.csproj" />
+    <ProjectReference Include="..\RWFM.Modules.Shifts\RWFM.Modules.Shifts.csproj" />
+    <ProjectReference Include="..\RWFM.Modules.Attendance\RWFM.Modules.Attendance.csproj" />
+    <ProjectReference Include="..\RWFM.Modules.Dispatch\RWFM.Modules.Dispatch.csproj" />
+    <ProjectReference Include="..\RWFM.Modules.Handovers\RWFM.Modules.Handovers.csproj" />
   </ItemGroup>
 
 </Project>

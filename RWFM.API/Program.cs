@@ -1,95 +1,34 @@
-using System.Text;
-using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using RWFM.API.Middlewares;
-using RWFM.Application.Interfaces;
-using RWFM.Infrastructure.Data;
-using RWFM.Infrastructure.Services;
+using RWFM.Modules.Attendance;
+using RWFM.Modules.Auth;
+using RWFM.Modules.Dispatch;
+using RWFM.Modules.Handovers;
+using RWFM.Modules.Shifts;
+using RWFM.Modules.Stores;
+using RWFM.Shared;
+using RWFM.Shared.Data;
+using RWFM.Shared.Middlewares;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Cấu hình Serilog Structured Logging (Console + File)
+// 1. Cấu hình Logging chuyên nghiệp (Serilog)
 Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(builder.Configuration)
-    .Enrich.FromLogContext()
-    .WriteTo.Console()
+    .MinimumLevel.Information()
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .WriteTo.File(
         path: Path.Combine(AppContext.BaseDirectory, "logs", "rwfm-.txt"),
         rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: 14,
+        retainedFileCountLimit: 30,
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
     )
     .CreateLogger();
 
 builder.Host.UseSerilog();
 
-// 2. Cấu hình Entity Framework Core (Hỗ trợ SQL Server R_WFM_DB với cơ chế tự động)
-var dbProvider = builder.Configuration["DatabaseProvider"] ?? "SqlServer";
-var sqlServerConn = builder.Configuration.GetConnectionString("SqlServerConnection");
-var sqliteConn = builder.Configuration.GetConnectionString("SqliteConnection") ?? "Data Source=rwfm.db";
-
-builder.Services.AddDbContext<RWFMDbContext>(options =>
-{
-    if (dbProvider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(sqlServerConn))
-    {
-        options.UseSqlServer(sqlServerConn);
-    }
-    else
-    {
-        options.UseSqlite(sqliteConn);
-    }
-});
-
-// 3. Đăng ký Application & Infrastructure Services
-builder.Services.AddSingleton<JwtTokenService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IShiftService, ShiftService>();
-builder.Services.AddScoped<IAttendanceService, AttendanceService>();
-builder.Services.AddScoped<IDispatchService, DispatchService>();
-builder.Services.AddScoped<IHandoverService, HandoverService>();
-
-// 4. Cấu hình JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "RetailWorkforceManagementSecretKey_FPT_SWP391_2026_KeyMustBeLongEnough!";
-var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "RWFM_API";
-var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "RWFM_CLIENT";
-
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-        ValidateIssuer = true,
-        ValidIssuer = jwtIssuer,
-        ValidateAudience = true,
-        ValidAudience = jwtAudience,
-        ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
-    };
-});
-
-builder.Services.AddAuthorization();
-
-// 5. Cấu hình Controllers và Chuyển đổi Enum sang String
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-    });
-
-// 6. Cấu hình CORS cho React Frontend
+// 2. Cấu hình CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -100,15 +39,30 @@ builder.Services.AddCors(options =>
     });
 });
 
-// 7. Cấu hình Swagger / OpenAPI kèm nút Authorize Bearer Token
+// 3. Đăng ký Shared Infrastructure (Database, JWT, Security)
+builder.Services.AddSharedInfrastructure(builder.Configuration);
+
+// 4. Đăng ký các Module Nghiệp vụ (Modular Architecture)
+builder.Services
+    .AddAuthModule()
+    .AddStoresModule()
+    .AddShiftsModule()
+    .AddAttendanceModule()
+    .AddDispatchModule()
+    .AddHandoversModule();
+
+// 5. Đăng ký Controllers từ các Module
+builder.Services.AddControllers();
+
+// 6. Cấu hình Swagger UI / OpenAPI (.NET 8)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "R-WFM Platform API (Retail Workforce Management)",
+        Title = "R-WFM Platform API (Modular Architecture)",
         Version = "v1",
-        Description = "Nền tảng Quản trị Nhân sự Vận hành Chuỗi Siêu thị Tiện lợi (Môn SWP - Kỳ Fall 2026 Đại học FPT)"
+        Description = "Nền tảng Quản trị Nhân sự Vận hành Chuỗi Siêu thị Tiện lợi - Kiến trúc Modular Monolith (.NET 8)"
     });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -138,7 +92,7 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// 8. Tự động kiểm tra Database & Nạp Dữ liệu Mẫu (Seed Data)
+// 7. Tự động kiểm tra Database & Nạp Dữ liệu Mẫu (Seed Data)
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -154,19 +108,16 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// 9. Pipeline xử lý Request & Middleware
+// 8. Pipeline xử lý Request & Middleware
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
 
-if (app.Environment.IsDevelopment() || true)
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "R-WFM API v1");
-        c.RoutePrefix = "swagger";
-    });
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "R-WFM API v1 (Modular)");
+    c.RoutePrefix = "swagger";
+});
 
 app.UseCors("AllowAll");
 
@@ -175,16 +126,5 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-try
-{
-    Log.Information("Ứng dụng R-WFM Backend API đang khởi động...");
-    app.Run();
-}
-catch (Exception ex)
-{
-    Log.Fatal(ex, "Ứng dụng R-WFM dừng đột ngột!");
-}
-finally
-{
-    Log.CloseAndFlush();
-}
+Log.Information("Ứng dụng R-WFM Backend API (Modular Architecture) đang khởi động...");
+app.Run();

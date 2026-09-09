@@ -2,39 +2,68 @@
 ## Nền tảng Quản trị Nhân sự Vận hành Chuỗi Siêu thị Tiện lợi
 
 > **Đồ án môn học SWP391 / SWP - Đại học FPT (Học kỳ Fall 2026)**  
-> **Backend:** .NET 8 (LTS) / ASP.NET Core Web API (Clean Architecture)  
+> **Backend:** .NET 8 (LTS) / ASP.NET Core Web API (**Modular Architecture / Modular Monolith**)  
 > **Database:** Microsoft SQL Server (`R_WFM_DB`)  
 > **Authentication:** JWT Bearer Token + Kiosk PIN Code  
 > **Logging:** Serilog (Console + File Rolling `logs/rwfm-*.txt`)
 
 ---
 
-## 1. Cấu trúc Solution Clean Architecture
+## 1. Cấu trúc Solution Modular Architecture (Modular Monolith)
+
+Hệ thống được tổ chức thành các **Module nghiệp vụ độc lập (Self-contained Modules)**:
 
 ```text
-rwfm-platform/
-├── backend/
-│   ├── RWFM.slnx                     # Solution file
-│   ├── RWFM.Domain/                  # Entities khớp 100% với schema SQL Server
-│   │   ├── Entities/ (User, Employee, Store, Position, Shift, WorkSchedule,
-│   │   │              ShiftAssignment, AttendanceRecord, AttendanceException,
-│   │   │              TemporaryDispatch, ShiftHandoverSession, CashHandover, SecurityHandover)
-│   │   └── Common/ (BaseEntity.cs)
-│   ├── RWFM.Application/             # DTOs, Service Interfaces, ApiResponse Wrapper
-│   │   ├── DTOs/ (Auth, Shift, Attendance, Dispatch, Handover)
-│   │   ├── Interfaces/ (IAuthService, IShiftService, IAttendanceService, IDispatchService, IHandoverService)
-│   │   └── Common/ (ApiResponse.cs)
-│   ├── RWFM.Infrastructure/          # EF Core DbContext, Services implementation, BCrypt, JWT
-│   │   ├── Data/ (RWFMDbContext.cs, DbInitializer.cs)
-│   │   └── Services/ (AuthService, ShiftService, AttendanceService, DispatchService, HandoverService, JwtTokenService, PasswordHasher)
-│   └── RWFM.API/                     # Controllers, Middlewares, Program.cs, Serilog
-│       ├── Controllers/ (AuthController, StoresController, ShiftsController, AttendanceController, DispatchController, HandoversController)
-│       ├── Middlewares/ (ExceptionHandlingMiddleware, RequestLoggingMiddleware)
-│       ├── appsettings.json
-│       └── Program.cs
-└── docs/
-    ├── PROJECT_TRACKING.md           # Bảng theo dõi tiến độ 10 tuần chuẩn SWP FPT
-    └── README.md                     # Hướng dẫn chạy và danh sách tài khoản demo
+E:\SWP\backend\
+├── RWFM.sln                         # Solution chính Visual Studio / .NET 8
+├── RWFM.Domain/                     # Core Entities chung khớp 100% với SQL Server R_WFM_DB
+│   ├── Entities/ (User, Employee, Store, Position, Shift, WorkSchedule,
+│   │              ShiftAssignment, AttendanceRecord, AttendanceException,
+│   │              TemporaryDispatch, ShiftHandoverSession, CashHandover, SecurityHandover)
+│   └── Common/ (BaseEntity.cs)
+├── RWFM.Shared/                     # Thành phần dùng chung (Cross-cutting Concerns)
+│   ├── Data/ (RWFMDbContext.cs, DbInitializer.cs)
+│   ├── Common/ (ApiResponse.cs)
+│   ├── Security/ (PasswordHasher.cs, JwtTokenService.cs)
+│   ├── Middlewares/ (ExceptionHandlingMiddleware, RequestLoggingMiddleware)
+│   └── SharedModuleExtensions.cs    # Đăng ký DbContext, JWT, Security
+├── RWFM.Modules.Auth/               # Module 1: Xác thực JWT & Quản lý Nhân sự, Kiosk PIN
+│   ├── Controllers/ (AuthController.cs)
+│   ├── Interfaces/ (IAuthService.cs)
+│   ├── Services/ (AuthService.cs)
+│   ├── DTOs/ (AuthDTOs.cs)
+│   └── AuthModuleExtensions.cs      # services.AddAuthModule()
+├── RWFM.Modules.Stores/             # Module 2: Quản lý Chi nhánh Cửa hàng
+│   ├── Controllers/ (StoresController.cs)
+│   └── StoresModuleExtensions.cs    # services.AddStoresModule()
+├── RWFM.Modules.Shifts/             # Module 3: Lập lịch Ca trực tuần, Chặn trùng lịch, Đổi ca
+│   ├── Controllers/ (ShiftsController.cs)
+│   ├── Interfaces/ (IShiftService.cs)
+│   ├── Services/ (ShiftService.cs)
+│   ├── DTOs/ (ShiftDTOs.cs)
+│   └── ShiftsModuleExtensions.cs    # services.AddShiftsModule()
+├── RWFM.Modules.Attendance/         # Module 4: Chấm công Kiosk tại quầy & Xử lý Gian lận
+│   ├── Controllers/ (AttendanceController.cs)
+│   ├── Interfaces/ (IAttendanceService.cs)
+│   ├── Services/ (AttendanceService.cs)
+│   ├── DTOs/ (AttendanceDTOs.cs)
+│   └── AttendanceModuleExtensions.cs# services.AddAttendanceModule()
+├── RWFM.Modules.Dispatch/           # Module 5: Điều phối Nhân sự Tạm thời Liên Chi nhánh
+│   ├── Controllers/ (DispatchController.cs)
+│   ├── Interfaces/ (IDispatchService.cs)
+│   ├── Services/ (DispatchService.cs)
+│   ├── DTOs/ (DispatchDTOs.cs)
+│   └── DispatchModuleExtensions.cs  # services.AddDispatchModule()
+├── RWFM.Modules.Handovers/         # Module 6: Bàn giao Ca (Két tiền Thu ngân & An ninh)
+│   ├── Controllers/ (HandoversController.cs)
+│   ├── Interfaces/ (IHandoverService.cs)
+│   ├── Services/ (HandoverService.cs)
+│   ├── DTOs/ (HandoverDTOs.cs)
+│   └── HandoversModuleExtensions.cs # services.AddHandoversModule()
+└── RWFM.API/                        # Host Application (Entry Point)
+    ├── Program.cs                   # Tự động nạp toàn bộ các Module qua DI
+    ├── appsettings.json             # Chuỗi kết nối R_WFM_DB
+    └── Properties/launchSettings.json # Cấu hình cổng port 5050
 ```
 
 ---
@@ -42,31 +71,21 @@ rwfm-platform/
 ## 2. Hướng dẫn Khởi chạy Backend API
 
 ### Yêu cầu môi trường
-- .NET SDK 10 hoặc .NET 8/9
-- Microsoft SQL Server Local / Express với Database `R_WFM_DB`
-
-### Cấu hình kết nối Database
-Tệp `backend/RWFM.API/appsettings.json` đã được cấu hình sẵn:
-```json
-{
-  "ConnectionStrings": {
-    "SqlServerConnection": "Server=localhost;Database=R_WFM_DB;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true;"
-  },
-  "DatabaseProvider": "SqlServer"
-}
-```
+- .NET SDK 8 (LTS)
+- Microsoft SQL Server Local với Database `R_WFM_DB`
 
 ### Lệnh chạy Backend API
-Mở terminal tại thư mục `backend`:
+Mở terminal tại thư mục `E:\SWP\backend`:
 ```bash
-cd backend
-dotnet build RWFM.slnx
-dotnet run --project RWFM.API/RWFM.API.csproj --urls "http://localhost:5050"
+cd E:\SWP\backend
+dotnet build RWFM.sln
+dotnet run --project RWFM.API --urls "http://localhost:5050"
 ```
+*(Hoặc gõ `.\run.ps1` hoặc chạy `run.bat`)*
 
 Sau khi chạy:
 - **Swagger UI:** Truy cập trực tiếp tại `http://localhost:5050/swagger`
-- **File Log Serilog:** Được lưu tự động hàng ngày tại `backend/RWFM.API/bin/Debug/net10.0/logs/rwfm-YYYYMMDD.txt`
+- **File Log Serilog:** Được lưu tự động hàng ngày tại `backend/RWFM.API/bin/Debug/net8.0/logs/rwfm-YYYYMMDD.txt`
 
 ---
 
@@ -83,15 +102,15 @@ Sau khi chạy:
 
 ---
 
-## 4. Danh mục API Endpoints cốt lõi
+## 4. Danh mục API Endpoints theo Module
 
-### 4.1. Xác thực (Authentication)
+### 4.1. Module Auth (`RWFM.Modules.Auth`)
 - `POST /api/auth/login`: Đăng nhập Web Quản trị (Username + Password $\rightarrow$ JWT Token).
 - `POST /api/auth/kiosk-login`: Đăng nhập nhanh tại trạm Kiosk (EmployeeCode + PIN Code + StoreId).
 - `GET /api/auth/me`: Lấy thông tin phiên đăng nhập hiện tại từ JWT Token.
 - `GET /api/auth/store-employees/{storeId}`: Lấy danh sách nhân sự của một chi nhánh.
 
-### 4.2. Cửa hàng & Ca trực (Stores & Shifts)
+### 4.2. Module Stores & Shifts (`RWFM.Modules.Stores`, `RWFM.Modules.Shifts`)
 - `GET /api/stores`: Danh sách toàn bộ chi nhánh cửa hàng.
 - `GET /api/shifts`: Danh mục khung ca trực (Ca sáng, Ca chiều, Ca tối, Ca đêm).
 - `GET /api/shifts/schedule`: Xem bảng xếp lịch theo khoảng ngày.
@@ -100,19 +119,19 @@ Sau khi chạy:
 - `POST /api/shifts/swap-request`: Nhân viên gửi đơn xin đổi ca.
 - `POST /api/shifts/swap-review`: Cửa hàng trưởng duyệt / từ chối đổi ca.
 
-### 4.3. Chấm công Kiosk tại quầy (Attendance)
+### 4.3. Module Attendance (`RWFM.Modules.Attendance`)
 - `GET /api/attendance/kiosk-roster`: Lấy danh sách nhân viên có lịch trực hôm nay tại quầy.
 - `POST /api/attendance/kiosk-checkin`: Nhân viên nhập PIN điểm danh đầu ca (Server Timestamp, nhận diện đi muộn). Nếu là Thu ngân, tự động ghi nhận số tiền lẻ đầu ca (Opening Float).
 - `POST /api/attendance/kiosk-checkout`: Nhân viên nhập PIN kết thúc ca.
 - `POST /api/attendance/report-fraud`: Trưởng ca báo cáo gian lận / vắng mặt, hủy công và chuyển ngoại lệ lên Cửa hàng trưởng.
 - `GET /api/attendance/history`: Xem lịch sử chấm công trong ngày của chi nhánh.
 
-### 4.4. Điều động liên chi nhánh (Temporary Dispatch)
+### 4.4. Module Dispatch (`RWFM.Modules.Dispatch`)
 - `POST /api/dispatch/request`: Cửa hàng trưởng chi nhánh A đề nghị mượn nhân sự từ chi nhánh B.
 - `POST /api/dispatch/review`: Cửa hàng trưởng chi nhánh B duyệt cho điều động.
 - `GET /api/dispatch/store/{storeId}`: Danh sách các lệnh điều động liên quan đến cửa hàng.
 
-### 4.5. Bàn giao ca đặc thù (Shift Handovers)
+### 4.5. Module Handovers (`RWFM.Modules.Handovers`)
 - `GET /api/handovers/current`: Lấy phiên giao ca hiện tại.
 - `POST /api/handovers/cashier-submit`: Thu ngân nhập số tiền kiểm đếm thực tế cuối ca $\rightarrow$ hệ thống tự động tính chênh lệch thừa/thiếu.
 - `POST /api/handovers/security-submit`: Bảo vệ đối soát số vé xe qua đêm, xác nhận niêm phong khóa cửa kho & cửa cuốn.

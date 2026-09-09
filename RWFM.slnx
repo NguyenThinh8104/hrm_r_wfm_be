@@ -1,6 +1,0 @@
-<Solution>
-  <Project Path="RWFM.API/RWFM.API.csproj" />
-  <Project Path="RWFM.Application/RWFM.Application.csproj" />
-  <Project Path="RWFM.Domain/RWFM.Domain.csproj" />
-  <Project Path="RWFM.Infrastructure/RWFM.Infrastructure.csproj" />
-</Solution>

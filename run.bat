@@ -1,0 +1,3 @@
+@echo off
+echo Dang khoi dong R-WFM Backend API (.NET 8)...
+dotnet run --project RWFM.API\RWFM.API.csproj --urls "http://localhost:5050"

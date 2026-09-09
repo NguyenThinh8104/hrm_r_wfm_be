@@ -7,12 +7,14 @@
 [Rr]elease/
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
+[Ll]og/
+[Ll]ogs/
 packages/
 *.nuget.props
 *.nuget.targets
 
 ## ==========================================
-## 2. Visual Studio & Cấu hình cá nhân (Quan trọng)
+## 2. Visual Studio & Cấu hình cá nhân
 ## ==========================================
 .vs/
 *.user
@@ -31,7 +33,7 @@ Desktop.ini
 .DS_Store
 
 ## ==========================================
-## 4. Môi trường & DB riêng (Tránh lộ thông tin nhạy cảm)
+## 4. Môi trường & Secrets
 ## ==========================================
 appsettings.Local.json
 appsettings.*.local.json

@@ -1,0 +1,7 @@
+@API_HostAddress = http://localhost:5050
+
+GET {{API_HostAddress}}/api/stores
+
+Accept: application/json
+
+###

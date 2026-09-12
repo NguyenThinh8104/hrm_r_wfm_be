@@ -16,11 +16,11 @@ public class JwtTokenService
         _configuration = configuration;
     }
 
-    public (string token, DateTime expiresAt) GenerateToken(User user, Employee? employee = null)
+    public (string token, DateTime expiresAt) GenerateToken(User user)
     {
         var secretKey = _configuration["Jwt:Key"] ?? "RetailWorkforceManagementSecretKey_FPT_SWP391_2026_KeyMustBeLongEnough!";
-        var issuer = _configuration["Jwt:Issuer"] ?? "RWFM_API";
-        var audience = _configuration["Jwt:Audience"] ?? "RWFM_CLIENT";
+        var issuer = _configuration["Jwt:Issuer"] ?? "API";
+        var audience = _configuration["Jwt:Audience"] ?? "CLIENT";
         var expirationHours = int.TryParse(_configuration["Jwt:ExpiresInHours"], out var hours) ? hours : 24;
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
@@ -28,15 +28,17 @@ public class JwtTokenService
 
         var expiresAt = DateTime.UtcNow.AddHours(expirationHours);
 
+        var roleCode = user.Role?.RoleCode ?? "STORE_MANAGER";
+
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, user.UserId.ToString()),
-            new(ClaimTypes.Name, employee?.FullName ?? user.Username),
-            new(ClaimTypes.Role, user.Role),
-            new("Username", user.Username),
-            new("EmployeeId", employee?.EmployeeId.ToString() ?? ""),
-            new("EmployeeCode", employee?.EmployeeCode ?? ""),
-            new("StoreId", employee?.PrimaryStoreId.ToString() ?? "")
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Name, user.FullName),
+            new(ClaimTypes.Role, roleCode),
+            new("Email", user.Email),
+            new("EmployeeId", user.Id.ToString()),
+            new("EmployeeCode", user.EmployeeCode),
+            new("StoreId", user.HomeBranchId?.ToString() ?? "")
         };
 
         var tokenDescriptor = new JwtSecurityToken(
@@ -53,4 +55,3 @@ public class JwtTokenService
         return (tokenString, expiresAt);
     }
 }
-

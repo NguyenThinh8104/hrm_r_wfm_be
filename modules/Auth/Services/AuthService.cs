@@ -27,24 +27,23 @@ public class AuthService : IAuthService
         }
 
         var user = await _context.Users
-            .Include(u => u.Employee)
-                .ThenInclude(e => e!.PrimaryStore)
-            .Include(u => u.Employee)
-                .ThenInclude(e => e!.Position)
-            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower());
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == request.Username.Trim().ToLower() 
+                                   || u.EmployeeCode.ToLower() == request.Username.Trim().ToLower());
 
         if (user == null || !PasswordHasher.Verify(request.Password, user.PasswordHash))
         {
             return ApiResponse<AuthResponseDto>.Fail("Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
 
-        if (!user.IsActive)
+        if (user.Status != "ACTIVE")
         {
             return ApiResponse<AuthResponseDto>.Fail("Tài khoản người dùng đang bị khóa.");
         }
 
-        var (token, expiresAt) = _jwtTokenService.GenerateToken(user, user.Employee);
-        var summary = MapUserSummary(user, user.Employee);
+        var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
+        var summary = MapUserSummary(user);
 
         return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
         {
@@ -61,42 +60,33 @@ public class AuthService : IAuthService
             return ApiResponse<AuthResponseDto>.Fail("Vui lòng nhập mã nhân viên và mã PIN.");
         }
 
-        var employee = await _context.Employees
-            .Include(e => e.User)
-            .Include(e => e.PrimaryStore)
-            .Include(e => e.Position)
-            .FirstOrDefaultAsync(e => e.EmployeeCode.ToLower() == request.EmployeeCode.Trim().ToLower() && e.IsActive);
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .FirstOrDefaultAsync(u => u.EmployeeCode.ToLower() == request.EmployeeCode.Trim().ToLower() && u.Status == "ACTIVE");
 
-        if (employee == null)
+        if (user == null)
         {
             return ApiResponse<AuthResponseDto>.Fail("Không tìm thấy nhân viên với mã này.");
         }
 
-        if (string.IsNullOrEmpty(employee.PinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), employee.PinHash))
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
         {
             return ApiResponse<AuthResponseDto>.Fail("Mã PIN không chính xác.");
         }
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         var isDispatched = await _context.TemporaryDispatches
-            .AnyAsync(d => d.EmployeeId == employee.EmployeeId && d.ToStoreId == request.StoreId 
-                        && d.StartDate <= today && d.EndDate >= today && d.Status == "Approved");
+            .AnyAsync(d => d.UserId == user.Id && d.TargetBranchId == (ulong)request.StoreId 
+                        && d.StartDate <= today && d.EndDate >= today && d.Status == "APPROVED");
 
-        if (employee.PrimaryStoreId != request.StoreId && !isDispatched)
+        if (user.HomeBranchId != (ulong)request.StoreId && !isDispatched)
         {
-            return ApiResponse<AuthResponseDto>.Fail($"Nhân viên {employee.FullName} không thuộc chi nhánh này và không có lệnh điều động hợp lệ.");
+            return ApiResponse<AuthResponseDto>.Fail($"Nhân viên {user.FullName} không thuộc chi nhánh này và không có lệnh điều động hợp lệ.");
         }
 
-        var user = employee.User ?? new User
-        {
-            UserId = employee.EmployeeId,
-            Username = employee.EmployeeCode,
-            Role = employee.Position?.PositionCode ?? "Employee",
-            IsActive = true
-        };
-
-        var (token, expiresAt) = _jwtTokenService.GenerateToken(user, employee);
-        var summary = MapUserSummary(user, employee);
+        var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
+        var summary = MapUserSummary(user);
 
         return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
         {
@@ -109,62 +99,46 @@ public class AuthService : IAuthService
     public async Task<ApiResponse<UserSummaryDto>> GetCurrentUserAsync(int userId)
     {
         var user = await _context.Users
-            .Include(u => u.Employee)
-                .ThenInclude(e => e!.PrimaryStore)
-            .Include(u => u.Employee)
-                .ThenInclude(e => e!.Position)
-            .FirstOrDefaultAsync(u => u.UserId == userId);
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .FirstOrDefaultAsync(u => u.Id == (ulong)userId);
 
         if (user == null)
         {
             return ApiResponse<UserSummaryDto>.Fail("Không tìm thấy thông tin người dùng.");
         }
 
-        return ApiResponse<UserSummaryDto>.Ok(MapUserSummary(user, user.Employee));
+        return ApiResponse<UserSummaryDto>.Ok(MapUserSummary(user));
     }
 
     public async Task<ApiResponse<List<UserSummaryDto>>> GetStoreEmployeesAsync(int storeId)
     {
-        var employees = await _context.Employees
-            .Include(e => e.User)
-            .Include(e => e.PrimaryStore)
-            .Include(e => e.Position)
-            .Where(e => e.PrimaryStoreId == storeId && e.IsActive)
+        var users = await _context.Users
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .Where(u => u.HomeBranchId == (ulong)storeId && u.Status == "ACTIVE")
             .ToListAsync();
 
-        var result = employees.Select(e => MapUserSummary(e.User ?? new User { UserId = e.UserId ?? 0, Username = e.EmployeeCode, Role = e.Position?.PositionCode ?? "Employee" }, e)).ToList();
+        var result = users.Select(MapUserSummary).ToList();
         return ApiResponse<List<UserSummaryDto>>.Ok(result);
     }
 
-    private static UserSummaryDto MapUserSummary(User user, Employee? emp)
+    private static UserSummaryDto MapUserSummary(User user)
     {
         return new UserSummaryDto
         {
-            UserId = user.UserId,
-            EmployeeId = emp?.EmployeeId,
-            EmployeeCode = emp?.EmployeeCode ?? user.Username,
-            FullName = emp?.FullName ?? user.Username,
-            Username = user.Username,
-            Email = emp?.Email,
-            Phone = emp?.Phone,
-            Role = user.Role,
-            RoleName = GetRoleDisplayName(user.Role),
-            StoreId = emp?.PrimaryStoreId,
-            StoreName = emp?.PrimaryStore?.StoreName,
-            PositionName = emp?.Position?.PositionName
+            UserId = (int)user.Id,
+            EmployeeId = (int)user.Id,
+            EmployeeCode = user.EmployeeCode,
+            FullName = user.FullName,
+            Username = user.EmployeeCode,
+            Email = user.Email,
+            Phone = user.Phone,
+            Role = user.Role?.RoleCode ?? "STORE_MANAGER",
+            RoleName = user.Role?.RoleName ?? "Quản lý",
+            StoreId = user.HomeBranchId.HasValue ? (int)user.HomeBranchId.Value : null,
+            StoreName = user.HomeBranch?.Name,
+            PositionName = user.Role?.RoleName
         };
     }
-
-    private static string GetRoleDisplayName(string role) => role switch
-    {
-        "BusinessOwner" or "BUSINESS_OWNER" => "Business Owner (Chủ doanh nghiệp)",
-        "OperationsAdmin" or "OPERATIONS_ADMIN" => "Operations Admin (Quản trị vận hành)",
-        "StoreManager" or "STORE_MANAGER" => "Cửa hàng trưởng (Store Manager)",
-        "ShiftLeader" or "SHIFT_LEADER" => "Trưởng ca (Shift Leader)",
-        "Cashier" or "CASHIER" => "Thu ngân (Cashier)",
-        "SalesStaff" or "SALES_STAFF" => "Nhân viên bán hàng (Sales Staff)",
-        "SecurityGuard" or "SECURITY_GUARD" => "Bảo vệ (Security Guard)",
-        _ => role
-    };
 }
-

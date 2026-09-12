@@ -1,106 +1,67 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Modules.Stores.DTOs;
-using Modules.Stores.Interfaces;
 using Shared.Common;
 using Shared.Data;
 
 namespace Modules.Stores.Controllers;
 
+/// <summary>
+/// API Controller quản lý danh mục chi nhánh cửa hàng.
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class StoresController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly IKioskService _kioskService;
 
-    public StoresController(AppDbContext context, IKioskService kioskService)
+    public StoresController(AppDbContext context)
     {
         _context = context;
-        _kioskService = kioskService;
     }
 
+    /// <summary>
+    /// Lấy danh sách toàn bộ các chi nhánh cửa hàng đang hoạt động trong hệ thống.
+    /// </summary>
+    /// <returns>Danh sách cửa hàng kèm mã, tên, địa chỉ và số điện thoại</returns>
     [HttpGet]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse>> GetAllStores()
     {
-        var stores = await _context.Stores
-            .Where(s => s.IsActive)
-            .Select(s => new
+        var stores = await _context.Branches
+            .Where(b => b.Status == "ACTIVE")
+            .Select(b => new
             {
-                s.StoreId,
-                s.StoreCode,
-                s.StoreName,
-                s.Address,
-                s.Phone
+                StoreId = (int)b.Id,
+                StoreCode = b.BranchCode,
+                StoreName = b.Name,
+                Address = b.Address
             })
             .ToListAsync();
 
         return Ok(ApiResponse<object>.Ok(stores, "Lấy danh sách cửa hàng thành công."));
     }
 
+    /// <summary>
+    /// Lấy thông tin chi tiết của một cửa hàng theo ID.
+    /// </summary>
+    /// <param name="id">Mã ID chi nhánh cửa hàng</param>
+    /// <returns>Thông tin chi tiết cửa hàng</returns>
     [HttpGet("{id}")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse>> GetStoreById(int id)
     {
-        var store = await _context.Stores
-            .FirstOrDefaultAsync(s => s.StoreId == id);
+        var store = await _context.Branches
+            .FirstOrDefaultAsync(b => b.Id == (ulong)id);
 
         if (store == null) return NotFound(ApiResponse.Fail("Không tìm thấy cửa hàng."));
 
         return Ok(ApiResponse<object>.Ok(new
         {
-            store.StoreId,
-            store.StoreCode,
-            store.StoreName,
-            store.Address,
-            store.Phone
+            StoreId = (int)store.Id,
+            StoreCode = store.BranchCode,
+            StoreName = store.Name,
+            Address = store.Address
         }));
     }
-
-    [HttpPost("create-kiosk-code")]
-    [Authorize(Roles = "StoreManager,OperationsAdmin,BusinessOwner")]
-    public async Task<ActionResult<ApiResponse<KioskCodeResponseDto>>> CreateKioskCode([FromBody] CreateKioskCodeRequestDto request)
-    {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        int.TryParse(userIdClaim, out var managerUserId);
-
-        var result = await _kioskService.CreateKioskCodeAsync(managerUserId, request);
-        if (!result.Success) return BadRequest(result);
-
-        return Ok(result);
-    }
-
-    [HttpPost("activate-kiosk")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<KioskActivationResponseDto>>> ActivateKiosk([FromBody] ActivateKioskRequestDto request)
-    {
-        var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString();
-        var result = await _kioskService.ActivateKioskAsync(request, clientIp);
-        if (!result.Success) return BadRequest(result);
-
-        return Ok(result);
-    }
-
-    [HttpPost("verify-kiosk-token")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<KioskActivationResponseDto>>> VerifyKioskToken([FromBody] VerifyKioskTokenRequestDto request)
-    {
-        var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString();
-        var result = await _kioskService.VerifyKioskTokenAsync(request.DeviceToken, clientIp);
-        if (!result.Success) return Unauthorized(result);
-
-        return Ok(result);
-    }
-
-    [HttpGet("{storeId}/kiosks")]
-    [Authorize(Roles = "StoreManager,OperationsAdmin,BusinessOwner")]
-    public async Task<ActionResult<ApiResponse<List<KioskActivationResponseDto>>>> GetStoreKiosks(int storeId)
-    {
-        var result = await _kioskService.GetStoreKiosksAsync(storeId);
-        return Ok(result);
-    }
 }
-

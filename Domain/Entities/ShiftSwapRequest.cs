@@ -1,34 +1,16 @@
-using System;
-using System.Collections.Generic;
-
 namespace Domain.Entities;
 
-public partial class ShiftSwapRequest
+public class ShiftSwapRequest
 {
-    public int SwapRequestId { get; set; }
-
-    public int AssignmentId { get; set; }
-
-    public int RequesterEmployeeId { get; set; }
-
-    public int TargetEmployeeId { get; set; }
-
+    public ulong Id { get; set; }
+    public ulong RequestingAssignmentId { get; set; }
+    public ShiftAssignment RequestingAssignment { get; set; } = null!;
+    public ulong TargetAssignmentId { get; set; }
+    public ShiftAssignment TargetAssignment { get; set; } = null!;
     public string? Reason { get; set; }
-
-    public string Status { get; set; } = null!;
-
-    public int? ReviewedBy { get; set; }
-
+    public string Status { get; set; } = "PENDING";
+    public ulong? ReviewedBy { get; set; }
+    public User? ReviewedByUser { get; set; }
     public DateTime? ReviewedAt { get; set; }
-
-    public DateTime CreatedAt { get; set; }
-
-    public virtual ShiftAssignment Assignment { get; set; } = null!;
-
-    public virtual Employee RequesterEmployee { get; set; } = null!;
-
-    public virtual Employee? ReviewedByNavigation { get; set; }
-
-    public virtual Employee TargetEmployee { get; set; } = null!;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
-

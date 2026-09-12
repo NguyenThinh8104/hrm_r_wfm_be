@@ -1,30 +1,21 @@
-using System;
-using System.Collections.Generic;
-
 namespace Domain.Entities;
 
-public partial class WorkSchedule
+public class WorkSchedule
 {
-    public int ScheduleId { get; set; }
+    public ulong Id { get; set; }
+    public ulong BranchId { get; set; }
+    public Branch Branch { get; set; } = null!;
+    public uint ShiftTemplateId { get; set; }
+    public ShiftTemplate ShiftTemplate { get; set; } = null!;
+    public DateOnly WorkDate { get; set; }
+    public byte RequiredCashier { get; set; } = 1;
+    public byte RequiredSales { get; set; } = 1;
+    public byte RequiredSecurity { get; set; } = 1;
+    public string Status { get; set; } = "DRAFT";
+    public ulong CreatedBy { get; set; }
+    public User CreatedByUser { get; set; } = null!;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    public int StoreId { get; set; }
-
-    public DateOnly WeekStartDate { get; set; }
-
-    public DateOnly WeekEndDate { get; set; }
-
-    public string Status { get; set; } = null!;
-
-    public DateTime? PublishedAt { get; set; }
-
-    public int? PublishedBy { get; set; }
-
-    public DateTime CreatedAt { get; set; }
-
-    public virtual Employee? PublishedByNavigation { get; set; }
-
-    public virtual ICollection<ShiftAssignment> ShiftAssignments { get; set; } = new List<ShiftAssignment>();
-
-    public virtual Store Store { get; set; } = null!;
+    public ICollection<ShiftAssignment> ShiftAssignments { get; set; } = new List<ShiftAssignment>();
+    public ShiftHandover? ShiftHandover { get; set; }
 }
-

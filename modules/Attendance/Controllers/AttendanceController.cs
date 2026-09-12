@@ -8,6 +8,9 @@ using Shared.Common.Constants;
 
 namespace Modules.Attendance.Controllers;
 
+/// <summary>
+/// API Controller quản lý điểm danh, nhật ký và báo cáo gian lận dành cho Web Quản trị.
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class AttendanceController : ControllerBase
@@ -19,49 +22,14 @@ public class AttendanceController : ControllerBase
         _attendanceService = attendanceService;
     }
 
-    [HttpPost("validate-pin")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<ValidatePinResponseDto>>> ValidatePin([FromBody] ValidatePinRequestDto request)
-    {
-        var result = await _attendanceService.ValidatePinAsync(request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    [HttpGet("kiosk-roster")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<List<KioskEmployeeRosterDto>>>> GetKioskRoster(
-        [FromQuery] int storeId,
-        [FromQuery] string? date)
-    {
-        var targetDate = string.IsNullOrEmpty(date) || !DateOnly.TryParse(date, out var parsedDate)
-            ? DateOnly.FromDateTime(DateTime.Now)
-            : parsedDate;
-
-        var result = await _attendanceService.GetKioskRosterAsync(storeId, targetDate);
-        return Ok(result);
-    }
-
-    [HttpPost("kiosk-checkin")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckIn([FromBody] KioskPinCheckInDto request)
-    {
-        var result = await _attendanceService.KioskCheckInAsync(request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    [HttpPost("kiosk-checkout")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOut([FromBody] KioskPinCheckOutDto request)
-    {
-        var result = await _attendanceService.KioskCheckOutAsync(request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
+    /// <summary>
+    /// [ShiftLeader/Manager] Trưởng ca hoặc Quản lý báo cáo hành vi gian lận / vắng mặt điểm danh.
+    /// </summary>
+    /// <param name="request">DTO chứa AttendanceId và lý do báo cáo gian lận</param>
+    /// <returns>Xác nhận tạo báo cáo ngoại lệ điểm danh</returns>
 
     [HttpPost("report-fraud")]
-    [Authorize(Roles = "ShiftLeader,StoreManager,OperationsAdmin,BusinessOwner")]
+    [Authorize(Roles = "ShiftLeader,StoreManager")]
     public async Task<ActionResult<ApiResponse<bool>>> ReportFraud([FromBody] ReportAttendanceFraudDto request)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -75,6 +43,13 @@ public class AttendanceController : ControllerBase
         return Ok(result);
     }
 
+
+    /// <summary>
+    /// [ShiftLeader/Manager] Lấy lịch sử danh sách bản ghi điểm danh trong ngày của chi nhánh cửa hàng.
+    /// </summary>
+    /// <param name="storeId">Mã ID chi nhánh cửa hàng</param>
+    /// <param name="date">Ngày tra cứu lịch sử (định dạng YYYY-MM-DD, mặc định là hôm nay)</param>
+    /// <returns>Danh sách các bản ghi điểm danh chi tiết trong ngày</returns>
     [HttpGet("history")]
     [Authorize(Roles = "ShiftLeader,StoreManager,OperationsAdmin,BusinessOwner")]
     public async Task<ActionResult<ApiResponse<List<AttendanceRecordDto>>>> GetAttendanceHistory(
@@ -89,4 +64,3 @@ public class AttendanceController : ControllerBase
         return Ok(result);
     }
 }
-

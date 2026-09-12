@@ -23,25 +23,25 @@ public class DispatchService : IDispatchService
             return ApiResponse<DispatchRecordDto>.Fail("Ngày bắt đầu điều động không thể sau ngày kết thúc.");
         }
 
-        var employee = await _context.Employees.FindAsync(request.EmployeeId);
-        if (employee == null) return ApiResponse<DispatchRecordDto>.Fail("Không tìm thấy nhân viên.");
+        var user = await _context.Users.FindAsync((ulong)request.EmployeeId);
+        if (user == null) return ApiResponse<DispatchRecordDto>.Fail("Không tìm thấy nhân viên.");
 
-        var fromStore = await _context.Stores.FindAsync(request.FromStoreId);
-        var toStore = await _context.Stores.FindAsync(request.ToStoreId);
-        if (fromStore == null || toStore == null) return ApiResponse<DispatchRecordDto>.Fail("Cửa hàng không hợp lệ.");
+        var fromBranch = await _context.Branches.FindAsync((ulong)request.FromStoreId);
+        var toBranch = await _context.Branches.FindAsync((ulong)request.ToStoreId);
+        if (fromBranch == null || toBranch == null) return ApiResponse<DispatchRecordDto>.Fail("Cửa hàng không hợp lệ.");
 
-        var requester = await _context.Employees.FindAsync(requesterEmployeeId);
+        var requester = await _context.Users.FindAsync((ulong)requesterEmployeeId);
 
         var dispatch = new TemporaryDispatch
         {
-            EmployeeId = request.EmployeeId,
-            FromStoreId = request.FromStoreId,
-            ToStoreId = request.ToStoreId,
+            UserId = (ulong)request.EmployeeId,
+            SourceBranchId = (ulong)request.FromStoreId,
+            TargetBranchId = (ulong)request.ToStoreId,
             StartDate = request.StartDate,
             EndDate = request.EndDate,
-            Reason = request.Reason,
-            RequestedBy = requesterEmployeeId,
-            Status = "Pending",
+            Note = request.Reason,
+            RequestedBy = (ulong)requesterEmployeeId,
+            Status = "PENDING",
             CreatedAt = DateTime.UtcNow
         };
 
@@ -50,17 +50,17 @@ public class DispatchService : IDispatchService
 
         return ApiResponse<DispatchRecordDto>.Ok(new DispatchRecordDto
         {
-            DispatchId = dispatch.DispatchId,
-            EmployeeId = employee.EmployeeId,
-            EmployeeName = employee.FullName,
-            EmployeeCode = employee.EmployeeCode,
-            FromStoreId = fromStore.StoreId,
-            FromStoreName = fromStore.StoreName,
-            ToStoreId = toStore.StoreId,
-            ToStoreName = toStore.StoreName,
+            DispatchId = (int)dispatch.Id,
+            EmployeeId = (int)user.Id,
+            EmployeeName = user.FullName,
+            EmployeeCode = user.EmployeeCode,
+            FromStoreId = (int)fromBranch.Id,
+            FromStoreName = fromBranch.Name,
+            ToStoreId = (int)toBranch.Id,
+            ToStoreName = toBranch.Name,
             StartDate = dispatch.StartDate,
             EndDate = dispatch.EndDate,
-            Reason = dispatch.Reason,
+            Reason = dispatch.Note,
             Status = dispatch.Status,
             RequestedByName = requester?.FullName ?? "",
             CreatedAt = dispatch.CreatedAt
@@ -70,21 +70,20 @@ public class DispatchService : IDispatchService
     public async Task<ApiResponse<bool>> ReviewDispatchRequestAsync(int approverEmployeeId, ReviewDispatchRequestDto request)
     {
         var dispatch = await _context.TemporaryDispatches
-            .Include(d => d.Employee)
-            .FirstOrDefaultAsync(d => d.DispatchId == request.DispatchId);
+            .Include(d => d.User)
+            .FirstOrDefaultAsync(d => d.Id == (ulong)request.DispatchId);
 
         if (dispatch == null) return ApiResponse<bool>.Fail("Lệnh điều động không tồn tại.");
 
-        if (dispatch.Status != "Pending") return ApiResponse<bool>.Fail("Lệnh này đã được xử lý trước đó.");
+        if (dispatch.Status != "PENDING") return ApiResponse<bool>.Fail("Lệnh này đã được xử lý trước đó.");
 
-        dispatch.Status = request.IsApproved ? "Approved" : "Rejected";
-        dispatch.ApprovedBy = approverEmployeeId;
-        dispatch.ApprovedAt = DateTime.UtcNow;
+        dispatch.Status = request.IsApproved ? "APPROVED" : "REJECTED";
+        dispatch.ApprovedBy = (ulong)approverEmployeeId;
 
         await _context.SaveChangesAsync();
 
         var msg = request.IsApproved
-            ? $"Đã phê duyệt điều động nhân sự {dispatch.Employee.FullName} sang chi nhánh đích."
+            ? $"Đã phê duyệt điều động nhân sự {dispatch.User.FullName} sang chi nhánh đích."
             : "Đã từ chối lệnh điều động.";
 
         return ApiResponse<bool>.Ok(true, msg);
@@ -93,29 +92,29 @@ public class DispatchService : IDispatchService
     public async Task<ApiResponse<List<DispatchRecordDto>>> GetDispatchesByStoreAsync(int storeId)
     {
         var dispatches = await _context.TemporaryDispatches
-            .Include(d => d.Employee)
-            .Include(d => d.FromStore)
-            .Include(d => d.ToStore)
-            .Include(d => d.RequestedByNavigation)
-            .Include(d => d.ApprovedByNavigation)
-            .Where(d => d.FromStoreId == storeId || d.ToStoreId == storeId)
+            .Include(d => d.User)
+            .Include(d => d.SourceBranch)
+            .Include(d => d.TargetBranch)
+            .Include(d => d.RequestedByUser)
+            .Include(d => d.ApprovedByUser)
+            .Where(d => d.SourceBranchId == (ulong)storeId || d.TargetBranchId == (ulong)storeId)
             .OrderByDescending(d => d.CreatedAt)
             .Select(d => new DispatchRecordDto
             {
-                DispatchId = d.DispatchId,
-                EmployeeId = d.EmployeeId,
-                EmployeeName = d.Employee.FullName,
-                EmployeeCode = d.Employee.EmployeeCode,
-                FromStoreId = d.FromStoreId,
-                FromStoreName = d.FromStore.StoreName,
-                ToStoreId = d.ToStoreId,
-                ToStoreName = d.ToStore.StoreName,
+                DispatchId = (int)d.Id,
+                EmployeeId = (int)d.UserId,
+                EmployeeName = d.User.FullName,
+                EmployeeCode = d.User.EmployeeCode,
+                FromStoreId = (int)d.SourceBranchId,
+                FromStoreName = d.SourceBranch.Name,
+                ToStoreId = (int)d.TargetBranchId,
+                ToStoreName = d.TargetBranch.Name,
                 StartDate = d.StartDate,
                 EndDate = d.EndDate,
-                Reason = d.Reason,
+                Reason = d.Note,
                 Status = d.Status,
-                RequestedByName = d.RequestedByNavigation.FullName,
-                ApprovedByName = d.ApprovedByNavigation != null ? d.ApprovedByNavigation.FullName : null,
+                RequestedByName = d.RequestedByUser.FullName,
+                ApprovedByName = d.ApprovedByUser != null ? d.ApprovedByUser.FullName : null,
                 CreatedAt = d.CreatedAt
             })
             .ToListAsync();
@@ -123,4 +122,3 @@ public class DispatchService : IDispatchService
         return ApiResponse<List<DispatchRecordDto>>.Ok(dispatches);
     }
 }
-

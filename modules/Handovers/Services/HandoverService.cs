@@ -18,125 +18,123 @@ public class HandoverService : IHandoverService
 
     public async Task<ApiResponse<ShiftHandoverSessionDto>> GetOrCreateSessionAsync(int storeId, int assignmentId, DateOnly date, int openedByEmployeeId)
     {
-        var session = await _context.ShiftHandoverSessions
-            .Include(s => s.Store)
-            .Include(s => s.Assignment)
-                .ThenInclude(a => a.Shift)
-            .Include(s => s.OpenedByNavigation)
-            .Include(s => s.ClosedByNavigation)
-            .Include(s => s.CashHandovers)
-                .ThenInclude(c => c.CashierEmployee)
-            .Include(s => s.SecurityHandovers)
-                .ThenInclude(sec => sec.SecurityEmployee)
-            .FirstOrDefaultAsync(s => s.StoreId == storeId && s.AssignmentId == assignmentId && s.ShiftDate == date);
+        var assignment = await _context.ShiftAssignments
+            .Include(a => a.Schedule)
+                .ThenInclude(ws => ws.ShiftTemplate)
+            .Include(a => a.Schedule)
+                .ThenInclude(ws => ws.Branch)
+            .FirstOrDefaultAsync(a => a.Id == (ulong)assignmentId);
 
-        if (session == null)
+        if (assignment == null)
         {
-            var store = await _context.Stores.FindAsync(storeId);
-            var assignment = await _context.ShiftAssignments
-                .Include(a => a.Shift)
-                .FirstOrDefaultAsync(a => a.AssignmentId == assignmentId);
-            var opener = await _context.Employees.FindAsync(openedByEmployeeId);
-
-            session = new ShiftHandoverSession
-            {
-                StoreId = storeId,
-                AssignmentId = assignmentId,
-                ShiftDate = date,
-                Status = "Open",
-                OpenedBy = openedByEmployeeId,
-                OpenedAt = DateTime.UtcNow
-            };
-
-            _context.ShiftHandoverSessions.Add(session);
-            await _context.SaveChangesAsync();
-
-            session.Store = store!;
-            session.Assignment = assignment!;
-            session.OpenedByNavigation = opener!;
+            return ApiResponse<ShiftHandoverSessionDto>.Fail("Phân công ca không tồn tại.");
         }
 
-        return ApiResponse<ShiftHandoverSessionDto>.Ok(MapSession(session));
+        var handover = await _context.ShiftHandovers
+            .Include(sh => sh.Schedule)
+                .ThenInclude(ws => ws.Branch)
+            .Include(sh => sh.Schedule)
+                .ThenInclude(ws => ws.ShiftTemplate)
+            .Include(sh => sh.ShiftLeader)
+            .Include(sh => sh.CashHandovers)
+                .ThenInclude(c => c.Cashier)
+            .Include(sh => sh.SecurityHandovers)
+                .ThenInclude(sec => sec.SecurityGuard)
+            .FirstOrDefaultAsync(sh => sh.ScheduleId == assignment.ScheduleId);
+
+        if (handover == null)
+        {
+            handover = new ShiftHandover
+            {
+                ScheduleId = assignment.ScheduleId,
+                ShiftLeaderId = (ulong)openedByEmployeeId,
+                HandoverStatus = "IN_PROGRESS"
+            };
+
+            _context.ShiftHandovers.Add(handover);
+            await _context.SaveChangesAsync();
+
+            return await GetOrCreateSessionAsync(storeId, assignmentId, date, openedByEmployeeId);
+        }
+
+        return ApiResponse<ShiftHandoverSessionDto>.Ok(MapSession(handover));
     }
 
     public async Task<ApiResponse<ShiftHandoverSessionDto>> SubmitCashierHandoverAsync(int cashierEmployeeId, CashierHandoverSubmitDto request)
     {
-        var session = await GetSessionWithIncludes(request.HandoverId);
-        if (session == null) return ApiResponse<ShiftHandoverSessionDto>.Fail("Phiên giao ca không tồn tại.");
+        var handover = await GetSessionWithIncludes(request.HandoverId);
+        if (handover == null) return ApiResponse<ShiftHandoverSessionDto>.Fail("Phiên giao ca không tồn tại.");
 
-        var cash = session.CashHandovers.FirstOrDefault(c => c.CashierEmployeeId == cashierEmployeeId)
-                   ?? session.CashHandovers.FirstOrDefault();
+        var cash = handover.CashHandovers.FirstOrDefault(c => c.CashierId == (ulong)cashierEmployeeId)
+                   ?? handover.CashHandovers.FirstOrDefault();
 
         if (cash == null)
         {
             cash = new CashHandover
             {
-                HandoverId = session.HandoverId,
-                CashierEmployeeId = cashierEmployeeId,
-                OpeningFloat = 1000000,
-                ActualCash = request.ActualCash,
-                DifferenceAmount = request.ActualCash - 1000000,
-                DifferenceNote = request.DifferenceNote,
+                ShiftHandoverId = handover.Id,
+                CashierId = (ulong)cashierEmployeeId,
+                OpeningCash = 1000000,
+                SystemExpectedCash = 1000000,
+                ClosingActualCash = request.ActualCash,
+                DiscrepancyReason = request.DifferenceNote,
                 CreatedAt = DateTime.UtcNow
             };
             _context.CashHandovers.Add(cash);
         }
         else
         {
-            cash.ActualCash = request.ActualCash;
-            cash.DifferenceAmount = request.ActualCash - cash.OpeningFloat;
-            cash.DifferenceNote = request.DifferenceNote;
+            cash.ClosingActualCash = request.ActualCash;
+            cash.DiscrepancyReason = request.DifferenceNote;
         }
 
         await _context.SaveChangesAsync();
-        return ApiResponse<ShiftHandoverSessionDto>.Ok(MapSession(session), "Cập nhật bàn giao két tiền thành công.");
+        return ApiResponse<ShiftHandoverSessionDto>.Ok(MapSession(handover), "Cập nhật bàn giao két tiền thành công.");
     }
 
     public async Task<ApiResponse<ShiftHandoverSessionDto>> SubmitSecurityHandoverAsync(int securityEmployeeId, SecurityHandoverSubmitDto request)
     {
-        var session = await GetSessionWithIncludes(request.HandoverId);
-        if (session == null) return ApiResponse<ShiftHandoverSessionDto>.Fail("Phiên giao ca không tồn tại.");
+        var handover = await GetSessionWithIncludes(request.HandoverId);
+        if (handover == null) return ApiResponse<ShiftHandoverSessionDto>.Fail("Phiên giao ca không tồn tại.");
 
-        var sec = session.SecurityHandovers.FirstOrDefault(s => s.SecurityEmployeeId == securityEmployeeId)
-                  ?? session.SecurityHandovers.FirstOrDefault();
+        var sec = handover.SecurityHandovers.FirstOrDefault(s => s.SecurityGuardId == (ulong)securityEmployeeId)
+                  ?? handover.SecurityHandovers.FirstOrDefault();
 
         if (sec == null)
         {
             sec = new SecurityHandover
             {
-                HandoverId = session.HandoverId,
-                SecurityEmployeeId = securityEmployeeId,
-                ParkingTickets = request.ParkingTickets,
-                ParkingCards = request.ParkingCards,
-                WarehouseLocked = request.WarehouseLocked,
-                RollerDoorLocked = request.RollerDoorLocked,
-                SecurityNote = request.SecurityNote,
+                ShiftHandoverId = handover.Id,
+                SecurityGuardId = (ulong)securityEmployeeId,
+                OvernightVehicleCount = (ushort)request.ParkingTickets,
+                IsWarehouseLocked = request.WarehouseLocked,
+                IsShutterClosed = request.RollerDoorLocked,
+                SecurityNotes = request.SecurityNote,
                 CreatedAt = DateTime.UtcNow
             };
             _context.SecurityHandovers.Add(sec);
         }
         else
         {
-            sec.ParkingTickets = request.ParkingTickets;
-            sec.ParkingCards = request.ParkingCards;
-            sec.WarehouseLocked = request.WarehouseLocked;
-            sec.RollerDoorLocked = request.RollerDoorLocked;
-            sec.SecurityNote = request.SecurityNote;
+            sec.OvernightVehicleCount = (ushort)request.ParkingTickets;
+            sec.IsWarehouseLocked = request.WarehouseLocked;
+            sec.IsShutterClosed = request.RollerDoorLocked;
+            sec.SecurityNotes = request.SecurityNote;
         }
 
         await _context.SaveChangesAsync();
-        return ApiResponse<ShiftHandoverSessionDto>.Ok(MapSession(session), "Cập nhật biên bản an ninh thành công.");
+        return ApiResponse<ShiftHandoverSessionDto>.Ok(MapSession(handover), "Cập nhật biên bản an ninh thành công.");
     }
 
     public async Task<ApiResponse<ShiftHandoverSessionDto>> LeaderSignHandoverAsync(int leaderEmployeeId, LeaderSignHandoverDto request)
     {
-        var session = await GetSessionWithIncludes(request.HandoverId);
-        if (session == null) return ApiResponse<ShiftHandoverSessionDto>.Fail("Phiên giao ca không tồn tại.");
+        var handover = await GetSessionWithIncludes(request.HandoverId);
+        if (handover == null) return ApiResponse<ShiftHandoverSessionDto>.Fail("Phiên giao ca không tồn tại.");
 
-        session.Status = request.IsApproved ? "Closed" : "PendingApproval";
-        session.ClosedBy = leaderEmployeeId;
-        session.ClosedAt = DateTime.UtcNow;
-        session.ManagerNote = request.ManagerNote;
+        handover.HandoverStatus = request.IsApproved ? "COMPLETED" : "DISCREPANCY_FLAGGED";
+        handover.ShiftLeaderId = (ulong)leaderEmployeeId;
+        handover.SignedAt = DateTime.UtcNow;
+        handover.GeneralNotes = request.ManagerNote;
 
         await _context.SaveChangesAsync();
 
@@ -144,84 +142,83 @@ public class HandoverService : IHandoverService
             ? "Trưởng ca đã ký duyệt và đóng phiên làm việc thành công."
             : "Trưởng ca ghi nhận vi phạm và gửi cảnh báo chênh lệch lên Cửa hàng trưởng.";
 
-        return ApiResponse<ShiftHandoverSessionDto>.Ok(MapSession(session), msg);
+        return ApiResponse<ShiftHandoverSessionDto>.Ok(MapSession(handover), msg);
     }
 
     public async Task<ApiResponse<List<ShiftHandoverSessionDto>>> GetSessionsByStoreAsync(int storeId, DateOnly date)
     {
-        var sessions = await _context.ShiftHandoverSessions
-            .Include(s => s.Store)
-            .Include(s => s.Assignment)
-                .ThenInclude(a => a.Shift)
-            .Include(s => s.OpenedByNavigation)
-            .Include(s => s.ClosedByNavigation)
-            .Include(s => s.CashHandovers)
-                .ThenInclude(c => c.CashierEmployee)
-            .Include(s => s.SecurityHandovers)
-                .ThenInclude(sec => sec.SecurityEmployee)
-            .Where(s => s.StoreId == storeId && s.ShiftDate == date)
-            .OrderBy(s => s.Assignment.Shift.StartTime)
+        var handovers = await _context.ShiftHandovers
+            .Include(sh => sh.Schedule)
+                .ThenInclude(ws => ws.Branch)
+            .Include(sh => sh.Schedule)
+                .ThenInclude(ws => ws.ShiftTemplate)
+            .Include(sh => sh.ShiftLeader)
+            .Include(sh => sh.CashHandovers)
+                .ThenInclude(c => c.Cashier)
+            .Include(sh => sh.SecurityHandovers)
+                .ThenInclude(sec => sec.SecurityGuard)
+            .Where(sh => sh.Schedule.BranchId == (ulong)storeId && sh.Schedule.WorkDate == date)
+            .OrderBy(sh => sh.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
 
-        return ApiResponse<List<ShiftHandoverSessionDto>>.Ok(sessions.Select(MapSession).ToList());
+        return ApiResponse<List<ShiftHandoverSessionDto>>.Ok(handovers.Select(MapSession).ToList());
     }
 
-    private async Task<ShiftHandoverSession?> GetSessionWithIncludes(int handoverId)
+    private async Task<ShiftHandover?> GetSessionWithIncludes(int handoverId)
     {
-        return await _context.ShiftHandoverSessions
-            .Include(s => s.Store)
-            .Include(s => s.Assignment)
-                .ThenInclude(a => a.Shift)
-            .Include(s => s.OpenedByNavigation)
-            .Include(s => s.ClosedByNavigation)
-            .Include(s => s.CashHandovers)
-                .ThenInclude(c => c.CashierEmployee)
-            .Include(s => s.SecurityHandovers)
-                .ThenInclude(sec => sec.SecurityEmployee)
-            .FirstOrDefaultAsync(s => s.HandoverId == handoverId);
+        return await _context.ShiftHandovers
+            .Include(sh => sh.Schedule)
+                .ThenInclude(ws => ws.Branch)
+            .Include(sh => sh.Schedule)
+                .ThenInclude(ws => ws.ShiftTemplate)
+            .Include(sh => sh.ShiftLeader)
+            .Include(sh => sh.CashHandovers)
+                .ThenInclude(c => c.Cashier)
+            .Include(sh => sh.SecurityHandovers)
+                .ThenInclude(sec => sec.SecurityGuard)
+            .FirstOrDefaultAsync(sh => sh.Id == (ulong)handoverId);
     }
 
-    private static ShiftHandoverSessionDto MapSession(ShiftHandoverSession s)
+    private static ShiftHandoverSessionDto MapSession(ShiftHandover sh)
     {
-        var cash = s.CashHandovers.OrderByDescending(c => c.CreatedAt).FirstOrDefault();
-        var sec = s.SecurityHandovers.OrderByDescending(sec => sec.CreatedAt).FirstOrDefault();
+        var cash = sh.CashHandovers.OrderByDescending(c => c.CreatedAt).FirstOrDefault();
+        var sec = sh.SecurityHandovers.OrderByDescending(sec => sec.CreatedAt).FirstOrDefault();
 
         return new ShiftHandoverSessionDto
         {
-            HandoverId = s.HandoverId,
-            AssignmentId = s.AssignmentId,
-            StoreId = s.StoreId,
-            StoreName = s.Store?.StoreName ?? "",
-            ShiftDate = s.ShiftDate,
-            ShiftName = s.Assignment?.Shift?.ShiftName ?? "",
-            Status = s.Status,
-            OpenedByName = s.OpenedByNavigation?.FullName ?? "",
-            ClosedByName = s.ClosedByNavigation?.FullName,
-            OpenedAt = s.OpenedAt,
-            ClosedAt = s.ClosedAt,
-            ManagerNote = s.ManagerNote,
+            HandoverId = (int)sh.Id,
+            AssignmentId = (int)sh.ScheduleId,
+            StoreId = (int)sh.Schedule.BranchId,
+            StoreName = sh.Schedule.Branch?.Name ?? "",
+            ShiftDate = sh.Schedule.WorkDate,
+            ShiftName = sh.Schedule.ShiftTemplate?.Name ?? "",
+            Status = sh.HandoverStatus,
+            OpenedByName = sh.ShiftLeader?.FullName ?? "",
+            ClosedByName = sh.ShiftLeader?.FullName,
+            OpenedAt = sh.SignedAt ?? DateTime.UtcNow,
+            ClosedAt = sh.SignedAt,
+            ManagerNote = sh.GeneralNotes,
             CashierHandover = cash != null ? new CashHandoverItemDto
             {
-                CashHandoverId = cash.CashHandoverId,
-                CashierEmployeeId = cash.CashierEmployeeId,
-                CashierName = cash.CashierEmployee?.FullName ?? "",
-                OpeningFloat = cash.OpeningFloat,
-                ActualCash = cash.ActualCash,
+                CashHandoverId = (int)cash.Id,
+                CashierEmployeeId = (int)cash.CashierId,
+                CashierName = cash.Cashier?.FullName ?? "",
+                OpeningFloat = cash.OpeningCash,
+                ActualCash = cash.ClosingActualCash,
                 DifferenceAmount = cash.DifferenceAmount,
-                DifferenceNote = cash.DifferenceNote
+                DifferenceNote = cash.DiscrepancyReason
             } : null,
             SecurityHandover = sec != null ? new SecurityHandoverItemDto
             {
-                SecurityHandoverId = sec.SecurityHandoverId,
-                SecurityEmployeeId = sec.SecurityEmployeeId,
-                SecurityName = sec.SecurityEmployee?.FullName ?? "",
-                ParkingTickets = sec.ParkingTickets,
-                ParkingCards = sec.ParkingCards,
-                WarehouseLocked = sec.WarehouseLocked,
-                RollerDoorLocked = sec.RollerDoorLocked,
-                SecurityNote = sec.SecurityNote
+                SecurityHandoverId = (int)sec.Id,
+                SecurityEmployeeId = (int)sec.SecurityGuardId,
+                SecurityName = sec.SecurityGuard?.FullName ?? "",
+                ParkingTickets = sec.OvernightVehicleCount,
+                ParkingCards = sec.OvernightVehicleCount,
+                WarehouseLocked = sec.IsWarehouseLocked,
+                RollerDoorLocked = sec.IsShutterClosed,
+                SecurityNote = sec.SecurityNotes
             } : null
         };
     }
 }
-

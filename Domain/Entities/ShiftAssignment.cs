@@ -1,38 +1,16 @@
-using System;
-using System.Collections.Generic;
-
 namespace Domain.Entities;
 
-public partial class ShiftAssignment
+public class ShiftAssignment
 {
-    public int AssignmentId { get; set; }
+    public ulong Id { get; set; }
+    public ulong ScheduleId { get; set; }
+    public WorkSchedule Schedule { get; set; } = null!;
+    public ulong UserId { get; set; }
+    public User User { get; set; } = null!;
+    public byte AssignedRoleId { get; set; }
+    public Role AssignedRole { get; set; } = null!;
+    public string AssignmentType { get; set; } = "ASSIGNED";
+    public string Status { get; set; } = "CONFIRMED";
 
-    public int ScheduleId { get; set; }
-
-    public int EmployeeId { get; set; }
-
-    public int ShiftId { get; set; }
-
-    public DateOnly WorkDate { get; set; }
-
-    public int StoreId { get; set; }
-
-    public string Status { get; set; } = null!;
-
-    public DateTime CreatedAt { get; set; }
-
-    public virtual ICollection<AttendanceRecord> AttendanceRecords { get; set; } = new List<AttendanceRecord>();
-
-    public virtual Employee Employee { get; set; } = null!;
-
-    public virtual WorkSchedule Schedule { get; set; } = null!;
-
-    public virtual Shift Shift { get; set; } = null!;
-
-    public virtual ICollection<ShiftHandoverSession> ShiftHandoverSessions { get; set; } = new List<ShiftHandoverSession>();
-
-    public virtual ICollection<ShiftSwapRequest> ShiftSwapRequests { get; set; } = new List<ShiftSwapRequest>();
-
-    public virtual Store Store { get; set; } = null!;
+    public AttendanceLog? AttendanceLog { get; set; }
 }
-

@@ -1,28 +1,16 @@
-using System;
-using System.Collections.Generic;
-
 namespace Domain.Entities;
 
-public partial class CashHandover
+public class CashHandover
 {
-    public int CashHandoverId { get; set; }
-
-    public int HandoverId { get; set; }
-
-    public int CashierEmployeeId { get; set; }
-
-    public decimal OpeningFloat { get; set; }
-
-    public decimal? ActualCash { get; set; }
-
-    public decimal? DifferenceAmount { get; set; }
-
-    public string? DifferenceNote { get; set; }
-
-    public DateTime CreatedAt { get; set; }
-
-    public virtual Employee CashierEmployee { get; set; } = null!;
-
-    public virtual ShiftHandoverSession Handover { get; set; } = null!;
+    public ulong Id { get; set; }
+    public ulong ShiftHandoverId { get; set; }
+    public ShiftHandover ShiftHandover { get; set; } = null!;
+    public ulong CashierId { get; set; }
+    public User Cashier { get; set; } = null!;
+    public decimal OpeningCash { get; set; }
+    public decimal SystemExpectedCash { get; set; }
+    public decimal ClosingActualCash { get; set; }
+    public decimal DifferenceAmount => ClosingActualCash - SystemExpectedCash;
+    public string? DiscrepancyReason { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
-

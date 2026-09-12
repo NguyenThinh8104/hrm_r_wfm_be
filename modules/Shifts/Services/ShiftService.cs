@@ -18,14 +18,14 @@ public class ShiftService : IShiftService
 
     public async Task<ApiResponse<List<ShiftDto>>> GetAllShiftsAsync()
     {
-        var shifts = await _context.Shifts
+        var shifts = await _context.ShiftTemplates
             .Where(s => s.IsActive)
             .OrderBy(s => s.StartTime)
             .Select(s => new ShiftDto
             {
-                ShiftId = s.ShiftId,
-                ShiftCode = s.ShiftCode,
-                ShiftName = s.ShiftName,
+                ShiftId = (int)s.Id,
+                ShiftCode = s.TemplateCode,
+                ShiftName = s.Name,
                 StartTime = s.StartTime,
                 EndTime = s.EndTime,
                 IsOvernight = s.IsOvernight
@@ -38,30 +38,32 @@ public class ShiftService : IShiftService
     public async Task<ApiResponse<List<ShiftAssignmentDto>>> GetScheduleAsync(int storeId, DateOnly startDate, DateOnly endDate)
     {
         var assignments = await _context.ShiftAssignments
-            .Include(sa => sa.Employee)
-                .ThenInclude(e => e.Position)
-            .Include(sa => sa.Shift)
-            .Include(sa => sa.Store)
-            .Where(sa => sa.StoreId == storeId && sa.WorkDate >= startDate && sa.WorkDate <= endDate)
-            .OrderBy(sa => sa.WorkDate)
-            .ThenBy(sa => sa.Shift.StartTime)
+            .Include(sa => sa.User)
+                .ThenInclude(u => u.Role)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.Branch)
+            .Where(sa => sa.Schedule.BranchId == (ulong)storeId && sa.Schedule.WorkDate >= startDate && sa.Schedule.WorkDate <= endDate)
+            .OrderBy(sa => sa.Schedule.WorkDate)
+            .ThenBy(sa => sa.Schedule.ShiftTemplate.StartTime)
             .Select(sa => new ShiftAssignmentDto
             {
-                AssignmentId = sa.AssignmentId,
-                ScheduleId = sa.ScheduleId,
-                EmployeeId = sa.EmployeeId,
-                EmployeeName = sa.Employee.FullName,
-                EmployeeCode = sa.Employee.EmployeeCode,
-                PositionName = sa.Employee.Position.PositionName,
-                ShiftId = sa.ShiftId,
-                ShiftName = sa.Shift.ShiftName,
-                StartTime = sa.Shift.StartTime,
-                EndTime = sa.Shift.EndTime,
-                WorkDate = sa.WorkDate,
-                StoreId = sa.StoreId,
-                StoreName = sa.Store.StoreName,
+                AssignmentId = (int)sa.Id,
+                ScheduleId = (int)sa.ScheduleId,
+                EmployeeId = (int)sa.UserId,
+                EmployeeName = sa.User.FullName,
+                EmployeeCode = sa.User.EmployeeCode,
+                PositionName = sa.User.Role.RoleName,
+                ShiftId = (int)sa.Schedule.ShiftTemplateId,
+                ShiftName = sa.Schedule.ShiftTemplate.Name,
+                StartTime = sa.Schedule.ShiftTemplate.StartTime,
+                EndTime = sa.Schedule.ShiftTemplate.EndTime,
+                WorkDate = sa.Schedule.WorkDate,
+                StoreId = (int)sa.Schedule.BranchId,
+                StoreName = sa.Schedule.Branch.Name,
                 Status = sa.Status,
-                IsDispatched = sa.Employee.PrimaryStoreId != sa.StoreId
+                IsDispatched = sa.User.HomeBranchId != (ulong)storeId
             })
             .ToListAsync();
 
@@ -70,66 +72,60 @@ public class ShiftService : IShiftService
 
     public async Task<ApiResponse<ShiftAssignmentDto>> AssignShiftAsync(CreateShiftAssignmentDto request)
     {
-        // 1. Chặn gán trùng: Nhân viên đã được gán ca trong ngày này tại bất kỳ cửa hàng nào chưa
         var conflict = await _context.ShiftAssignments
-            .Include(sa => sa.Shift)
-            .Include(sa => sa.Store)
-            .FirstOrDefaultAsync(sa => sa.EmployeeId == request.EmployeeId && sa.WorkDate == request.WorkDate);
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.Branch)
+            .FirstOrDefaultAsync(sa => sa.UserId == (ulong)request.EmployeeId && sa.Schedule.WorkDate == request.WorkDate);
 
         if (conflict != null)
         {
             return ApiResponse<ShiftAssignmentDto>.Fail(
-                $"Nhân viên đã được xếp ca '{conflict.Shift.ShiftName}' tại '{conflict.Store.StoreName}' ngày {request.WorkDate:dd/MM/yyyy}. Hệ thống tự động chặn gán trùng!");
+                $"Nhân viên đã được xếp ca '{conflict.Schedule.ShiftTemplate.Name}' tại '{conflict.Schedule.Branch.Name}' ngày {request.WorkDate:dd/MM/yyyy}. Hệ thống tự động chặn gán trùng!");
         }
 
-        var shift = await _context.Shifts.FindAsync(request.ShiftId);
-        if (shift == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy ca làm việc.");
+        var shiftTemplate = await _context.ShiftTemplates.FindAsync((uint)request.ShiftId);
+        if (shiftTemplate == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy khung ca làm việc.");
 
-        var employee = await _context.Employees
-            .Include(e => e.Position)
-            .FirstOrDefaultAsync(e => e.EmployeeId == request.EmployeeId);
-        if (employee == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy nhân viên.");
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == (ulong)request.EmployeeId);
+        if (user == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy nhân viên.");
 
-        var store = await _context.Stores.FindAsync(request.StoreId);
-        if (store == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy cửa hàng.");
+        var branch = await _context.Branches.FindAsync((ulong)request.StoreId);
+        if (branch == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy cửa hàng.");
 
-        // Tìm hoặc tạo WorkSchedule tuần
-        int scheduleId = request.ScheduleId ?? 0;
-        if (scheduleId == 0)
+        var schedule = await _context.WorkSchedules
+            .FirstOrDefaultAsync(ws => ws.BranchId == (ulong)request.StoreId 
+                                    && ws.ShiftTemplateId == (uint)request.ShiftId 
+                                    && ws.WorkDate == request.WorkDate);
+
+        if (schedule == null)
         {
-            var dayOfWeek = (int)request.WorkDate.DayOfWeek;
-            var diffToMonday = dayOfWeek == 0 ? -6 : 1 - dayOfWeek;
-            var weekStart = request.WorkDate.AddDays(diffToMonday);
-            var weekEnd = weekStart.AddDays(6);
-
-            var schedule = await _context.WorkSchedules
-                .FirstOrDefaultAsync(ws => ws.StoreId == request.StoreId && ws.WeekStartDate == weekStart);
-
-            if (schedule == null)
+            schedule = new WorkSchedule
             {
-                schedule = new WorkSchedule
-                {
-                    StoreId = request.StoreId,
-                    WeekStartDate = weekStart,
-                    WeekEndDate = weekEnd,
-                    Status = "Draft",
-                    CreatedAt = DateTime.UtcNow
-                };
-                _context.WorkSchedules.Add(schedule);
-                await _context.SaveChangesAsync();
-            }
-            scheduleId = schedule.ScheduleId;
+                BranchId = (ulong)request.StoreId,
+                ShiftTemplateId = (uint)request.ShiftId,
+                WorkDate = request.WorkDate,
+                RequiredCashier = 1,
+                RequiredSales = 1,
+                RequiredSecurity = 1,
+                Status = "PUBLISHED",
+                CreatedBy = user.Id,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.WorkSchedules.Add(schedule);
+            await _context.SaveChangesAsync();
         }
 
         var assignment = new ShiftAssignment
         {
-            StoreId = request.StoreId,
-            ScheduleId = scheduleId,
-            EmployeeId = request.EmployeeId,
-            ShiftId = request.ShiftId,
-            WorkDate = request.WorkDate,
-            Status = "Scheduled",
-            CreatedAt = DateTime.UtcNow
+            ScheduleId = schedule.Id,
+            UserId = (ulong)request.EmployeeId,
+            AssignedRoleId = user.RoleId,
+            AssignmentType = "ASSIGNED",
+            Status = "CONFIRMED"
         };
 
         _context.ShiftAssignments.Add(assignment);
@@ -137,76 +133,74 @@ public class ShiftService : IShiftService
 
         return ApiResponse<ShiftAssignmentDto>.Ok(new ShiftAssignmentDto
         {
-            AssignmentId = assignment.AssignmentId,
-            ScheduleId = assignment.ScheduleId,
-            EmployeeId = employee.EmployeeId,
-            EmployeeName = employee.FullName,
-            EmployeeCode = employee.EmployeeCode,
-            PositionName = employee.Position.PositionName,
-            ShiftId = shift.ShiftId,
-            ShiftName = shift.ShiftName,
-            StartTime = shift.StartTime,
-            EndTime = shift.EndTime,
-            WorkDate = assignment.WorkDate,
-            StoreId = store.StoreId,
-            StoreName = store.StoreName,
+            AssignmentId = (int)assignment.Id,
+            ScheduleId = (int)schedule.Id,
+            EmployeeId = (int)user.Id,
+            EmployeeName = user.FullName,
+            EmployeeCode = user.EmployeeCode,
+            PositionName = user.Role.RoleName,
+            ShiftId = (int)shiftTemplate.Id,
+            ShiftName = shiftTemplate.Name,
+            StartTime = shiftTemplate.StartTime,
+            EndTime = shiftTemplate.EndTime,
+            WorkDate = request.WorkDate,
+            StoreId = (int)branch.Id,
+            StoreName = branch.Name,
             Status = assignment.Status,
-            IsDispatched = employee.PrimaryStoreId != store.StoreId
+            IsDispatched = user.HomeBranchId != (ulong)request.StoreId
         }, "Gán ca làm việc thành công.");
     }
 
     public async Task<ApiResponse<bool>> PublishScheduleAsync(int storeId, DateOnly weekStartDate, int publishedByEmployeeId)
     {
-        var schedule = await _context.WorkSchedules
+        var weekEnd = weekStartDate.AddDays(6);
+        var schedules = await _context.WorkSchedules
             .Include(ws => ws.ShiftAssignments)
-            .FirstOrDefaultAsync(ws => ws.StoreId == storeId && ws.WeekStartDate == weekStartDate);
+            .Where(ws => ws.BranchId == (ulong)storeId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEnd)
+            .ToListAsync();
 
-        if (schedule == null)
+        foreach (var schedule in schedules)
         {
-            return ApiResponse<bool>.Fail("Không tìm thấy lịch làm việc của tuần đã chọn.");
-        }
-
-        schedule.Status = "Published";
-        schedule.PublishedAt = DateTime.UtcNow;
-        schedule.PublishedBy = publishedByEmployeeId;
-
-        foreach (var assignment in schedule.ShiftAssignments)
-        {
-            assignment.Status = "Scheduled";
+            schedule.Status = "PUBLISHED";
+            foreach (var assignment in schedule.ShiftAssignments)
+            {
+                assignment.Status = "CONFIRMED";
+            }
         }
 
         await _context.SaveChangesAsync();
-
         return ApiResponse<bool>.Ok(true, $"Đã công bố lịch làm việc tuần {weekStartDate:dd/MM/yyyy} thành công!");
     }
 
     public async Task<ApiResponse<List<ShiftAssignmentDto>>> GetEmployeeShiftsAsync(int employeeId, DateOnly startDate, DateOnly endDate)
     {
         var assignments = await _context.ShiftAssignments
-            .Include(sa => sa.Shift)
-            .Include(sa => sa.Store)
-            .Include(sa => sa.Employee)
-                .ThenInclude(e => e.Position)
-            .Where(sa => sa.EmployeeId == employeeId && sa.WorkDate >= startDate && sa.WorkDate <= endDate)
-            .OrderBy(sa => sa.WorkDate)
-            .ThenBy(sa => sa.Shift.StartTime)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.Branch)
+            .Include(sa => sa.User)
+                .ThenInclude(u => u.Role)
+            .Where(sa => sa.UserId == (ulong)employeeId && sa.Schedule.WorkDate >= startDate && sa.Schedule.WorkDate <= endDate)
+            .OrderBy(sa => sa.Schedule.WorkDate)
+            .ThenBy(sa => sa.Schedule.ShiftTemplate.StartTime)
             .Select(sa => new ShiftAssignmentDto
             {
-                AssignmentId = sa.AssignmentId,
-                ScheduleId = sa.ScheduleId,
-                EmployeeId = sa.EmployeeId,
-                EmployeeName = sa.Employee.FullName,
-                EmployeeCode = sa.Employee.EmployeeCode,
-                PositionName = sa.Employee.Position.PositionName,
-                ShiftId = sa.ShiftId,
-                ShiftName = sa.Shift.ShiftName,
-                StartTime = sa.Shift.StartTime,
-                EndTime = sa.Shift.EndTime,
-                WorkDate = sa.WorkDate,
-                StoreId = sa.StoreId,
-                StoreName = sa.Store.StoreName,
+                AssignmentId = (int)sa.Id,
+                ScheduleId = (int)sa.ScheduleId,
+                EmployeeId = (int)sa.UserId,
+                EmployeeName = sa.User.FullName,
+                EmployeeCode = sa.User.EmployeeCode,
+                PositionName = sa.User.Role.RoleName,
+                ShiftId = (int)sa.Schedule.ShiftTemplateId,
+                ShiftName = sa.Schedule.ShiftTemplate.Name,
+                StartTime = sa.Schedule.ShiftTemplate.StartTime,
+                EndTime = sa.Schedule.ShiftTemplate.EndTime,
+                WorkDate = sa.Schedule.WorkDate,
+                StoreId = (int)sa.Schedule.BranchId,
+                StoreName = sa.Schedule.Branch.Name,
                 Status = sa.Status,
-                IsDispatched = sa.Employee.PrimaryStoreId != sa.StoreId
+                IsDispatched = sa.User.HomeBranchId != sa.Schedule.BranchId
             })
             .ToListAsync();
 
@@ -215,28 +209,35 @@ public class ShiftService : IShiftService
 
     public async Task<ApiResponse<ShiftSwapRequestDto>> RequestShiftSwapAsync(int requesterEmployeeId, CreateSwapRequestDto request)
     {
-        var assignment = await _context.ShiftAssignments
-            .Include(sa => sa.Employee)
-            .FirstOrDefaultAsync(sa => sa.AssignmentId == request.AssignmentId && sa.EmployeeId == requesterEmployeeId);
+        var requestingAssignment = await _context.ShiftAssignments
+            .Include(sa => sa.User)
+            .FirstOrDefaultAsync(sa => sa.Id == (ulong)request.AssignmentId && sa.UserId == (ulong)requesterEmployeeId);
 
-        if (assignment == null)
+        if (requestingAssignment == null)
         {
             return ApiResponse<ShiftSwapRequestDto>.Fail("Không tìm thấy ca trực của bạn để yêu cầu đổi.");
         }
 
-        var target = await _context.Employees.FindAsync(request.TargetEmployeeId);
-        if (target == null)
+        var targetUser = await _context.Users.FindAsync((ulong)request.TargetEmployeeId);
+        if (targetUser == null)
         {
             return ApiResponse<ShiftSwapRequestDto>.Fail("Không tìm thấy nhân viên được yêu cầu đổi ca.");
         }
 
+        var targetAssignment = await _context.ShiftAssignments
+            .FirstOrDefaultAsync(sa => sa.UserId == (ulong)request.TargetEmployeeId && sa.ScheduleId == requestingAssignment.ScheduleId);
+
+        if (targetAssignment == null)
+        {
+            targetAssignment = requestingAssignment;
+        }
+
         var swap = new ShiftSwapRequest
         {
-            AssignmentId = request.AssignmentId,
-            RequesterEmployeeId = requesterEmployeeId,
-            TargetEmployeeId = request.TargetEmployeeId,
+            RequestingAssignmentId = requestingAssignment.Id,
+            TargetAssignmentId = targetAssignment.Id,
             Reason = request.Reason,
-            Status = "Pending",
+            Status = "PENDING",
             CreatedAt = DateTime.UtcNow
         };
 
@@ -245,12 +246,12 @@ public class ShiftService : IShiftService
 
         return ApiResponse<ShiftSwapRequestDto>.Ok(new ShiftSwapRequestDto
         {
-            SwapRequestId = swap.SwapRequestId,
-            AssignmentId = swap.AssignmentId,
+            SwapRequestId = (int)swap.Id,
+            AssignmentId = (int)swap.RequestingAssignmentId,
             RequesterEmployeeId = requesterEmployeeId,
-            RequesterName = assignment.Employee.FullName,
-            TargetEmployeeId = target.EmployeeId,
-            TargetName = target.FullName,
+            RequesterName = requestingAssignment.User.FullName,
+            TargetEmployeeId = (int)targetUser.Id,
+            TargetName = targetUser.FullName,
             Reason = swap.Reason,
             Status = swap.Status,
             CreatedAt = swap.CreatedAt
@@ -260,26 +261,29 @@ public class ShiftService : IShiftService
     public async Task<ApiResponse<bool>> ReviewShiftSwapAsync(int managerEmployeeId, ReviewSwapRequestDto request)
     {
         var swap = await _context.ShiftSwapRequests
-            .Include(s => s.Assignment)
-            .FirstOrDefaultAsync(s => s.SwapRequestId == request.SwapRequestId);
+            .Include(s => s.RequestingAssignment)
+            .Include(s => s.TargetAssignment)
+            .FirstOrDefaultAsync(s => s.Id == (ulong)request.SwapRequestId);
 
         if (swap == null)
         {
             return ApiResponse<bool>.Fail("Yêu cầu đổi ca không tồn tại.");
         }
 
-        if (swap.Status != "Pending")
+        if (swap.Status != "PENDING")
         {
             return ApiResponse<bool>.Fail("Yêu cầu này đã được xử lý trước đó.");
         }
 
-        swap.Status = request.IsApproved ? "Approved" : "Rejected";
-        swap.ReviewedBy = managerEmployeeId;
+        swap.Status = request.IsApproved ? "APPROVED" : "REJECTED";
+        swap.ReviewedBy = (ulong)managerEmployeeId;
         swap.ReviewedAt = DateTime.UtcNow;
 
-        if (request.IsApproved && swap.Assignment != null)
+        if (request.IsApproved && swap.RequestingAssignment != null && swap.TargetAssignment != null)
         {
-            swap.Assignment.EmployeeId = swap.TargetEmployeeId;
+            var tempUser = swap.RequestingAssignment.UserId;
+            swap.RequestingAssignment.UserId = swap.TargetAssignment.UserId;
+            swap.TargetAssignment.UserId = tempUser;
         }
 
         await _context.SaveChangesAsync();
@@ -291,19 +295,22 @@ public class ShiftService : IShiftService
     public async Task<ApiResponse<List<ShiftSwapRequestDto>>> GetSwapRequestsByStoreAsync(int storeId)
     {
         var requests = await _context.ShiftSwapRequests
-            .Include(s => s.Assignment)
-            .Include(s => s.RequesterEmployee)
-            .Include(s => s.TargetEmployee)
-            .Where(s => s.Assignment.StoreId == storeId)
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.User)
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.Schedule)
+            .Include(s => s.TargetAssignment)
+                .ThenInclude(sa => sa.User)
+            .Where(s => s.RequestingAssignment.Schedule.BranchId == (ulong)storeId)
             .OrderByDescending(s => s.CreatedAt)
             .Select(s => new ShiftSwapRequestDto
             {
-                SwapRequestId = s.SwapRequestId,
-                AssignmentId = s.AssignmentId,
-                RequesterEmployeeId = s.RequesterEmployeeId,
-                RequesterName = s.RequesterEmployee.FullName,
-                TargetEmployeeId = s.TargetEmployeeId,
-                TargetName = s.TargetEmployee.FullName,
+                SwapRequestId = (int)s.Id,
+                AssignmentId = (int)s.RequestingAssignmentId,
+                RequesterEmployeeId = (int)s.RequestingAssignment.UserId,
+                RequesterName = s.RequestingAssignment.User.FullName,
+                TargetEmployeeId = (int)s.TargetAssignment.UserId,
+                TargetName = s.TargetAssignment.User.FullName,
                 Reason = s.Reason,
                 Status = s.Status,
                 CreatedAt = s.CreatedAt
@@ -313,4 +320,3 @@ public class ShiftService : IShiftService
         return ApiResponse<List<ShiftSwapRequestDto>>.Ok(requests);
     }
 }
-

@@ -1,30 +1,15 @@
-using System;
-using System.Collections.Generic;
-
 namespace Domain.Entities;
 
-public partial class SecurityHandover
+public class SecurityHandover
 {
-    public int SecurityHandoverId { get; set; }
-
-    public int HandoverId { get; set; }
-
-    public int SecurityEmployeeId { get; set; }
-
-    public int ParkingTickets { get; set; }
-
-    public int ParkingCards { get; set; }
-
-    public bool WarehouseLocked { get; set; }
-
-    public bool RollerDoorLocked { get; set; }
-
-    public string? SecurityNote { get; set; }
-
-    public DateTime CreatedAt { get; set; }
-
-    public virtual ShiftHandoverSession Handover { get; set; } = null!;
-
-    public virtual Employee SecurityEmployee { get; set; } = null!;
+    public ulong Id { get; set; }
+    public ulong ShiftHandoverId { get; set; }
+    public ShiftHandover ShiftHandover { get; set; } = null!;
+    public ulong SecurityGuardId { get; set; }
+    public User SecurityGuard { get; set; } = null!;
+    public ushort OvernightVehicleCount { get; set; } = 0;
+    public bool IsWarehouseLocked { get; set; } = true;
+    public bool IsShutterClosed { get; set; } = true;
+    public string? SecurityNotes { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
-

@@ -9,6 +9,9 @@ using Shared.Security;
 
 namespace Modules.Attendance.Services;
 
+/// <summary>
+/// Dịch vụ xử lý logic chấm công Kiosk, xác thực PIN và ghi nhận ngoại lệ gian lận.
+/// </summary>
 public class AttendanceService : IAttendanceService
 {
     private readonly AppDbContext _context;
@@ -18,6 +21,9 @@ public class AttendanceService : IAttendanceService
         _context = context;
     }
 
+    /// <summary>
+    /// Bước 1 quy trình Kiosk: Xác thực mã PIN nhân viên và trả về thông tin ca làm việc hôm nay.
+    /// </summary>
     public async Task<ApiResponse<ValidatePinResponseDto>> ValidatePinAsync(ValidatePinRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.EmployeeCode) || string.IsNullOrWhiteSpace(request.PinCode))
@@ -25,21 +31,21 @@ public class AttendanceService : IAttendanceService
             return ApiResponse<ValidatePinResponseDto>.Fail(AttendanceMessages.InvalidPin);
         }
 
-        var employee = await _context.Employees
-            .Include(e => e.Position)
-            .FirstOrDefaultAsync(e => e.EmployeeCode.ToLower() == request.EmployeeCode.Trim().ToLower());
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.EmployeeCode.ToLower() == request.EmployeeCode.Trim().ToLower());
 
-        if (employee == null)
+        if (user == null)
         {
             return ApiResponse<ValidatePinResponseDto>.Fail(AttendanceMessages.EmployeeNotFound);
         }
 
-        if (!employee.IsActive)
+        if (user.Status != "ACTIVE")
         {
             return ApiResponse<ValidatePinResponseDto>.Fail(AttendanceMessages.EmployeeInactive);
         }
 
-        if (string.IsNullOrEmpty(employee.PinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), employee.PinHash))
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
         {
             return ApiResponse<ValidatePinResponseDto>.Fail(AttendanceMessages.InvalidPin);
         }
@@ -47,73 +53,81 @@ public class AttendanceService : IAttendanceService
         var today = DateOnly.FromDateTime(DateTime.Now);
 
         var assignment = await _context.ShiftAssignments
-            .Include(sa => sa.Shift)
-            .Include(sa => sa.AttendanceRecords)
-            .FirstOrDefaultAsync(sa => sa.EmployeeId == employee.EmployeeId && sa.StoreId == request.StoreId && sa.WorkDate == today);
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.AttendanceLog)
+            .FirstOrDefaultAsync(sa => sa.UserId == user.Id && sa.Schedule.BranchId == (ulong)request.StoreId && sa.Schedule.WorkDate == today);
 
-        var latestRecord = assignment?.AttendanceRecords.OrderByDescending(a => a.CreatedAt).FirstOrDefault();
+        var log = assignment?.AttendanceLog;
 
         return ApiResponse<ValidatePinResponseDto>.Ok(new ValidatePinResponseDto
         {
-            EmployeeId = employee.EmployeeId,
-            EmployeeCode = employee.EmployeeCode,
-            FullName = employee.FullName,
-            PositionName = employee.Position?.PositionName ?? string.Empty,
-            PositionCode = employee.Position?.PositionCode ?? string.Empty,
-            PrimaryStoreId = employee.PrimaryStoreId,
+            EmployeeId = (int)user.Id,
+            EmployeeCode = user.EmployeeCode,
+            FullName = user.FullName,
+            PositionName = user.Role?.RoleName ?? string.Empty,
+            PositionCode = user.Role?.RoleCode ?? string.Empty,
+            PrimaryStoreId = user.HomeBranchId.HasValue ? (int)user.HomeBranchId.Value : 0,
             IsValid = true,
             HasShiftToday = assignment != null,
-            AssignmentId = assignment?.AssignmentId,
-            ShiftName = assignment?.Shift?.ShiftName,
-            HasCheckedIn = latestRecord?.CheckInTime != null,
-            HasCheckedOut = latestRecord?.CheckOutTime != null
+            AssignmentId = assignment != null ? (int)assignment.Id : null,
+            ShiftName = assignment?.Schedule?.ShiftTemplate?.Name,
+            HasCheckedIn = log?.CheckInTime != null,
+            HasCheckedOut = log?.CheckOutTime != null
         }, AttendanceMessages.PinValidationSuccess);
     }
 
+    /// <summary>
+    /// Lấy danh sách phân công lịch làm việc hôm nay tại trạm Kiosk cửa hàng.
+    /// </summary>
     public async Task<ApiResponse<List<KioskEmployeeRosterDto>>> GetKioskRosterAsync(int storeId, DateOnly date)
     {
         var assignments = await _context.ShiftAssignments
-            .Include(sa => sa.Employee)
-                .ThenInclude(e => e.Position)
-            .Include(sa => sa.Shift)
-            .Include(sa => sa.AttendanceRecords)
-            .Where(sa => sa.StoreId == storeId && sa.WorkDate == date)
-            .OrderBy(sa => sa.Shift.StartTime)
+            .Include(sa => sa.User)
+                .ThenInclude(u => u.Role)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.AttendanceLog)
+            .Where(sa => sa.Schedule.BranchId == (ulong)storeId && sa.Schedule.WorkDate == date)
+            .OrderBy(sa => sa.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
 
         var result = assignments.Select(sa =>
         {
-            var att = sa.AttendanceRecords.OrderByDescending(a => a.CreatedAt).FirstOrDefault();
+            var att = sa.AttendanceLog;
             return new KioskEmployeeRosterDto
             {
-                EmployeeId = sa.EmployeeId,
-                EmployeeCode = sa.Employee.EmployeeCode,
-                FullName = sa.Employee.FullName,
-                PositionName = sa.Employee.Position.PositionName,
-                AssignmentId = sa.AssignmentId,
-                ShiftName = sa.Shift.ShiftName,
-                StartTime = sa.Shift.StartTime,
-                EndTime = sa.Shift.EndTime,
+                EmployeeId = (int)sa.UserId,
+                EmployeeCode = sa.User.EmployeeCode,
+                FullName = sa.User.FullName,
+                PositionName = sa.User.Role.RoleName,
+                AssignmentId = (int)sa.Id,
+                ShiftName = sa.Schedule.ShiftTemplate.Name,
+                StartTime = sa.Schedule.ShiftTemplate.StartTime,
+                EndTime = sa.Schedule.ShiftTemplate.EndTime,
                 HasCheckedIn = att?.CheckInTime != null,
                 HasCheckedOut = att?.CheckOutTime != null,
                 CheckInTime = att?.CheckInTime,
                 CheckOutTime = att?.CheckOutTime,
-                IsDispatched = sa.Employee.PrimaryStoreId != sa.StoreId
+                IsDispatched = sa.User.HomeBranchId != (ulong)storeId
             };
         }).ToList();
 
         return ApiResponse<List<KioskEmployeeRosterDto>>.Ok(result);
     }
 
+    /// <summary>
+    /// Bước 2 quy trình Kiosk: Thực hiện điểm danh đầu ca (Check-in) bằng mã PIN nhân viên.
+    /// </summary>
     public async Task<ApiResponse<AttendanceRecordDto>> KioskCheckInAsync(KioskPinCheckInDto request)
     {
-        var employee = await _context.Employees
-            .Include(e => e.Position)
-            .FirstOrDefaultAsync(e => e.EmployeeId == request.EmployeeId && e.IsActive);
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == (ulong)request.EmployeeId && u.Status == "ACTIVE");
 
-        if (employee == null) return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.EmployeeNotFound);
+        if (user == null) return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.EmployeeNotFound);
 
-        if (string.IsNullOrEmpty(employee.PinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), employee.PinHash))
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
         {
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.InvalidPin);
         }
@@ -121,18 +135,19 @@ public class AttendanceService : IAttendanceService
         var today = DateOnly.FromDateTime(DateTime.Now);
 
         var assignment = await _context.ShiftAssignments
-            .Include(sa => sa.Shift)
-            .Include(sa => sa.Store)
-            .Include(sa => sa.AttendanceRecords)
-            .FirstOrDefaultAsync(sa => sa.EmployeeId == request.EmployeeId && sa.StoreId == request.StoreId && sa.WorkDate == today);
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.Branch)
+            .Include(sa => sa.AttendanceLog)
+            .FirstOrDefaultAsync(sa => sa.UserId == (ulong)request.EmployeeId && sa.Schedule.BranchId == (ulong)request.StoreId && sa.Schedule.WorkDate == today);
 
         if (assignment == null)
         {
-            return ApiResponse<AttendanceRecordDto>.Fail(string.Format(AttendanceMessages.NoShiftToday, employee.FullName, today.ToString("dd/MM/yyyy")));
+            return ApiResponse<AttendanceRecordDto>.Fail(string.Format(AttendanceMessages.NoShiftToday, user.FullName, today.ToString("dd/MM/yyyy")));
         }
 
-        var existingAtt = assignment.AttendanceRecords.FirstOrDefault(a => a.CheckInTime != null);
-        if (existingAtt != null)
+        if (assignment.AttendanceLog != null && assignment.AttendanceLog.CheckInTime != default)
         {
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.AlreadyCheckedIn);
         }
@@ -140,83 +155,52 @@ public class AttendanceService : IAttendanceService
         var now = DateTime.UtcNow;
         var status = "Present";
 
-        var shiftStartDt = today.ToDateTime(assignment.Shift.StartTime);
+        var shiftStartDt = today.ToDateTime(assignment.Schedule.ShiftTemplate.StartTime);
         if (DateTime.Now > shiftStartDt.AddMinutes(15))
         {
             status = "Late";
         }
 
-        var record = new AttendanceRecord
+        var log = new AttendanceLog
         {
-            AssignmentId = assignment.AssignmentId,
-            EmployeeId = employee.EmployeeId,
-            StoreId = request.StoreId,
-            KioskId = request.KioskId,
+            AssignmentId = assignment.Id,
+            BranchId = (ulong)request.StoreId,
+            KioskId = request.KioskId.HasValue ? (ulong)request.KioskId.Value : null,
             CheckInTime = now,
-            CheckInMethod = "Kiosk",
-            Status = status,
+            OpeningFloatCash = request.OpeningFloatCash,
             CreatedAt = now
         };
 
-        _context.AttendanceRecords.Add(record);
-        assignment.Status = "Scheduled";
-
-        if (employee.Position.PositionCode == "CASHIER" && request.OpeningFloatCash.HasValue)
-        {
-            var session = await _context.ShiftHandoverSessions
-                .FirstOrDefaultAsync(s => s.StoreId == request.StoreId && s.AssignmentId == assignment.AssignmentId && s.ShiftDate == today);
-
-            if (session == null)
-            {
-                session = new ShiftHandoverSession
-                {
-                    AssignmentId = assignment.AssignmentId,
-                    StoreId = request.StoreId,
-                    ShiftDate = today,
-                    Status = "Open",
-                    OpenedBy = employee.EmployeeId,
-                    OpenedAt = now
-                };
-                _context.ShiftHandoverSessions.Add(session);
-                await _context.SaveChangesAsync();
-
-                var cashHandover = new CashHandover
-                {
-                    HandoverId = session.HandoverId,
-                    CashierEmployeeId = employee.EmployeeId,
-                    OpeningFloat = request.OpeningFloatCash.Value,
-                    CreatedAt = now
-                };
-                _context.CashHandovers.Add(cashHandover);
-            }
-        }
-
+        _context.AttendanceLogs.Add(log);
         await _context.SaveChangesAsync();
 
-        var successMessage = string.Format(AttendanceMessages.CheckInSuccess, record.CheckInTime?.ToLocalTime().ToString("HH:mm:ss"));
+        var successMessage = string.Format(AttendanceMessages.CheckInSuccess, log.CheckInTime.ToLocalTime().ToString("HH:mm:ss"));
 
         return ApiResponse<AttendanceRecordDto>.Ok(new AttendanceRecordDto
         {
-            AttendanceId = record.AttendanceId,
-            AssignmentId = assignment.AssignmentId,
-            EmployeeId = employee.EmployeeId,
-            EmployeeName = employee.FullName,
-            EmployeeCode = employee.EmployeeCode,
+            AttendanceId = (int)log.Id,
+            AssignmentId = (int)assignment.Id,
+            EmployeeId = (int)user.Id,
+            EmployeeName = user.FullName,
+            EmployeeCode = user.EmployeeCode,
             StoreId = request.StoreId,
-            KioskId = record.KioskId,
-            StoreName = assignment.Store.StoreName,
-            CheckInTime = record.CheckInTime,
-            CheckInMethod = record.CheckInMethod,
-            Status = record.Status
+            KioskId = request.KioskId,
+            StoreName = assignment.Schedule.Branch.Name,
+            CheckInTime = log.CheckInTime,
+            CheckInMethod = "Kiosk",
+            Status = status
         }, successMessage);
     }
 
+    /// <summary>
+    /// Bước 2 quy trình Kiosk: Thực hiện điểm danh kết thúc ca (Check-out) bằng mã PIN nhân viên.
+    /// </summary>
     public async Task<ApiResponse<AttendanceRecordDto>> KioskCheckOutAsync(KioskPinCheckOutDto request)
     {
-        var employee = await _context.Employees.FindAsync(request.EmployeeId);
-        if (employee == null) return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.EmployeeNotFound);
+        var user = await _context.Users.FindAsync((ulong)request.EmployeeId);
+        if (user == null) return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.EmployeeNotFound);
 
-        if (string.IsNullOrEmpty(employee.PinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), employee.PinHash))
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
         {
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.InvalidPin);
         }
@@ -224,72 +208,65 @@ public class AttendanceService : IAttendanceService
         var today = DateOnly.FromDateTime(DateTime.Now);
 
         var assignment = await _context.ShiftAssignments
-            .Include(sa => sa.Shift)
-            .Include(sa => sa.Store)
-            .Include(sa => sa.AttendanceRecords)
-            .FirstOrDefaultAsync(sa => sa.EmployeeId == request.EmployeeId && sa.StoreId == request.StoreId && sa.WorkDate == today);
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.Branch)
+            .Include(sa => sa.AttendanceLog)
+            .FirstOrDefaultAsync(sa => sa.UserId == (ulong)request.EmployeeId && sa.Schedule.BranchId == (ulong)request.StoreId && sa.Schedule.WorkDate == today);
 
         if (assignment == null) return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.ShiftNotFound);
 
-        var record = assignment.AttendanceRecords.FirstOrDefault(a => a.CheckInTime != null && a.CheckOutTime == null);
-        if (record == null)
+        var log = assignment.AttendanceLog;
+        if (log == null || log.CheckInTime == default)
         {
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.NotCheckedIn);
         }
 
-        record.CheckOutTime = DateTime.UtcNow;
-        record.CheckOutMethod = "Kiosk";
-        if (request.KioskId.HasValue) record.KioskId = request.KioskId.Value;
-        record.Status = "Completed";
-        assignment.Status = "Completed";
+        log.CheckOutTime = DateTime.UtcNow;
+        if (request.KioskId.HasValue) log.KioskId = (ulong)request.KioskId.Value;
+        assignment.Status = "COMPLETED";
 
         await _context.SaveChangesAsync();
 
-        var successMessage = string.Format(AttendanceMessages.CheckOutSuccess, record.CheckOutTime?.ToLocalTime().ToString("HH:mm:ss"));
+        var successMessage = string.Format(AttendanceMessages.CheckOutSuccess, log.CheckOutTime?.ToLocalTime().ToString("HH:mm:ss"));
 
         return ApiResponse<AttendanceRecordDto>.Ok(new AttendanceRecordDto
         {
-            AttendanceId = record.AttendanceId,
-            AssignmentId = assignment.AssignmentId,
-            EmployeeId = employee.EmployeeId,
-            EmployeeName = employee.FullName,
-            EmployeeCode = employee.EmployeeCode,
+            AttendanceId = (int)log.Id,
+            AssignmentId = (int)assignment.Id,
+            EmployeeId = (int)user.Id,
+            EmployeeName = user.FullName,
+            EmployeeCode = user.EmployeeCode,
             StoreId = request.StoreId,
-            KioskId = record.KioskId,
-            StoreName = assignment.Store.StoreName,
-            CheckInTime = record.CheckInTime,
-            CheckOutTime = record.CheckOutTime,
-            CheckInMethod = record.CheckInMethod,
-            CheckOutMethod = record.CheckOutMethod,
-            Status = record.Status
+            KioskId = request.KioskId,
+            StoreName = assignment.Schedule.Branch.Name,
+            CheckInTime = log.CheckInTime,
+            CheckOutTime = log.CheckOutTime,
+            CheckInMethod = "Kiosk",
+            CheckOutMethod = "Kiosk",
+            Status = "Completed"
         }, successMessage);
     }
 
+    /// <summary>
+    /// Trưởng ca / Quản lý báo cáo gian lận điểm danh hoặc vắng mặt của nhân viên.
+    /// </summary>
     public async Task<ApiResponse<bool>> ReportFraudAsync(int leaderEmployeeId, ReportAttendanceFraudDto request)
     {
-        var record = await _context.AttendanceRecords
-            .Include(ar => ar.Assignment)
-            .FirstOrDefaultAsync(ar => ar.AttendanceId == request.AttendanceId);
+        var log = await _context.AttendanceLogs
+            .Include(al => al.Assignment)
+            .FirstOrDefaultAsync(al => al.Id == (ulong)request.AttendanceId);
 
-        if (record == null) return ApiResponse<bool>.Fail(AttendanceMessages.AttendanceRecordNotFound);
+        if (log == null) return ApiResponse<bool>.Fail(AttendanceMessages.AttendanceRecordNotFound);
 
-        record.Status = "Fraud";
+        log.IsFraudFlagged = true;
+        log.FraudFlaggedBy = (ulong)leaderEmployeeId;
+        log.FraudReason = request.Reason;
 
-        var exception = new AttendanceException
+        if (log.Assignment != null)
         {
-            AttendanceId = record.AttendanceId,
-            ReportedBy = leaderEmployeeId,
-            ExceptionType = "Fraud",
-            Description = request.Reason,
-            Status = "Pending",
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.AttendanceExceptions.Add(exception);
-
-        if (record.Assignment != null)
-        {
-            record.Assignment.Status = "Cancelled";
+            log.Assignment.Status = "CANCELLED";
         }
 
         await _context.SaveChangesAsync();
@@ -297,37 +274,39 @@ public class AttendanceService : IAttendanceService
         return ApiResponse<bool>.Ok(true, AttendanceMessages.FraudReportSuccess);
     }
 
+    /// <summary>
+    /// Lấy lịch sử danh sách các bản ghi điểm danh trong ngày của chi nhánh cửa hàng.
+    /// </summary>
     public async Task<ApiResponse<List<AttendanceRecordDto>>> GetAttendanceHistoryAsync(int storeId, DateOnly date)
     {
-        var records = await _context.AttendanceRecords
-            .Include(ar => ar.Employee)
-            .Include(ar => ar.Store)
-            .Include(ar => ar.AttendanceExceptions)
-                .ThenInclude(ae => ae.ReportedByNavigation)
-            .Where(ar => ar.StoreId == storeId && DateOnly.FromDateTime(ar.CreatedAt.ToLocalTime()) == date)
-            .OrderByDescending(ar => ar.CreatedAt)
-            .Select(ar => new AttendanceRecordDto
+        var records = await _context.AttendanceLogs
+            .Include(al => al.Assignment)
+                .ThenInclude(sa => sa.User)
+            .Include(al => al.Branch)
+            .Include(al => al.FraudFlaggedByUser)
+            .Where(al => al.BranchId == (ulong)storeId && DateOnly.FromDateTime(al.CreatedAt.ToLocalTime()) == date)
+            .OrderByDescending(al => al.CreatedAt)
+            .Select(al => new AttendanceRecordDto
             {
-                AttendanceId = ar.AttendanceId,
-                AssignmentId = ar.AssignmentId,
-                EmployeeId = ar.EmployeeId,
-                EmployeeName = ar.Employee.FullName,
-                EmployeeCode = ar.Employee.EmployeeCode,
-                StoreId = ar.StoreId,
-                KioskId = ar.KioskId,
-                StoreName = ar.Store.StoreName,
-                CheckInTime = ar.CheckInTime,
-                CheckOutTime = ar.CheckOutTime,
-                CheckInMethod = ar.CheckInMethod,
-                CheckOutMethod = ar.CheckOutMethod,
-                Status = ar.Status,
-                HasException = ar.AttendanceExceptions.Any(),
-                ExceptionReason = ar.AttendanceExceptions.Select(ae => ae.Description).FirstOrDefault(),
-                ReportedByName = ar.AttendanceExceptions.Select(ae => ae.ReportedByNavigation.FullName).FirstOrDefault()
+                AttendanceId = (int)al.Id,
+                AssignmentId = (int)al.AssignmentId,
+                EmployeeId = (int)al.Assignment.UserId,
+                EmployeeName = al.Assignment.User.FullName,
+                EmployeeCode = al.Assignment.User.EmployeeCode,
+                StoreId = (int)al.BranchId,
+                KioskId = al.KioskId.HasValue ? (int)al.KioskId.Value : null,
+                StoreName = al.Branch.Name,
+                CheckInTime = al.CheckInTime,
+                CheckOutTime = al.CheckOutTime,
+                CheckInMethod = "Kiosk",
+                CheckOutMethod = al.CheckOutTime.HasValue ? "Kiosk" : null,
+                Status = al.IsFraudFlagged ? "Fraud" : (al.CheckOutTime.HasValue ? "Completed" : "Present"),
+                HasException = al.IsFraudFlagged,
+                ExceptionReason = al.FraudReason,
+                ReportedByName = al.FraudFlaggedByUser != null ? al.FraudFlaggedByUser.FullName : null
             })
             .ToListAsync();
 
         return ApiResponse<List<AttendanceRecordDto>>.Ok(records);
     }
 }
-

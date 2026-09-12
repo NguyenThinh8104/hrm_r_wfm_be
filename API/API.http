@@ -1,7 +1,27 @@
 @API_HostAddress = http://localhost:5050
 
+### 1. Lấy danh sách cửa hàng
 GET {{API_HostAddress}}/api/stores
-
 Accept: application/json
 
-###
+### 2. Kích hoạt trạm Kiosk với mã OTP
+POST {{API_HostAddress}}/api/kiosk/activate
+Content-Type: application/json
+
+{
+  "code": "POS-1234"
+}
+
+### 3. Xác thực PIN Kiosk 2 bước
+POST {{API_HostAddress}}/api/kiosk/attendance/validate-pin
+Content-Type: application/json
+
+{
+  "storeId": 1,
+  "employeeCode": "CSH001",
+  "pinCode": "1234"
+}
+
+### 4. Lấy danh sách ca làm việc Kiosk hôm nay
+GET {{API_HostAddress}}/api/kiosk/attendance/roster?storeId=1
+Accept: application/json

@@ -99,7 +99,7 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var context = services.GetRequiredService<AppDbContext>();
-        await DbInitializer.InitializeAsync(context);
+        DbInitializer.Initialize(context);
         Log.Information(">>> Khởi tạo cơ sở dữ liệu và nạp dữ liệu mẫu R-WFM thành công!");
     }
     catch (Exception ex)

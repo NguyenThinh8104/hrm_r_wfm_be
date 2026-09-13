@@ -47,6 +47,20 @@ public interface IShiftService
     /// <returns>ApiResponse chứa danh sách DTO thông tin mẫu ca chuẩn (List&lt;ShiftDto&gt;)</returns>
     Task<ApiResponse<List<ShiftDto>>> GetAllShiftTemplatesAsync(bool includeInactive = false);
 
+    /// <summary>
+    /// Lấy chi tiết một mẫu ca chuẩn theo ID.
+    /// </summary>
+    /// <param name="id">Mã ID mẫu ca</param>
+    /// <returns>ApiResponse chứa chi tiết ShiftDto</returns>
+    Task<ApiResponse<ShiftDto>> GetShiftTemplateByIdAsync(uint id);
+
+    /// <summary>
+    /// Chuẩn hóa và thiết lập bộ khung ca mẫu mặc định toàn hệ thống (Ca sáng, Ca chiều, Ca đêm).
+    /// Ngăn chặn việc tạo ca sai lệch và đảm bảo chuỗi siêu thị luôn có sẵn 3 khung ca chuẩn (UC 1.3).
+    /// </summary>
+    /// <returns>Danh sách các khung ca sau khi chuẩn hóa</returns>
+    Task<ApiResponse<List<ShiftDto>>> StandardizeMasterTemplatesAsync();
+
     // =========================================================
     // 2. Khởi Tạo Khung Lịch & Định Mức Nhu Cầu (Store Manager & Admin)
     // =========================================================

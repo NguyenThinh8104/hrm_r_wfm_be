@@ -41,6 +41,15 @@ public class JwtTokenService
             new("StoreId", user.HomeBranchId?.ToString() ?? "")
         };
 
+        if (Enum.IsDefined(typeof(Domain.Enums.UserRole), (int)user.RoleId))
+        {
+            var enumRoleName = ((Domain.Enums.UserRole)user.RoleId).ToString();
+            if (!string.Equals(enumRoleName, roleCode, StringComparison.OrdinalIgnoreCase))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, enumRoleName));
+            }
+        }
+
         var tokenDescriptor = new JwtSecurityToken(
             issuer: issuer,
             audience: audience,

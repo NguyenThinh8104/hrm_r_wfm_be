@@ -1,18 +1,24 @@
 namespace Modules.Shifts.DTOs;
 
 /// <summary>
-/// DTO thông tin mẫu ca làm việc chuẩn.
+/// DTO thông tin mẫu ca làm việc chuẩn đã được chuẩn hóa hệ thống (UC 1.3).
 /// </summary>
 public class ShiftDto
 {
     public int ShiftId { get; set; }
     public string ShiftCode { get; set; } = string.Empty;
     public string ShiftName { get; set; } = string.Empty;
+    public string ShiftType { get; set; } = "Morning";
+    public string? Description { get; set; }
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
     public bool IsOvernight { get; set; }
     public uint BreakDurationMinutes { get; set; }
+    public int TotalDurationMinutes { get; set; }
+    public double WorkHours { get; set; }
     public bool IsActive { get; set; } = true;
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 
 /// <summary>
@@ -21,14 +27,24 @@ public class ShiftDto
 public class CreateShiftTemplateDto
 {
     /// <summary>
-    /// Mã mẫu ca (Ví dụ: MORNING_01, NIGHT_01).
+    /// Mã mẫu ca viết hoa (Ví dụ: CA_SANG, CA_CHIEU, CA_DEM).
     /// </summary>
     public string TemplateCode { get; set; } = string.Empty;
 
     /// <summary>
-    /// Tên ca làm việc (Ví dụ: Ca Sáng, Ca Đêm).
+    /// Tên ca làm việc (Ví dụ: Ca Sáng, Ca Chiều, Ca Đêm).
     /// </summary>
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Phân loại ca: "Morning", "Afternoon", "Night", "PartTime" (Tùy chọn, tự động nhận diện nếu trống).
+    /// </summary>
+    public string? ShiftType { get; set; }
+
+    /// <summary>
+    /// Mô tả chi tiết ca làm việc.
+    /// </summary>
+    public string? Description { get; set; }
 
     /// <summary>
     /// Giờ bắt đầu ca (HH:mm:ss).
@@ -41,7 +57,7 @@ public class CreateShiftTemplateDto
     public TimeOnly EndTime { get; set; }
 
     /// <summary>
-    /// Cờ đánh dấu ca làm việc qua đêm.
+    /// Cờ đánh dấu ca làm việc xuyên đêm qua ngày hôm sau.
     /// </summary>
     public bool IsOvernight { get; set; } = false;
 
@@ -57,6 +73,8 @@ public class CreateShiftTemplateDto
 public class UpdateShiftTemplateDto
 {
     public string Name { get; set; } = string.Empty;
+    public string? ShiftType { get; set; }
+    public string? Description { get; set; }
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
     public bool IsOvernight { get; set; }

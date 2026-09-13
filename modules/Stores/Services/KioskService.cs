@@ -9,7 +9,7 @@ using Shared.Data;
 namespace Modules.Stores.Services;
 
 /// <summary>
-/// Dịch vụ xử lý logic nghiệp vụ kích hoạt và xác thực trạm Kiosk tại cửa hàng.
+/// Dịch vụ xử lý logic nghiệp vụ kích hoạt, xác thực và cấu hình trạm Kiosk tại quầy cửa hàng (UC 1.2).
 /// </summary>
 public class KioskService : IKioskService
 {
@@ -21,11 +21,8 @@ public class KioskService : IKioskService
     }
 
     /// <summary>
-    /// Tạo mã kích hoạt Kiosk OTP ngẫu nhiên (15 phút) cho cửa hàng bởi StoreManager.
+    /// Tạo mã kích hoạt Kiosk OTP ngẫu nhiên (15 phút) cho cửa hàng bởi StoreManager hoặc Admin.
     /// </summary>
-    /// <param name="managerUserId">Mã ID của người dùng Quản lý tạo mã</param>
-    /// <param name="request">DTO chứa thông tin StoreId và tên Kiosk hiển thị</param>
-    /// <returns>ApiResponse chứa thông tin mã kích hoạt OTP và thời gian hết hạn</returns>
     public async Task<ApiResponse<KioskCodeResponseDto>> CreateKioskCodeAsync(int managerUserId, CreateKioskCodeRequestDto request)
     {
         var branch = await _context.Branches.FindAsync((ulong)request.StoreId);
@@ -67,10 +64,7 @@ public class KioskService : IKioskService
     /// <summary>
     /// Kích hoạt thiết bị Kiosk mới sử dụng mã kích hoạt OTP do Cửa hàng trưởng cấp.
     /// </summary>
-    /// <param name="request">DTO chứa mã kích hoạt Code (ví dụ: POS-1234)</param>
-    /// <param name="clientIp">Địa chỉ IP của máy Kiosk gửi yêu cầu kích hoạt</param>
-    /// <returns>ApiResponse chứa DeviceToken bí mật và thông tin thiết bị Kiosk sau khi kích hoạt</returns>
-    public async Task<ApiResponse<KioskActivationResponseDto>> ActivateKioskAsync(ActivateKioskRequestDto request, string? clientIp)
+    public async Task<ApiResponse<KioskActivationResponseDto>> ActivateKioskAsync(ActivateKioskRequestDto request, string? clientIp, string? userAgent = null)
     {
         if (string.IsNullOrWhiteSpace(request.Code))
         {
@@ -98,6 +92,11 @@ public class KioskService : IKioskService
             return ApiResponse<KioskActivationResponseDto>.Fail(KioskMessages.CodeExpired);
         }
 
+        if (activationCode.Branch == null || activationCode.Branch.Status != "ACTIVE")
+        {
+            return ApiResponse<KioskActivationResponseDto>.Fail("Chi nhánh hiện đang bị khóa hoặc ngừng hoạt động. Không thể kích hoạt Kiosk mới.");
+        }
+
         var now = DateTime.UtcNow;
         var existingKiosksCount = await _context.KioskDevices.CountAsync(k => k.BranchId == activationCode.BranchId);
         var kioskSeq = existingKiosksCount + 1;
@@ -111,9 +110,13 @@ public class KioskService : IKioskService
             Name = activationCode.KioskName,
             DeviceToken = deviceToken,
             Status = "ACTIVE",
+            AllowedIp = activationCode.Branch.KioskAllowedIp,
+            AllowedBrowser = activationCode.Branch.KioskAllowedBrowser,
             IpAddress = clientIp,
+            LastBrowserUserAgent = userAgent,
             LastPingAt = now,
-            CreatedAt = now
+            CreatedAt = now,
+            UpdatedAt = now
         };
 
         _context.KioskDevices.Add(kioskDevice);
@@ -139,11 +142,9 @@ public class KioskService : IKioskService
 
     /// <summary>
     /// Xác minh DeviceToken của máy Kiosk khi khởi động hoặc Ping duy trì kết nối.
+    /// Kiểm tra tính hợp lệ về trạng thái, mạng (IP) và trình duyệt.
     /// </summary>
-    /// <param name="deviceToken">Mã Token bí mật định danh thiết bị Kiosk</param>
-    /// <param name="clientIp">Địa chỉ IP hiện tại của trạm Kiosk</param>
-    /// <returns>ApiResponse xác nhận Token hợp lệ kèm thông tin cửa hàng gắn liền với Kiosk</returns>
-    public async Task<ApiResponse<KioskActivationResponseDto>> VerifyKioskTokenAsync(string deviceToken, string? clientIp)
+    public async Task<ApiResponse<KioskActivationResponseDto>> VerifyKioskTokenAsync(string deviceToken, string? clientIp, string? userAgent = null)
     {
         if (string.IsNullOrWhiteSpace(deviceToken))
         {
@@ -154,13 +155,47 @@ public class KioskService : IKioskService
             .Include(k => k.Branch)
             .FirstOrDefaultAsync(k => k.DeviceToken == deviceToken.Trim());
 
-        if (kiosk == null || kiosk.Status != "ACTIVE")
+        if (kiosk == null)
         {
             return ApiResponse<KioskActivationResponseDto>.Fail(KioskMessages.DeviceNotFound);
         }
 
+        // 1. Kiểm tra trạng thái Kiosk
+        if (kiosk.Status != "ACTIVE")
+        {
+            return ApiResponse<KioskActivationResponseDto>.Fail($"Trạm Kiosk '{kiosk.KioskCode}' đang ở trạng thái {kiosk.Status} (Tạm khóa). Vui lòng liên hệ Quản trị vận hành.");
+        }
+
+        // 2. Kiểm tra trạng thái Chi nhánh
+        if (kiosk.Branch == null || kiosk.Branch.Status != "ACTIVE")
+        {
+            return ApiResponse<KioskActivationResponseDto>.Fail($"Chi nhánh '{kiosk.Branch?.Name}' đang ở trạng thái {kiosk.Branch?.Status} (Tạm khóa). Toàn bộ trạm Kiosk tại chi nhánh tạm ngừng hoạt động.");
+        }
+
+        // 3. Kiểm tra thông tin mạng (IP Whitelist)
+        var effectiveAllowedIp = !string.IsNullOrWhiteSpace(kiosk.AllowedIp) ? kiosk.AllowedIp : kiosk.Branch.KioskAllowedIp;
+        if (!string.IsNullOrWhiteSpace(effectiveAllowedIp) && !string.IsNullOrWhiteSpace(clientIp))
+        {
+            if (!IsIpAllowed(clientIp, effectiveAllowedIp))
+            {
+                return ApiResponse<KioskActivationResponseDto>.Fail($"Truy cập bị từ chối: Địa chỉ IP ({clientIp}) không khớp với cấu hình mạng Kiosk quầy được cấp phép ({effectiveAllowedIp}).");
+            }
+        }
+
+        // 4. Kiểm tra thông tin trình duyệt (Browser / User-Agent Whitelist)
+        var effectiveAllowedBrowser = !string.IsNullOrWhiteSpace(kiosk.AllowedBrowser) ? kiosk.AllowedBrowser : kiosk.Branch.KioskAllowedBrowser;
+        if (!string.IsNullOrWhiteSpace(effectiveAllowedBrowser) && !string.IsNullOrWhiteSpace(userAgent))
+        {
+            if (!IsBrowserAllowed(userAgent, effectiveAllowedBrowser))
+            {
+                return ApiResponse<KioskActivationResponseDto>.Fail($"Truy cập bị từ chối: Trình duyệt client không nằm trong danh sách trình duyệt quầy được cấp phép ({effectiveAllowedBrowser}).");
+            }
+        }
+
+        // Cập nhật trạng thái Ping và thông tin kết nối thực tế
         kiosk.LastPingAt = DateTime.UtcNow;
         if (!string.IsNullOrEmpty(clientIp)) kiosk.IpAddress = clientIp;
+        if (!string.IsNullOrEmpty(userAgent)) kiosk.LastBrowserUserAgent = userAgent;
         await _context.SaveChangesAsync();
 
         return ApiResponse<KioskActivationResponseDto>.Ok(new KioskActivationResponseDto
@@ -178,10 +213,80 @@ public class KioskService : IKioskService
     }
 
     /// <summary>
+    /// Lấy danh sách toàn bộ các trạm Kiosk trong hệ thống chuỗi (Operations Admin).
+    /// </summary>
+    public async Task<ApiResponse<List<KioskDetailDto>>> GetAllKiosksAsync()
+    {
+        var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
+
+        var kiosks = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .OrderBy(k => k.Branch.BranchCode)
+            .ThenBy(k => k.KioskCode)
+            .Select(k => new KioskDetailDto
+            {
+                KioskId = (int)k.Id,
+                StoreId = (int)k.BranchId,
+                StoreCode = k.Branch.BranchCode,
+                StoreName = k.Branch.Name,
+                KioskCode = k.KioskCode,
+                KioskName = k.Name,
+                DeviceToken = k.DeviceToken,
+                Status = k.Status,
+                AllowedIp = k.AllowedIp,
+                AllowedBrowser = k.AllowedBrowser,
+                IpAddress = k.IpAddress,
+                LastBrowserUserAgent = k.LastBrowserUserAgent,
+                LastPingAt = k.LastPingAt,
+                IsOnline = k.LastPingAt.HasValue && k.LastPingAt.Value >= fiveMinutesAgo,
+                CreatedAt = k.CreatedAt,
+                UpdatedAt = k.UpdatedAt
+            })
+            .ToListAsync();
+
+        return ApiResponse<List<KioskDetailDto>>.Ok(kiosks, "Lấy danh sách tất cả trạm Kiosk thành công.");
+    }
+
+    /// <summary>
+    /// Lấy chi tiết thông tin trạm Kiosk theo ID.
+    /// </summary>
+    public async Task<ApiResponse<KioskDetailDto>> GetKioskByIdAsync(int kioskId)
+    {
+        var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
+
+        var kiosk = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .FirstOrDefaultAsync(k => k.Id == (ulong)kioskId);
+
+        if (kiosk == null)
+        {
+            return ApiResponse<KioskDetailDto>.Fail("Không tìm thấy thông tin trạm Kiosk.");
+        }
+
+        return ApiResponse<KioskDetailDto>.Ok(new KioskDetailDto
+        {
+            KioskId = (int)kiosk.Id,
+            StoreId = (int)kiosk.BranchId,
+            StoreCode = kiosk.Branch.BranchCode,
+            StoreName = kiosk.Branch.Name,
+            KioskCode = kiosk.KioskCode,
+            KioskName = kiosk.Name,
+            DeviceToken = kiosk.DeviceToken,
+            Status = kiosk.Status,
+            AllowedIp = kiosk.AllowedIp,
+            AllowedBrowser = kiosk.AllowedBrowser,
+            IpAddress = kiosk.IpAddress,
+            LastBrowserUserAgent = kiosk.LastBrowserUserAgent,
+            LastPingAt = kiosk.LastPingAt,
+            IsOnline = kiosk.LastPingAt.HasValue && kiosk.LastPingAt.Value >= fiveMinutesAgo,
+            CreatedAt = kiosk.CreatedAt,
+            UpdatedAt = kiosk.UpdatedAt
+        }, "Lấy thông tin trạm Kiosk thành công.");
+    }
+
+    /// <summary>
     /// Lấy danh sách các trạm Kiosk đã được kích hoạt thuộc một chi nhánh cửa hàng.
     /// </summary>
-    /// <param name="storeId">Mã ID chi nhánh cửa hàng</param>
-    /// <returns>ApiResponse chứa danh sách các thiết bị Kiosk của cửa hàng</returns>
     public async Task<ApiResponse<List<KioskActivationResponseDto>>> GetStoreKiosksAsync(int storeId)
     {
         var kiosks = await _context.KioskDevices
@@ -203,5 +308,125 @@ public class KioskService : IKioskService
             .ToListAsync();
 
         return ApiResponse<List<KioskActivationResponseDto>>.Ok(kiosks);
+    }
+
+    /// <summary>
+    /// Cập nhật cấu hình mạng và trình duyệt cho trạm Kiosk quầy.
+    /// </summary>
+    public async Task<ApiResponse<KioskDetailDto>> UpdateKioskConfigAsync(int kioskId, UpdateKioskConfigDto dto)
+    {
+        var kiosk = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .FirstOrDefaultAsync(k => k.Id == (ulong)kioskId);
+
+        if (kiosk == null)
+        {
+            return ApiResponse<KioskDetailDto>.Fail("Không tìm thấy thông tin trạm Kiosk.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.Name))
+        {
+            kiosk.Name = dto.Name.Trim();
+        }
+
+        kiosk.AllowedIp = string.IsNullOrWhiteSpace(dto.AllowedIp) ? null : dto.AllowedIp.Trim();
+        kiosk.AllowedBrowser = string.IsNullOrWhiteSpace(dto.AllowedBrowser) ? null : dto.AllowedBrowser.Trim();
+
+        if (!string.IsNullOrWhiteSpace(dto.Status))
+        {
+            var validStatus = dto.Status.Trim().ToUpper();
+            if (validStatus != "ACTIVE" && validStatus != "LOCKED")
+            {
+                return ApiResponse<KioskDetailDto>.Fail("Trạng thái Kiosk không hợp lệ. Chỉ chấp nhận ACTIVE hoặc LOCKED.");
+            }
+            kiosk.Status = validStatus;
+        }
+
+        kiosk.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return await GetKioskByIdAsync(kioskId);
+    }
+
+    /// <summary>
+    /// Khóa khẩn cấp hoặc Mở khóa trạm Kiosk quầy.
+    /// </summary>
+    public async Task<ApiResponse<KioskDetailDto>> UpdateKioskStatusAsync(int kioskId, UpdateKioskStatusDto dto)
+    {
+        var kiosk = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .FirstOrDefaultAsync(k => k.Id == (ulong)kioskId);
+
+        if (kiosk == null)
+        {
+            return ApiResponse<KioskDetailDto>.Fail("Không tìm thấy thông tin trạm Kiosk.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Status))
+        {
+            return ApiResponse<KioskDetailDto>.Fail("Vui lòng cung cấp trạng thái mới cho Kiosk.");
+        }
+
+        var normalizedStatus = dto.Status.Trim().ToUpper();
+        if (normalizedStatus != "ACTIVE" && normalizedStatus != "LOCKED")
+        {
+            return ApiResponse<KioskDetailDto>.Fail("Trạng thái không hợp lệ. Chỉ hỗ trợ 'ACTIVE' hoặc 'LOCKED'.");
+        }
+
+        kiosk.Status = normalizedStatus;
+        kiosk.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return await GetKioskByIdAsync(kioskId);
+    }
+
+    /// <summary>
+    /// Kiểm tra IP client có nằm trong danh sách IP / dải IP cho phép.
+    /// Hỗ trợ bỏ qua với localhost (127.0.0.1, ::1) trong môi trường thử nghiệm.
+    /// </summary>
+    private static bool IsIpAllowed(string clientIp, string allowedIpConfig)
+    {
+        if (clientIp == "127.0.0.1" || clientIp == "::1" || clientIp == "localhost")
+        {
+            return true;
+        }
+
+        var allowedList = allowedIpConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var allowed in allowedList)
+        {
+            if (allowed == "*" || allowed.Equals(clientIp, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // Hỗ trợ dạng wildcard 192.168.1.*
+            if (allowed.EndsWith(".*"))
+            {
+                var prefix = allowed.Substring(0, allowed.Length - 1);
+                if (clientIp.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Kiểm tra trình duyệt Client (User-Agent) có khớp với danh sách trình duyệt được phép.
+    /// </summary>
+    private static bool IsBrowserAllowed(string userAgent, string allowedBrowserConfig)
+    {
+        var allowedList = allowedBrowserConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var allowed in allowedList)
+        {
+            if (allowed == "*" || userAgent.Contains(allowed, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

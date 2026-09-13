@@ -10,6 +10,10 @@ public class KioskDevice
     public string DeviceToken { get; set; } = string.Empty;
     public string Status { get; set; } = "ACTIVE";
     public string? IpAddress { get; set; }
+    public string? AllowedIp { get; set; }
+    public string? AllowedBrowser { get; set; }
+    public string? LastBrowserUserAgent { get; set; }
     public DateTime? LastPingAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? UpdatedAt { get; set; } = DateTime.UtcNow;
 }

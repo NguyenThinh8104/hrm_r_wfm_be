@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Domain.Entities;
-using Domain.Enums;
 using Modules.Shifts.DTOs;
 using Modules.Shifts.Interfaces;
 using Shared.Common;
@@ -21,50 +20,54 @@ public class ShiftService : IShiftService
     }
 
     // ==========================================
-    // 1. Quản lý Mẫu Ca Chuẩn (Operations Admin - UC 1.3)
+    // 1. Quản lý Mẫu Ca Chuẩn (UC 1.3 - Operations Admin)
     // ==========================================
 
     /// <summary>
-    /// Tạo mẫu ca làm việc chuẩn mới áp dụng cho hệ thống chuỗi cửa hàng.
-    /// Chuẩn hóa bộ khung ca: Kiểm tra tính logic của giờ giấc, thời lượng và thời gian nghỉ để ngăn chặn ca sai lệch.
+    /// Tạo mẫu ca làm việc chuẩn mới áp dụng cho hệ thống chuỗi cửa hàng (UC 1.3).
+    /// Nghiệp vụ: Validate start_time != end_time, start_time > end_time => is_overnight = true, unique code.
     /// </summary>
-    public async Task<ApiResponse<ShiftDto>> CreateShiftTemplateAsync(CreateShiftTemplateDto dto)
+    public async Task<ApiResponse<ShiftTemplateDto>> CreateShiftTemplateAsync(CreateShiftTemplateDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.TemplateCode) || string.IsNullOrWhiteSpace(dto.Name))
+        if (string.IsNullOrWhiteSpace(dto.Code))
         {
-            return ApiResponse<ShiftDto>.Fail("Mã mẫu ca và Tên ca làm việc không được để trống.");
+            return ApiResponse<ShiftTemplateDto>.Fail("Mã mẫu ca (code) không được để trống.");
         }
 
-        var normalizedCode = dto.TemplateCode.Trim().ToUpper();
+        if (string.IsNullOrWhiteSpace(dto.Name))
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Tên ca làm việc (name) không được để trống.");
+        }
+
+        var normalizedCode = dto.Code.Trim().ToUpper();
         var codeExists = await _context.ShiftTemplates
-            .AnyAsync(st => st.TemplateCode.ToUpper() == normalizedCode);
+            .AnyAsync(st => st.Code.ToUpper() == normalizedCode);
 
         if (codeExists)
         {
-            return ApiResponse<ShiftDto>.Fail($"Mã mẫu ca '{normalizedCode}' đã tồn tại trong hệ thống.");
+            return ApiResponse<ShiftTemplateDto>.Fail($"Mã mẫu ca '{normalizedCode}' đã tồn tại trong hệ thống.");
         }
 
-        // Kiểm tra và chuẩn hóa quy tắc khung ca
-        var validation = ValidateAndCalculateShift(dto.StartTime, dto.EndTime, dto.IsOvernight, dto.BreakDurationMinutes, dto.ShiftType);
+        // Validate quy tắc khung giờ
+        var validation = ValidateAndCalculateShift(dto.StartTime, dto.EndTime, dto.IsOvernight, dto.BreakMinutes);
         if (!validation.IsValid)
         {
-            return ApiResponse<ShiftDto>.Fail(validation.ErrorMessage ?? "Cấu hình khung ca không hợp lệ.");
+            return ApiResponse<ShiftTemplateDto>.Fail(validation.ErrorMessage ?? "Cấu hình khung ca không hợp lệ.");
         }
 
         var now = DateTime.UtcNow;
         var template = new ShiftTemplate
         {
-            TemplateCode = normalizedCode,
+            Code = normalizedCode,
             Name = dto.Name.Trim(),
-            ShiftType = validation.InferredType,
             Description = string.IsNullOrWhiteSpace(dto.Description) 
-                ? $"Khung ca {validation.InferredType} từ {dto.StartTime:HH:mm} đến {dto.EndTime:HH:mm}" 
+                ? $"Khung ca từ {dto.StartTime:HH\\:mm} đến {dto.EndTime:HH\\:mm}" 
                 : dto.Description.Trim(),
             StartTime = dto.StartTime,
             EndTime = dto.EndTime,
-            IsOvernight = dto.IsOvernight,
-            BreakDurationMinutes = dto.BreakDurationMinutes,
-            IsActive = true,
+            IsOvernight = validation.IsOvernight,
+            BreakMinutes = dto.BreakMinutes,
+            Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -72,52 +75,99 @@ public class ShiftService : IShiftService
         _context.ShiftTemplates.Add(template);
         await _context.SaveChangesAsync();
 
-        return ApiResponse<ShiftDto>.Ok(MapToShiftDto(template), "Tạo mẫu ca chuẩn thành công.");
+        return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), "Tạo mẫu ca chuẩn thành công.");
     }
 
     /// <summary>
-    /// Cập nhật thông tin chi tiết của một mẫu ca làm việc chuẩn.
+    /// Cập nhật thông tin chi tiết của một mẫu ca làm việc chuẩn (UC 1.3).
     /// </summary>
-    public async Task<ApiResponse<ShiftDto>> UpdateShiftTemplateAsync(uint id, UpdateShiftTemplateDto dto)
+    public async Task<ApiResponse<ShiftTemplateDto>> UpdateShiftTemplateAsync(uint id, UpdateShiftTemplateDto dto)
     {
         var template = await _context.ShiftTemplates.FindAsync(id);
         if (template == null)
         {
-            return ApiResponse<ShiftDto>.Fail("Không tìm thấy mẫu ca làm việc.");
+            return ApiResponse<ShiftTemplateDto>.Fail("Không tìm thấy mẫu ca làm việc cần cập nhật.");
         }
 
         if (string.IsNullOrWhiteSpace(dto.Name))
         {
-            return ApiResponse<ShiftDto>.Fail("Tên ca làm việc không được để trống.");
+            return ApiResponse<ShiftTemplateDto>.Fail("Tên ca làm việc không được để trống.");
         }
 
-        // Kiểm tra và chuẩn hóa quy tắc khung ca
-        var validation = ValidateAndCalculateShift(dto.StartTime, dto.EndTime, dto.IsOvernight, dto.BreakDurationMinutes, dto.ShiftType);
+        // Validate quy tắc khung giờ
+        var validation = ValidateAndCalculateShift(dto.StartTime, dto.EndTime, dto.IsOvernight, dto.BreakMinutes);
         if (!validation.IsValid)
         {
-            return ApiResponse<ShiftDto>.Fail(validation.ErrorMessage ?? "Cấu hình khung ca không hợp lệ.");
+            return ApiResponse<ShiftTemplateDto>.Fail(validation.ErrorMessage ?? "Cấu hình khung ca không hợp lệ.");
         }
 
         template.Name = dto.Name.Trim();
-        template.ShiftType = validation.InferredType;
-        if (!string.IsNullOrWhiteSpace(dto.Description))
+        if (dto.Description != null)
         {
             template.Description = dto.Description.Trim();
         }
         template.StartTime = dto.StartTime;
         template.EndTime = dto.EndTime;
-        template.IsOvernight = dto.IsOvernight;
-        template.BreakDurationMinutes = dto.BreakDurationMinutes;
-        template.IsActive = dto.IsActive;
+        template.IsOvernight = validation.IsOvernight;
+        template.BreakMinutes = dto.BreakMinutes;
+        if (!string.IsNullOrWhiteSpace(dto.Status))
+        {
+            template.Status = dto.Status.Trim().ToUpper();
+        }
         template.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
-        return ApiResponse<ShiftDto>.Ok(MapToShiftDto(template), "Cập nhật mẫu ca chuẩn thành công.");
+        return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), "Cập nhật mẫu ca thành công.");
     }
 
     /// <summary>
-    /// Vô hiệu hóa (Soft delete) mẫu ca làm việc chuẩn.
+    /// Cập nhật trạng thái mẫu ca làm việc (ACTIVE / INACTIVE) - Không xóa cứng để bảo toàn lịch sử chấm công (UC 1.3).
+    /// </summary>
+    public async Task<ApiResponse<ShiftTemplateDto>> UpdateShiftTemplateStatusAsync(uint id, UpdateShiftTemplateStatusDto dto)
+    {
+        var template = await _context.ShiftTemplates.FindAsync(id);
+        if (template == null)
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Không tìm thấy mẫu ca làm việc.");
+        }
+
+        var normalizedStatus = (dto.Status ?? string.Empty).Trim().ToUpper();
+        if (normalizedStatus != "ACTIVE" && normalizedStatus != "INACTIVE")
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Trạng thái không hợp lệ. Chỉ chấp nhận 'ACTIVE' hoặc 'INACTIVE'.");
+        }
+
+        template.Status = normalizedStatus;
+        template.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        var message = normalizedStatus == "INACTIVE"
+            ? "Đã vô hiệu hóa mẫu ca chuẩn (không xóa cứng để bảo toàn lịch sử chấm công)."
+            : "Đã kích hoạt lại mẫu ca chuẩn.";
+
+        var validation = ValidateAndCalculateShift(template.StartTime, template.EndTime, template.IsOvernight, template.BreakMinutes);
+        return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), message);
+    }
+
+    /// <summary>
+    /// Lấy thông tin chi tiết mẫu ca chuẩn theo ID.
+    /// </summary>
+    public async Task<ApiResponse<ShiftTemplateDto>> GetShiftTemplateByIdAsync(uint id)
+    {
+        var template = await _context.ShiftTemplates.FindAsync(id);
+        if (template == null)
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Không tìm thấy mẫu ca làm việc.");
+        }
+
+        var validation = ValidateAndCalculateShift(template.StartTime, template.EndTime, template.IsOvernight, template.BreakMinutes);
+        return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), "Lấy thông tin mẫu ca thành công.");
+    }
+
+    /// <summary>
+    /// Vô hiệu hóa (Soft delete) mẫu ca làm việc chuẩn - Không xóa cứng để bảo toàn lịch sử (UC 1.3).
     /// </summary>
     public async Task<ApiResponse<bool>> DeleteShiftTemplateAsync(uint id)
     {
@@ -127,232 +177,138 @@ public class ShiftService : IShiftService
             return ApiResponse<bool>.Fail("Không tìm thấy mẫu ca làm việc.");
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var hasFutureSchedules = await _context.WorkSchedules
-            .AnyAsync(ws => ws.ShiftTemplateId == id && ws.WorkDate >= today);
-
-        template.IsActive = false;
+        template.Status = "INACTIVE";
         template.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        var message = hasFutureSchedules
-            ? "Đã vô hiệu hóa mẫu ca chuẩn. Lưu ý: Mẫu ca này đang có lịch làm việc sắp tới, các lịch đã tạo vẫn được giữ nguyên."
-            : "Đã vô hiệu hóa mẫu ca chuẩn thành công.";
-
-        return ApiResponse<bool>.Ok(true, message);
+        return ApiResponse<bool>.Ok(true, "Đã vô hiệu hóa mẫu ca chuẩn thành công.");
     }
 
     /// <summary>
-    /// Lấy danh sách tất cả các ca làm việc mẫu trong hệ thống.
+    /// Lấy danh sách tất cả các ca làm việc mẫu trong hệ thống (hỗ trợ lọc status: ACTIVE / INACTIVE).
     /// </summary>
+    public async Task<ApiResponse<List<ShiftTemplateDto>>> GetAllShiftTemplatesAsync(string? status = null)
+    {
+        var query = _context.ShiftTemplates.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var filterStatus = status.Trim().ToUpper();
+            query = query.Where(st => st.Status.ToUpper() == filterStatus);
+        }
+
+        var templates = await query
+            .OrderBy(st => st.StartTime)
+            .ToListAsync();
+
+        var dtos = templates.Select(st =>
+        {
+            var validation = ValidateAndCalculateShift(st.StartTime, st.EndTime, st.IsOvernight, st.BreakMinutes);
+            return MapToShiftTemplateDto(st, validation.WorkHours);
+        }).ToList();
+
+        return ApiResponse<List<ShiftTemplateDto>>.Ok(dtos, "Lấy danh sách mẫu ca chuẩn thành công.");
+    }
+
     public async Task<ApiResponse<List<ShiftDto>>> GetAllShiftTemplatesAsync(bool includeInactive = false)
     {
         var query = _context.ShiftTemplates.AsQueryable();
         if (!includeInactive)
         {
-            query = query.Where(st => st.IsActive);
+            query = query.Where(st => st.Status == "ACTIVE");
         }
 
-        var shifts = await query
+        var templates = await query
             .OrderBy(st => st.StartTime)
             .ToListAsync();
 
-        return ApiResponse<List<ShiftDto>>.Ok(shifts.Select(MapToShiftDto).ToList());
+        var dtos = templates.Select(st =>
+        {
+            var validation = ValidateAndCalculateShift(st.StartTime, st.EndTime, st.IsOvernight, st.BreakMinutes);
+            var baseDto = MapToShiftTemplateDto(st, validation.WorkHours);
+            return new ShiftDto
+            {
+                Id = baseDto.Id,
+                Code = baseDto.Code,
+                Name = baseDto.Name,
+                Description = baseDto.Description,
+                StartTime = baseDto.StartTime,
+                EndTime = baseDto.EndTime,
+                BreakMinutes = baseDto.BreakMinutes,
+                IsOvernight = baseDto.IsOvernight,
+                WorkHours = baseDto.WorkHours,
+                Status = baseDto.Status,
+                CreatedAt = baseDto.CreatedAt,
+                UpdatedAt = baseDto.UpdatedAt
+            };
+        }).ToList();
+
+        return ApiResponse<List<ShiftDto>>.Ok(dtos);
     }
 
-    /// <summary>
-    /// Lấy thông tin chi tiết một mẫu ca chuẩn theo ID.
-    /// </summary>
-    public async Task<ApiResponse<ShiftDto>> GetShiftTemplateByIdAsync(uint id)
+    private static (bool IsValid, string? ErrorMessage, double WorkHours, bool IsOvernight) ValidateAndCalculateShift(
+        TimeOnly startTime, TimeOnly endTime, bool isOvernight, uint breakMinutes)
     {
-        var template = await _context.ShiftTemplates.FindAsync(id);
-        if (template == null)
+        if (startTime == endTime)
         {
-            return ApiResponse<ShiftDto>.Fail("Không tìm thấy mẫu ca làm việc.");
+            return (false, "Giờ bắt đầu (start_time) và giờ kết thúc (end_time) không được trùng nhau.", 0, false);
         }
 
-        return ApiResponse<ShiftDto>.Ok(MapToShiftDto(template), "Lấy thông tin mẫu ca thành công.");
-    }
-
-    /// <summary>
-    /// Chuẩn hóa và thiết lập bộ khung ca mẫu mặc định toàn hệ thống (Ca sáng, Ca chiều, Ca đêm).
-    /// </summary>
-    public async Task<ApiResponse<List<ShiftDto>>> StandardizeMasterTemplatesAsync()
-    {
-        var standardTemplates = new List<(string Code, string Name, ShiftType Type, TimeOnly Start, TimeOnly End, bool Overnight, uint Break, string Desc)>
+        // Nếu start_time > end_time thì bắt buộc is_overnight = true (ca đêm qua ngày)
+        if (startTime > endTime)
         {
-            ("CA_SANG", "Ca Sáng (06:00 - 14:00)", ShiftType.Morning, new TimeOnly(6, 0), new TimeOnly(14, 0), false, 30, "Ca sáng chuẩn hệ thống từ 06:00 đến 14:00 (nghỉ 30 phút)"),
-            ("CA_CHIEU", "Ca Chiều (14:00 - 22:00)", ShiftType.Afternoon, new TimeOnly(14, 0), new TimeOnly(22, 0), false, 30, "Ca chiều chuẩn hệ thống từ 14:00 đến 22:00 (nghỉ 30 phút)"),
-            ("CA_DEM", "Ca Đêm (22:00 - 06:00)", ShiftType.Night, new TimeOnly(22, 0), new TimeOnly(6, 0), true, 45, "Ca đêm xuyên đêm chuẩn hệ thống từ 22:00 đến 06:00 hôm sau (nghỉ 45 phút)")
-        };
-
-        var now = DateTime.UtcNow;
-        var resultList = new List<ShiftTemplate>();
-
-        foreach (var def in standardTemplates)
+            isOvernight = true;
+        }
+        else if (isOvernight && startTime < endTime)
         {
-            var existing = await _context.ShiftTemplates.FirstOrDefaultAsync(st => st.TemplateCode.ToUpper() == def.Code);
-            if (existing != null)
-            {
-                existing.Name = def.Name;
-                existing.ShiftType = def.Type;
-                existing.StartTime = def.Start;
-                existing.EndTime = def.End;
-                existing.IsOvernight = def.Overnight;
-                existing.BreakDurationMinutes = def.Break;
-                existing.Description = def.Desc;
-                existing.IsActive = true;
-                existing.UpdatedAt = now;
-                resultList.Add(existing);
-            }
-            else
-            {
-                var newTmpl = new ShiftTemplate
-                {
-                    TemplateCode = def.Code,
-                    Name = def.Name,
-                    ShiftType = def.Type,
-                    StartTime = def.Start,
-                    EndTime = def.End,
-                    IsOvernight = def.Overnight,
-                    BreakDurationMinutes = def.Break,
-                    Description = def.Desc,
-                    IsActive = true,
-                    CreatedAt = now,
-                    UpdatedAt = now
-                };
-                _context.ShiftTemplates.Add(newTmpl);
-                resultList.Add(newTmpl);
-            }
+            isOvernight = false;
         }
 
-        await _context.SaveChangesAsync();
+        int startMinutes = startTime.Hour * 60 + startTime.Minute;
+        int endMinutes = endTime.Hour * 60 + endTime.Minute;
 
-        return ApiResponse<List<ShiftDto>>.Ok(resultList.Select(MapToShiftDto).ToList(), "Chuẩn hóa bộ khung ca mẫu mặc định toàn hệ thống thành công.");
-    }
-
-    /// <summary>
-    /// Kiểm tra và tính toán thời lượng ca làm việc theo các chuẩn nghiệp vụ bán lẻ.
-    /// Ngăn chặn việc tạo ca sai lệch: giờ kết thúc trước giờ bắt đầu, ca quá ngắn / quá dài, hoặc thời gian nghỉ bất hợp lý.
-    /// </summary>
-    private static (bool IsValid, string? ErrorMessage, int TotalMinutes, double WorkHours, ShiftType InferredType) 
-        ValidateAndCalculateShift(TimeOnly startTime, TimeOnly endTime, bool isOvernight, uint breakDurationMinutes, string? shiftTypeStr)
-    {
-        // 1. Kiểm tra tính logic của khung giờ
-        if (!isOvernight)
+        int totalDurationMinutes;
+        if (isOvernight)
         {
-            if (endTime <= startTime)
-            {
-                return (false, $"Ca không qua đêm nhưng giờ kết thúc ({endTime:HH:mm}) lại trước hoặc bằng giờ bắt đầu ({startTime:HH:mm}). Vui lòng kiểm tra lại khung giờ hoặc bật cờ ca xuyên đêm.", 0, 0, ShiftType.Morning);
-            }
+            totalDurationMinutes = (24 * 60 - startMinutes) + endMinutes;
         }
         else
         {
-            if (startTime < endTime)
-            {
-                return (false, $"Ca xuyên đêm nhưng giờ bắt đầu ({startTime:HH:mm}) lại nhỏ hơn giờ kết thúc ({endTime:HH:mm}) trong cùng ngày. Nếu ca nằm trong ngày, vui lòng tắt cờ ca qua đêm.", 0, 0, ShiftType.Night);
-            }
+            totalDurationMinutes = endMinutes - startMinutes;
         }
 
-        // 2. Tính tổng thời lượng ca (phút)
-        int totalMinutes;
-        if (!isOvernight)
+        if (totalDurationMinutes < 60)
         {
-            totalMinutes = (int)(endTime.ToTimeSpan() - startTime.ToTimeSpan()).TotalMinutes;
-        }
-        else
-        {
-            totalMinutes = (int)((TimeSpan.FromHours(24) - startTime.ToTimeSpan()) + endTime.ToTimeSpan()).TotalMinutes;
+            return (false, "Thời lượng ca làm việc tối thiểu phải từ 1 giờ trở lên.", 0, isOvernight);
         }
 
-        // 3. Kiểm tra ngưỡng thời lượng ca chuẩn (tối thiểu 2 tiếng = 120p, tối đa 12 tiếng = 720p)
-        if (totalMinutes < 120)
+        if (totalDurationMinutes > 16 * 60)
         {
-            return (false, $"Thời lượng ca làm việc quá ngắn ({totalMinutes} phút). Quy chuẩn ca làm việc bán lẻ phải từ 2 giờ (120 phút) trở lên để đảm bảo vận hành.", 0, 0, ShiftType.Morning);
+            return (false, "Thời lượng ca làm việc không được vượt quá 16 giờ.", 0, isOvernight);
         }
 
-        if (totalMinutes > 720)
+        if (breakMinutes >= totalDurationMinutes)
         {
-            return (false, $"Thời lượng ca làm việc quá dài ({totalMinutes / 60.0:F1} giờ). Quy chuẩn ca làm việc không được vượt quá 12 giờ để tuân thủ Luật Lao động.", 0, 0, ShiftType.Morning);
+            return (false, $"Thời gian nghỉ ({breakMinutes} phút) không được lớn hơn hoặc bằng tổng thời lượng ca ({totalDurationMinutes} phút).", 0, isOvernight);
         }
 
-        // 4. Kiểm tra thời gian nghỉ giữa ca
-        if (breakDurationMinutes >= (uint)totalMinutes)
-        {
-            return (false, $"Thời gian nghỉ giữa ca ({breakDurationMinutes} phút) không được vượt quá hoặc bằng tổng thời lượng ca làm việc ({totalMinutes} phút).", 0, 0, ShiftType.Morning);
-        }
-
-        var workMinutes = totalMinutes - (int)breakDurationMinutes;
-        var workHours = Math.Round(workMinutes / 60.0, 2);
-
-        // 5. Xác định hoặc kiểm tra ShiftType
-        ShiftType inferredType;
-        if (!string.IsNullOrWhiteSpace(shiftTypeStr) && Enum.TryParse<ShiftType>(shiftTypeStr, true, out var parsedType))
-        {
-            inferredType = parsedType;
-        }
-        else
-        {
-            if (isOvernight || startTime.Hour >= 21 || startTime.Hour < 4)
-            {
-                inferredType = ShiftType.Night;
-            }
-            else if (startTime.Hour >= 5 && startTime.Hour < 12)
-            {
-                inferredType = ShiftType.Morning;
-            }
-            else if (startTime.Hour >= 12 && startTime.Hour < 21)
-            {
-                inferredType = ShiftType.Afternoon;
-            }
-            else
-            {
-                inferredType = ShiftType.PartTime;
-            }
-        }
-
-        // Chặn nghịch lý ca đêm nhưng không bật qua đêm
-        if (inferredType == ShiftType.Night && !isOvernight && startTime.Hour >= 20)
-        {
-            return (false, "Ca đêm bắt đầu từ 20:00 trở đi bắt buộc phải đánh dấu là ca xuyên đêm (IsOvernight = true).", 0, 0, inferredType);
-        }
-
-        return (true, null, totalMinutes, workHours, inferredType);
+        double workHours = Math.Round((totalDurationMinutes - (double)breakMinutes) / 60.0, 2);
+        return (true, null, workHours, isOvernight);
     }
 
-    /// <summary>
-    /// Chuyển đổi Entity ShiftTemplate sang ShiftDto với đầy đủ thông tin chuẩn hóa.
-    /// </summary>
-    private static ShiftDto MapToShiftDto(ShiftTemplate st)
+    private static ShiftTemplateDto MapToShiftTemplateDto(ShiftTemplate st, double workHours)
     {
-        int totalMinutes;
-        if (!st.IsOvernight)
+        return new ShiftTemplateDto
         {
-            totalMinutes = (int)(st.EndTime.ToTimeSpan() - st.StartTime.ToTimeSpan()).TotalMinutes;
-        }
-        else
-        {
-            totalMinutes = (int)((TimeSpan.FromHours(24) - st.StartTime.ToTimeSpan()) + st.EndTime.ToTimeSpan()).TotalMinutes;
-        }
-
-        if (totalMinutes < 0) totalMinutes = 0;
-        var workMinutes = Math.Max(0, totalMinutes - (int)st.BreakDurationMinutes);
-        var workHours = Math.Round(workMinutes / 60.0, 2);
-
-        return new ShiftDto
-        {
-            ShiftId = (int)st.Id,
-            ShiftCode = st.TemplateCode,
-            ShiftName = st.Name,
-            ShiftType = st.ShiftType.ToString(),
+            Id = st.Id,
+            Code = st.Code,
+            Name = st.Name,
             Description = st.Description,
-            StartTime = st.StartTime,
-            EndTime = st.EndTime,
+            StartTime = st.StartTime.ToString("HH\\:mm\\:ss"),
+            EndTime = st.EndTime.ToString("HH\\:mm\\:ss"),
+            BreakMinutes = st.BreakMinutes,
             IsOvernight = st.IsOvernight,
-            BreakDurationMinutes = st.BreakDurationMinutes,
-            TotalDurationMinutes = totalMinutes,
             WorkHours = workHours,
-            IsActive = st.IsActive,
+            Status = st.Status,
             CreatedAt = st.CreatedAt,
             UpdatedAt = st.UpdatedAt
         };

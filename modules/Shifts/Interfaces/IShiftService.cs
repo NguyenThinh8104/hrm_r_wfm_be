@@ -11,55 +11,40 @@ namespace Modules.Shifts.Interfaces;
 public interface IShiftService
 {
     // ==========================================
-    // 1. Quản lý Mẫu Ca Chuẩn (Operations Admin)
+    // 1. Quản lý Mẫu Ca Chuẩn (UC 1.3 - Operations Admin)
     // ==========================================
 
     /// <summary>
-    /// Tạo mẫu ca làm việc chuẩn mới áp dụng cho hệ thống chuỗi cửa hàng.
-    /// Logic đặc biệt: Kiểm tra trùng duy nhất mã ca TemplateCode (viết hoa), hỗ trợ ca qua đêm (IsOvernight = true) và thời gian nghỉ break.
+    /// Tạo mẫu ca làm việc chuẩn mới áp dụng cho hệ thống chuỗi cửa hàng (UC 1.3).
     /// </summary>
-    /// <param name="dto">DTO chứa dữ liệu đầu vào bao gồm TemplateCode, Name, StartTime, EndTime, IsOvernight, BreakDurationMinutes</param>
-    /// <returns>ApiResponse chứa thông tin mẫu ca vừa tạo thành công (ShiftDto) hoặc thông báo lỗi nếu trùng mã</returns>
-    Task<ApiResponse<ShiftDto>> CreateShiftTemplateAsync(CreateShiftTemplateDto dto);
+    Task<ApiResponse<ShiftTemplateDto>> CreateShiftTemplateAsync(CreateShiftTemplateDto dto);
 
     /// <summary>
     /// Cập nhật thông tin chi tiết của một mẫu ca làm việc chuẩn.
-    /// Logic đặc biệt: Cho phép cập nhật giờ bắt đầu, giờ kết thúc, cờ qua đêm, số phút nghỉ giữa ca và bật/tắt trạng thái hoạt động IsActive.
     /// </summary>
-    /// <param name="id">Mã ID định danh mẫu ca chuẩn (ShiftTemplate.Id)</param>
-    /// <param name="dto">DTO chứa thông tin mới cần cập nhật</param>
-    /// <returns>ApiResponse chứa thông tin mẫu ca sau khi cập nhật (ShiftDto) hoặc báo lỗi nếu không tìm thấy ID</returns>
-    Task<ApiResponse<ShiftDto>> UpdateShiftTemplateAsync(uint id, UpdateShiftTemplateDto dto);
+    Task<ApiResponse<ShiftTemplateDto>> UpdateShiftTemplateAsync(uint id, UpdateShiftTemplateDto dto);
+
+    /// <summary>
+    /// Cập nhật trạng thái mẫu ca làm việc (ACTIVE / INACTIVE) - Không xóa cứng để bảo toàn lịch sử chấm công.
+    /// </summary>
+    Task<ApiResponse<ShiftTemplateDto>> UpdateShiftTemplateStatusAsync(uint id, UpdateShiftTemplateStatusDto dto);
+
+    /// <summary>
+    /// Lấy thông tin chi tiết mẫu ca chuẩn theo ID.
+    /// </summary>
+    Task<ApiResponse<ShiftTemplateDto>> GetShiftTemplateByIdAsync(uint id);
 
     /// <summary>
     /// Vô hiệu hóa (Soft delete) mẫu ca làm việc chuẩn.
-    /// Logic đặc biệt: Đổi cờ IsActive = false thay vì xóa cứng dữ liệu để bảo toàn lịch sử chấm công và ca trực đã xếp.
     /// </summary>
-    /// <param name="id">Mã ID định danh mẫu ca chuẩn cần vô hiệu hóa</param>
-    /// <returns>ApiResponse trả về cờ boolean xác nhận thao tác vô hiệu hóa thành công</returns>
     Task<ApiResponse<bool>> DeleteShiftTemplateAsync(uint id);
 
     /// <summary>
-    /// Lấy danh sách tất cả các ca làm việc mẫu trong hệ thống.
-    /// Logic đặc biệt: Mặc định chỉ lấy các ca active. Nếu includeInactive = true sẽ lấy tất cả ca phục vụ màn hình quản trị Admin.
+    /// Lấy danh sách tất cả các ca làm việc mẫu trong hệ thống (hỗ trợ lọc status: ACTIVE / INACTIVE).
     /// </summary>
-    /// <param name="includeInactive">Cờ tùy chọn: True lấy cả ca đã vô hiệu hóa, False chỉ lấy ca đang hoạt động</param>
-    /// <returns>ApiResponse chứa danh sách DTO thông tin mẫu ca chuẩn (List&lt;ShiftDto&gt;)</returns>
+    Task<ApiResponse<List<ShiftTemplateDto>>> GetAllShiftTemplatesAsync(string? status = null);
     Task<ApiResponse<List<ShiftDto>>> GetAllShiftTemplatesAsync(bool includeInactive = false);
 
-    /// <summary>
-    /// Lấy chi tiết một mẫu ca chuẩn theo ID.
-    /// </summary>
-    /// <param name="id">Mã ID mẫu ca</param>
-    /// <returns>ApiResponse chứa chi tiết ShiftDto</returns>
-    Task<ApiResponse<ShiftDto>> GetShiftTemplateByIdAsync(uint id);
-
-    /// <summary>
-    /// Chuẩn hóa và thiết lập bộ khung ca mẫu mặc định toàn hệ thống (Ca sáng, Ca chiều, Ca đêm).
-    /// Ngăn chặn việc tạo ca sai lệch và đảm bảo chuỗi siêu thị luôn có sẵn 3 khung ca chuẩn (UC 1.3).
-    /// </summary>
-    /// <returns>Danh sách các khung ca sau khi chuẩn hóa</returns>
-    Task<ApiResponse<List<ShiftDto>>> StandardizeMasterTemplatesAsync();
 
     // =========================================================
     // 2. Khởi Tạo Khung Lịch & Định Mức Nhu Cầu (Store Manager & Admin)

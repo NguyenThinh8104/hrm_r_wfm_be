@@ -22,34 +22,34 @@ public class ShiftsController : ControllerBase
     }
 
     // ==========================================
-    // 1. Quản lý Mẫu Ca Chuẩn (Operations Admin - UC 1.3)
+    // 1. Quản lý Mẫu Ca Chuẩn (Operations Admin)
     // ==========================================
 
     /// <summary>
     /// [Operations Admin] Tạo mới mẫu ca làm việc chuẩn áp dụng cho toàn hệ thống cửa hàng.
-    /// Logic đặc biệt: Yêu cầu quyền OperationsAdmin hoặc BusinessOwner, tự động kiểm tra tính logic của giờ giấc, thời lượng và chống tạo ca sai lệch.
+    /// Logic đặc biệt: Yêu cầu quyền OperationsAdmin hoặc BusinessOwner, tự động kiểm tra trùng mã TemplateCode và mã hóa chuỗi chữ hoa.
     /// </summary>
-    /// <param name="dto">DTO thông tin mẫu ca mới</param>
+    /// <param name="dto">DTO thông tin mẫu ca mới (TemplateCode, Name, StartTime, EndTime, IsOvernight, BreakDurationMinutes)</param>
     /// <returns>ApiResponse chứa thông tin mẫu ca vừa tạo thành công (ShiftDto)</returns>
     [HttpPost("templates")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER")]
-    public async Task<ActionResult<ApiResponse<ShiftDto>>> CreateShiftTemplate([FromBody] CreateShiftTemplateDto dto)
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<ShiftTemplateDto>>> CreateShiftTemplate([FromBody] CreateShiftTemplateDto dto)
     {
         var result = await _shiftService.CreateShiftTemplateAsync(dto);
         if (!result.Success) return BadRequest(result);
-        return Ok(result);
+        return StatusCode(201, result);
     }
 
     /// <summary>
     /// [Operations Admin] Cập nhật thông tin ca làm việc chuẩn.
-    /// Logic đặc biệt: Yêu cầu quyền OperationsAdmin/BusinessOwner, chuẩn hóa khung giờ, cờ ca đêm và thời gian nghỉ giữa ca.
+    /// Logic đặc biệt: Yêu cầu quyền OperationsAdmin/BusinessOwner, cập nhật khung giờ, cờ ca đêm và thời gian nghỉ giữa ca.
     /// </summary>
     /// <param name="id">Mã ID mẫu ca chuẩn cần sửa</param>
     /// <param name="dto">DTO chứa dữ liệu mới cần cập nhật</param>
     /// <returns>ApiResponse chứa thông tin mẫu ca sau khi sửa (ShiftDto)</returns>
     [HttpPut("templates/{id}")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER")]
-    public async Task<ActionResult<ApiResponse<ShiftDto>>> UpdateShiftTemplate(uint id, [FromBody] UpdateShiftTemplateDto dto)
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<ShiftTemplateDto>>> UpdateShiftTemplate(uint id, [FromBody] UpdateShiftTemplateDto dto)
     {
         var result = await _shiftService.UpdateShiftTemplateAsync(id, dto);
         if (!result.Success) return BadRequest(result);
@@ -63,7 +63,7 @@ public class ShiftsController : ControllerBase
     /// <param name="id">Mã ID mẫu ca chuẩn cần vô hiệu hóa</param>
     /// <returns>ApiResponse trả về boolean xác nhận thao tác thành công</returns>
     [HttpDelete("templates/{id}")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteShiftTemplate(uint id)
     {
         var result = await _shiftService.DeleteShiftTemplateAsync(id);
@@ -82,33 +82,6 @@ public class ShiftsController : ControllerBase
     public async Task<ActionResult<ApiResponse<List<ShiftDto>>>> GetShiftTemplates([FromQuery] bool includeInactive = false)
     {
         var result = await _shiftService.GetAllShiftTemplatesAsync(includeInactive);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Lấy thông tin chi tiết của một mẫu ca chuẩn theo ID.
-    /// </summary>
-    /// <param name="id">Mã ID mẫu ca chuẩn</param>
-    /// <returns>ApiResponse chứa chi tiết thông tin mẫu ca (ShiftDto)</returns>
-    [HttpGet("templates/{id}")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<ShiftDto>>> GetShiftTemplateById(uint id)
-    {
-        var result = await _shiftService.GetShiftTemplateByIdAsync(id);
-        if (!result.Success) return NotFound(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// [Operations Admin] Chuẩn hóa và thiết lập bộ khung ca mẫu mặc định toàn hệ thống (Ca sáng, Ca chiều, Ca đêm).
-    /// Ngăn chặn việc tạo ca sai lệch và đảm bảo chuỗi siêu thị luôn có sẵn 3 khung ca chuẩn (UC 1.3).
-    /// </summary>
-    /// <returns>Danh sách các khung ca chuẩn sau khi chuẩn hóa</returns>
-    [HttpPost("templates/standardize")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER")]
-    public async Task<ActionResult<ApiResponse<List<ShiftDto>>>> StandardizeMasterTemplates()
-    {
-        var result = await _shiftService.StandardizeMasterTemplatesAsync();
         return Ok(result);
     }
 

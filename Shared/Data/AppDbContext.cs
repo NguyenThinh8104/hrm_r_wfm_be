@@ -41,7 +41,7 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("branches");
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.BranchCode).IsUnique();
+            entity.HasIndex(e => e.Code).IsUnique();
         });
 
         // 2. roles
@@ -79,7 +79,7 @@ public partial class AppDbContext : DbContext
             entity.ToTable("kiosks");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.KioskCode).IsUnique();
-            entity.HasIndex(e => e.DeviceToken).IsUnique();
+            entity.HasIndex(e => e.KioskToken).IsUnique();
 
             entity.HasOne(e => e.Branch)
                 .WithMany(b => b.Kiosks)
@@ -110,7 +110,7 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("shift_templates");
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.TemplateCode).IsUnique();
+            entity.HasIndex(e => e.Code).IsUnique();
         });
 
         // 7. work_schedules

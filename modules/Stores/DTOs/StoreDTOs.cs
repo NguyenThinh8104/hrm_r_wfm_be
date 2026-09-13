@@ -1,144 +1,162 @@
 namespace Modules.Stores.DTOs;
 
+// ==========================================
+// 1. Branch DTOs (UC 1.2)
+// ==========================================
+
 /// <summary>
-/// DTO yêu cầu tạo mới chi nhánh cửa hàng (Operations Admin).
+/// DTO trả về thông tin chi nhánh cửa hàng kèm danh sách Kiosk.
 /// </summary>
-public class CreateStoreDto
+public class BranchDto
 {
-    /// <summary>
-    /// Mã chi nhánh viết hoa duy nhất (Ví dụ: CH03, STORE_CG).
-    /// </summary>
-    public string BranchCode { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Tên chi nhánh (Ví dụ: Cửa hàng Tiện lợi Chi nhánh Quận 1).
-    /// </summary>
+    public ulong Id { get; set; }
+    public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Địa chỉ chi nhánh cửa hàng.
-    /// </summary>
     public string Address { get; set; } = string.Empty;
+    public string? Phone { get; set; }
+    public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public int TotalKiosks { get; set; }
+    public int ActiveKiosks { get; set; }
+    public List<KioskDto> Kiosks { get; set; } = new();
 
-    /// <summary>
-    /// Địa chỉ IP tĩnh hoặc dải IP mạng cho phép của Kiosk quầy (Tùy chọn, ví dụ: "192.168.1.100" hoặc "127.0.0.1,::1").
-    /// </summary>
-    public string? KioskAllowedIp { get; set; }
-
-    /// <summary>
-    /// Tên trình duyệt hoặc User-Agent hợp lệ của Kiosk quầy (Tùy chọn, ví dụ: "Chrome", "Edge", "KioskBrowser").
-    /// </summary>
-    public string? KioskAllowedBrowser { get; set; }
+    // Backward compatibility aliases
+    public int StoreId => (int)Id;
+    public string StoreCode => Code;
+    public string BranchCode => Code;
+    public string StoreName => Name;
+    public string BranchName => Name;
+    public int KioskCount => TotalKiosks;
 }
 
 /// <summary>
-/// DTO cập nhật thông tin chi nhánh cửa hàng (Operations Admin).
+/// DTO yêu cầu tạo mới chi nhánh cửa hàng.
 /// </summary>
-public class UpdateStoreDto
+public class CreateBranchDto
 {
+    public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
-    public string? KioskAllowedIp { get; set; }
-    public string? KioskAllowedBrowser { get; set; }
-    public string? Status { get; set; } // "ACTIVE" hoặc "LOCKED"
-}
-
-/// <summary>
-/// DTO thay đổi trạng thái hoạt động (Khóa / Mở khóa) của chi nhánh.
-/// </summary>
-public class UpdateStoreStatusDto
-{
-    /// <summary>
-    /// Trạng thái mới: "ACTIVE" hoặc "LOCKED".
-    /// </summary>
+    public string? Phone { get; set; }
     public string Status { get; set; } = "ACTIVE";
 
-    /// <summary>
-    /// Lý do thay đổi trạng thái (Ghi nhận Audit Log).
-    /// </summary>
+    // Aliases
+    public string? BranchCode { get => Code; set => Code = value ?? string.Empty; }
+    public string? StoreCode { get => Code; set => Code = value ?? string.Empty; }
+    public string? StoreName { get => Name; set => Name = value ?? string.Empty; }
+    public string? BranchName { get => Name; set => Name = value ?? string.Empty; }
+}
+
+/// <summary>
+/// DTO cập nhật thông tin chi nhánh.
+/// </summary>
+public class UpdateBranchDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public string? Phone { get; set; }
+
+    // Aliases
+    public string? StoreName { get => Name; set => Name = value ?? string.Empty; }
+    public string? BranchName { get => Name; set => Name = value ?? string.Empty; }
+}
+
+/// <summary>
+/// DTO cập nhật trạng thái chi nhánh (ACTIVE / INACTIVE).
+/// </summary>
+public class UpdateBranchStatusDto
+{
+    public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
     public string? Reason { get; set; }
 }
 
+// ==========================================
+// 2. Kiosk DTOs (UC 1.2)
+// ==========================================
+
 /// <summary>
-/// DTO chi tiết chi nhánh cửa hàng kèm cấu hình mạng Kiosk và danh sách thiết bị.
+/// DTO trả về thông tin chi tiết thiết bị Kiosk quầy.
 /// </summary>
-public class StoreDetailDto
+public class KioskDto
 {
-    public int StoreId { get; set; }
-    public string StoreCode { get; set; } = string.Empty;
-    public string StoreName { get; set; } = string.Empty;
-    public string Address { get; set; } = string.Empty;
-    public string Status { get; set; } = "ACTIVE";
-    public string? KioskAllowedIp { get; set; }
-    public string? KioskAllowedBrowser { get; set; }
-    public int TotalKiosks { get; set; }
-    public int ActiveKiosks { get; set; }
+    public ulong Id { get; set; }
+    public ulong BranchId { get; set; }
+    public string BranchCode { get; set; } = string.Empty;
+    public string BranchName { get; set; } = string.Empty;
+    public string DeviceName { get; set; } = string.Empty;
+    public string KioskCode { get; set; } = string.Empty;
+    public string? IpWhitelist { get; set; }
+    public string KioskToken { get; set; } = string.Empty;
+    public string? UserAgentPattern { get; set; }
+    public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "BLOCKED" / "INACTIVE"
+    public DateTime? LastPingAt { get; set; }
+    public bool IsOnline => LastPingAt.HasValue && LastPingAt.Value >= DateTime.UtcNow.AddMinutes(-5);
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    public List<KioskDetailDto> Kiosks { get; set; } = new();
+
+    // Backward compatibility aliases
+    public int KioskId => (int)Id;
+    public int StoreId => (int)BranchId;
+    public string StoreCode => BranchCode;
+    public string StoreName => BranchName;
+    public string Name => DeviceName;
+    public string KioskName => DeviceName;
+    public string DeviceToken => KioskToken;
+    public string? AllowedIp => IpWhitelist;
+    public string? AllowedBrowser => UserAgentPattern;
+    public string? IpAddress => IpWhitelist;
+    public string? LastBrowserUserAgent => UserAgentPattern;
 }
 
 /// <summary>
-/// DTO cập nhật cấu hình mạng / trình duyệt trạm Kiosk tại quầy (Operations Admin / Store Manager).
+/// DTO tạo mới Kiosk cho một chi nhánh.
 /// </summary>
-public class UpdateKioskConfigDto
+public class CreateKioskDto
 {
-    /// <summary>
-    /// Tên hiển thị của trạm Kiosk.
-    /// </summary>
-    public string? Name { get; set; }
+    public string DeviceName { get; set; } = string.Empty;
+    public string? IpWhitelist { get; set; }
+    public string? UserAgentPattern { get; set; }
+    public string? KioskToken { get; set; }
 
-    /// <summary>
-    /// Địa chỉ IP tĩnh hoặc dải IP được phép truy cập (Tùy chọn).
-    /// </summary>
-    public string? AllowedIp { get; set; }
-
-    /// <summary>
-    /// Tên trình duyệt hoặc chuỗi User-Agent được phép chạy ứng dụng Kiosk (Tùy chọn).
-    /// </summary>
-    public string? AllowedBrowser { get; set; }
-
-    /// <summary>
-    /// Trạng thái hoạt động: "ACTIVE" hoặc "LOCKED".
-    /// </summary>
-    public string? Status { get; set; }
+    // Aliases
+    public string? Name { get => DeviceName; set => DeviceName = value ?? string.Empty; }
+    public string? KioskName { get => DeviceName; set => DeviceName = value ?? string.Empty; }
+    public string? AllowedIp { get => IpWhitelist; set => IpWhitelist = value; }
+    public string? AllowedBrowser { get => UserAgentPattern; set => UserAgentPattern = value; }
 }
 
 /// <summary>
-/// DTO thay đổi trạng thái (Khóa / Mở khóa) trạm Kiosk quầy.
+/// DTO cập nhật thông tin / cấu hình Kiosk quầy.
+/// </summary>
+public class UpdateKioskDto
+{
+    public string DeviceName { get; set; } = string.Empty;
+    public string? IpWhitelist { get; set; }
+    public string? UserAgentPattern { get; set; }
+
+    // Aliases
+    public string? Name { get => DeviceName; set => DeviceName = value ?? string.Empty; }
+    public string? KioskName { get => DeviceName; set => DeviceName = value ?? string.Empty; }
+    public string? AllowedIp { get => IpWhitelist; set => IpWhitelist = value; }
+    public string? AllowedBrowser { get => UserAgentPattern; set => UserAgentPattern = value; }
+}
+
+/// <summary>
+/// DTO cập nhật trạng thái Kiosk quầy (ACTIVE / BLOCKED / INACTIVE).
 /// </summary>
 public class UpdateKioskStatusDto
 {
-    /// <summary>
-    /// Trạng thái mới: "ACTIVE" hoặc "LOCKED".
-    /// </summary>
-    public string Status { get; set; } = "ACTIVE";
-
-    /// <summary>
-    /// Lý do khóa khẩn cấp hoặc mở khóa trạm Kiosk.
-    /// </summary>
+    public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "BLOCKED" / "INACTIVE"
     public string? Reason { get; set; }
 }
 
-/// <summary>
-/// DTO chi tiết thiết bị Kiosk quầy, thông tin mạng và trạng thái kết nối.
-/// </summary>
-public class KioskDetailDto
-{
-    public int KioskId { get; set; }
-    public int StoreId { get; set; }
-    public string StoreCode { get; set; } = string.Empty;
-    public string StoreName { get; set; } = string.Empty;
-    public string KioskCode { get; set; } = string.Empty;
-    public string KioskName { get; set; } = string.Empty;
-    public string DeviceToken { get; set; } = string.Empty;
-    public string Status { get; set; } = "ACTIVE";
-    public string? AllowedIp { get; set; }
-    public string? AllowedBrowser { get; set; }
-    public string? IpAddress { get; set; }
-    public string? LastBrowserUserAgent { get; set; }
-    public DateTime? LastPingAt { get; set; }
-    public bool IsOnline { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime? UpdatedAt { get; set; }
-}
+// ==========================================
+// 3. Backward Compatibility DTO Classes
+// ==========================================
+public class StoreDetailDto : BranchDto { }
+public class CreateStoreDto : CreateBranchDto { }
+public class UpdateStoreDto : UpdateBranchDto { }
+public class UpdateStoreStatusDto : UpdateBranchStatusDto { }
+public class KioskDetailDto : KioskDto { }
+public class UpdateKioskConfigDto : UpdateKioskDto { }

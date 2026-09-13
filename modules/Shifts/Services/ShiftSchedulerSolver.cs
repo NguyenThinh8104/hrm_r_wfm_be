@@ -88,8 +88,8 @@ public class ShiftSchedulerSolver
         }
 
         // Ràng buộc 2: Nghỉ sau ca đêm (Nhân viên làm ca đêm ngày d thì ngày d+1 bắt buộc nghỉ ca sáng)
-        int nightShiftIdx = templates.FindIndex(t => t.IsOvernight || t.TemplateCode.Contains("DEM") || t.TemplateCode.Contains("NIGHT") || t.StartTime >= new TimeOnly(20, 0));
-        int morningShiftIdx = templates.FindIndex(t => t.TemplateCode.Contains("SANG") || t.TemplateCode.Contains("MORNING") || t.StartTime <= new TimeOnly(8, 0));
+        int nightShiftIdx = templates.FindIndex(t => t.IsOvernight || t.Code.Contains("DEM") || t.Code.Contains("NIGHT") || t.StartTime >= new TimeOnly(20, 0));
+        int morningShiftIdx = templates.FindIndex(t => t.Code.Contains("SANG") || t.Code.Contains("MORNING") || t.StartTime <= new TimeOnly(8, 0));
 
         if (nightShiftIdx >= 0 && morningShiftIdx >= 0 && nightShiftIdx != morningShiftIdx)
         {

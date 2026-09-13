@@ -5,10 +5,13 @@ namespace Shared.Data;
 
 public static class DbInitializer
 {
-    public static void Initialize(AppDbContext context)
+    public static void Initialize(AppDbContext context, bool seedData = false)
     {
-        // Recreate Database with new schema
-        context.Database.EnsureDeleted();
+        if (seedData)
+        {
+            context.Database.EnsureDeleted();
+        }
+
         context.Database.EnsureCreated();
 
         // 1. Seed Roles

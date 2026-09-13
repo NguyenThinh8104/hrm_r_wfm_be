@@ -178,7 +178,7 @@ public class KioskService : IKioskService
     }
 
     /// <summary>
-    /// Lấy danh sách các trạm Kiosk đã được kích hoạt thuộc một chi nhánh cửa hàng.
+    /// Lấy danh sách các trạm Kiosk đã được kích hoạt thuộc một chi nhánh cửa hàng (Bỏ qua các trạm đã xóa mềm).
     /// </summary>
     /// <param name="storeId">Mã ID chi nhánh cửa hàng</param>
     /// <returns>ApiResponse chứa danh sách các thiết bị Kiosk của cửa hàng</returns>
@@ -186,7 +186,7 @@ public class KioskService : IKioskService
     {
         var kiosks = await _context.KioskDevices
             .Include(k => k.Branch)
-            .Where(k => k.BranchId == (ulong)storeId)
+            .Where(k => k.BranchId == (ulong)storeId && k.Status != "DELETED")
             .OrderBy(k => k.KioskCode)
             .Select(k => new KioskActivationResponseDto
             {
@@ -204,4 +204,61 @@ public class KioskService : IKioskService
 
         return ApiResponse<List<KioskActivationResponseDto>>.Ok(kiosks);
     }
+
+    /// <summary>
+    /// Hủy ghép nối / Dừng hoạt động một trạm Kiosk theo KioskId bởi Store Manager.
+    /// </summary>
+    public async Task<ApiResponse<bool>> DeactivateKioskAsync(int kioskId)
+    {
+        var kiosk = await _context.KioskDevices.FindAsync((ulong)kioskId);
+        if (kiosk == null || kiosk.Status == "DELETED")
+        {
+            return ApiResponse<bool>.Fail("Không tìm thấy thông tin trạm Kiosk.");
+        }
+
+        kiosk.Status = "INACTIVE";
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<bool>.Ok(true, "Đã ngắt kết nối trạm Kiosk thành công.");
+    }
+
+    /// <summary>
+    /// Hủy ghép nối trạm Kiosk bằng DeviceToken khi người dùng chọn Đăng xuất trên ứng dụng Kiosk.
+    /// </summary>
+    public async Task<ApiResponse<bool>> UnpairKioskTokenAsync(string deviceToken)
+    {
+        if (string.IsNullOrWhiteSpace(deviceToken))
+        {
+            return ApiResponse<bool>.Fail(KioskMessages.TokenInvalid);
+        }
+
+        var kiosk = await _context.KioskDevices.FirstOrDefaultAsync(k => k.DeviceToken == deviceToken.Trim() && k.Status != "DELETED");
+        if (kiosk != null)
+        {
+            kiosk.Status = "INACTIVE";
+            await _context.SaveChangesAsync();
+        }
+
+        return ApiResponse<bool>.Ok(true, "Hủy ghép nối trạm Kiosk thành công.");
+    }
+
+    /// <summary>
+    /// Xóa mềm thiết bị Kiosk (chuyển trạng thái sang DELETED).
+    /// </summary>
+    public async Task<ApiResponse<bool>> DeleteKioskAsync(int kioskId)
+    {
+        var kiosk = await _context.KioskDevices.FindAsync((ulong)kioskId);
+        if (kiosk == null )
+        {
+            return ApiResponse<bool>.Fail("Không tìm thấy thông tin trạm Kiosk.");
+        }
+
+        // Xóa mềm: Chuyển trạng thái thiết bị sang DELETED
+        kiosk.Status = "DELETED";
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<bool>.Ok(true, "Đã xóa trạm Kiosk khỏi danh sách cửa hàng.");
+    }
 }
+
+

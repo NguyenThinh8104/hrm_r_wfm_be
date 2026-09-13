@@ -68,5 +68,14 @@ public interface IAttendanceService
     /// <param name="pin">Mã PIN cá nhân 6 chữ số của nhân viên</param>
     /// <returns>ApiResponse chứa kết quả điểm danh kết thúc ca (AttendanceCheckOutResultDto) bao gồm tổng số phút làm việc</returns>
     Task<ApiResponse<AttendanceCheckOutResultDto>> CheckOutAsync(long userId, string pin);
+
+    /// <summary>
+    /// Tra cứu tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý tại trạm Kiosk.
+    /// </summary>
+    /// <param name="storeId">Mã ID cửa hàng</param>
+    /// <param name="query">Từ khóa tìm kiếm theo Mã NV hoặc Tên</param>
+    /// <returns>ApiResponse chứa danh sách nhân viên thỏa điều kiện</returns>
+    Task<ApiResponse<List<KioskEmployeeSearchDto>>> SearchStoreEmployeesAsync(int storeId, string? query = null);
 }
+
 

@@ -345,13 +345,13 @@ public class ShiftService : IShiftService
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
             templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.Status == "ACTIVE")
                 .ToListAsync();
         }
         else
         {
             templates = await _context.ShiftTemplates
-                .Where(st => st.IsActive)
+                .Where(st => st.Status == "ACTIVE")
                 .ToListAsync();
         }
 
@@ -752,13 +752,13 @@ public class ShiftService : IShiftService
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
             templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.Status == "ACTIVE")
                 .ToListAsync();
         }
         else
         {
             templates = await _context.ShiftTemplates
-                .Where(st => st.IsActive)
+                .Where(st => st.Status == "ACTIVE")
                 .ToListAsync();
         }
 
@@ -1156,7 +1156,7 @@ public class ShiftService : IShiftService
 
         // 1. Lấy danh sách mẫu ca chuẩn đang hoạt động
         var templates = await _context.ShiftTemplates
-            .Where(st => st.IsActive)
+            .Where(st => st.Status == "ACTIVE")
             .OrderBy(st => st.StartTime)
             .ToListAsync();
 

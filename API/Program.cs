@@ -92,15 +92,24 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// 7. Tự động kiểm tra Database & Nạp Dữ liệu Mẫu (Seed Data)
+// 7. Tự động kiểm tra Database & Nạp Dữ liệu Mẫu (Nếu chưa có hoặc có cờ --seed)
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     try
     {
         var context = services.GetRequiredService<AppDbContext>();
-        DbInitializer.Initialize(context);
-        Log.Information(">>> Khởi tạo cơ sở dữ liệu và nạp dữ liệu mẫu R-WFM thành công!");
+        bool shouldReseed = args.Contains("--seed") || args.Contains("--reset-db");
+        DbInitializer.Initialize(context, reseed: shouldReseed);
+
+        if (shouldReseed)
+        {
+            Log.Information(">>> Đã Reset Database và nạp lại dữ liệu mẫu R-WFM thành công!");
+        }
+        else
+        {
+            Log.Information(">>> Kết nối cơ sở dữ liệu R-WFM thành công (Giữ nguyên dữ liệu hiện có)!");
+        }
     }
     catch (Exception ex)
     {

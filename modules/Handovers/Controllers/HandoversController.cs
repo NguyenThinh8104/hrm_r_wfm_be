@@ -37,7 +37,7 @@ public class HandoversController : ControllerBase
     }
 
     [HttpPost("cashier-submit")]
-    [Authorize(Roles = "Cashier,ShiftLeader,StoreManager,OperationsAdmin,BusinessOwner")]
+    [Authorize(Roles = "CASHIER,SHIFT_LEADER,STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<ShiftHandoverSessionDto>>> SubmitCashierHandover([FromBody] CashierHandoverSubmitDto request)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -52,7 +52,7 @@ public class HandoversController : ControllerBase
     }
 
     [HttpPost("security-submit")]
-    [Authorize(Roles = "SecurityGuard,ShiftLeader,StoreManager,OperationsAdmin,BusinessOwner")]
+    [Authorize(Roles = "SECURITY_GUARD,SHIFT_LEADER,STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<ShiftHandoverSessionDto>>> SubmitSecurityHandover([FromBody] SecurityHandoverSubmitDto request)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -67,7 +67,7 @@ public class HandoversController : ControllerBase
     }
 
     [HttpPost("leader-sign")]
-    [Authorize(Roles = "ShiftLeader,StoreManager,OperationsAdmin,BusinessOwner")]
+    [Authorize(Roles = "SHIFT_LEADER,STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<ShiftHandoverSessionDto>>> LeaderSignHandover([FromBody] LeaderSignHandoverDto request)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;

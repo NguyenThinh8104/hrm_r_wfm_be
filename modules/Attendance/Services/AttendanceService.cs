@@ -502,4 +502,35 @@ public class AttendanceService : IAttendanceService
 
         return ApiResponse<AttendanceCheckOutResultDto>.Ok(resultDto, resultDto.Message);
     }
+
+    /// <summary>
+    /// Tra cứu tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý tại trạm Kiosk.
+    /// </summary>
+    public async Task<ApiResponse<List<KioskEmployeeSearchDto>>> SearchStoreEmployeesAsync(int storeId, string? query = null)
+    {
+        var dbQuery = _context.Users
+            .Include(u => u.Role)
+            .Where(u => u.HomeBranchId == (ulong)storeId && u.Status == "ACTIVE");
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var cleanQuery = query.Trim().ToLower();
+            dbQuery = dbQuery.Where(u => u.EmployeeCode.ToLower().Contains(cleanQuery) 
+                                      || u.FullName.ToLower().Contains(cleanQuery));
+        }
+
+        var users = await dbQuery.Take(20).ToListAsync();
+        var result = users.Select(u => new KioskEmployeeSearchDto
+        {
+            EmployeeId = (int)u.Id,
+            EmployeeCode = u.EmployeeCode,
+            FullName = u.FullName,
+            PositionName = u.Role?.RoleName ?? string.Empty,
+            RoleCode = u.Role?.RoleCode ?? string.Empty,
+            StoreId = storeId
+        }).ToList();
+
+        return ApiResponse<List<KioskEmployeeSearchDto>>.Ok(result);
+    }
 }
+

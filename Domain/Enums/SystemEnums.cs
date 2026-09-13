@@ -2,14 +2,15 @@ namespace Domain.Enums;
 
 public enum UserRole
 {
-    BusinessOwner = 1,     // Chủ doanh nghiệp chuỗi (Dashboard, Audit Log)
-    OperationsAdmin = 2,   // Quản trị vận hành toàn chuỗi (Master Data, Khung ca, Tài khoản)
-    StoreManager = 3,      // Cửa hàng trưởng (Lập lịch, Phê duyệt đổi ca, Thỏa thuận mượn người, Chốt ca)
-    ShiftLeader = 4,       // Trưởng ca (Giám sát ca, Ký chốt biên bản giao ca, Báo vắng mặt)
-    Cashier = 5,           // Thu ngân (Kiosk check-in/out, Bàn giao két tiền mặt)
-    SalesStaff = 6,        // Nhân viên bán hàng (Kiosk check-in/out, Đăng ký/Đổi ca)
-    SecurityGuard = 7      // Nhân viên bảo vệ (Kiosk check-in/out, Bàn giao an ninh, khóa kho)
+    BUSINESS_OWNER = 1,     // Chủ doanh nghiệp chuỗi (Dashboard, Audit Log)
+    OPERATIONS_ADMIN = 2,   // Quản trị vận hành toàn chuỗi (Master Data, Khung ca, Tài khoản)
+    STORE_MANAGER = 3,      // Cửa hàng trưởng (Lập lịch, Phê duyệt đổi ca, Thỏa thuận mượn người, Chốt ca)
+    SHIFT_LEADER = 4,       // Trưởng ca (Giám sát ca, Ký chốt biên bản giao ca, Báo vắng mặt)
+    CASHIER = 5,           // Thu ngân (Kiosk check-in/out, Bàn giao két tiền mặt)
+    SALES_STAFF = 6,        // Nhân viên bán hàng (Kiosk check-in/out, Đăng ký/Đổi ca)
+    SECURITY_GUARD = 7      // Nhân viên bảo vệ (Kiosk check-in/out, Bàn giao an ninh, khóa kho)
 }
+
 
 public enum ShiftType
 {

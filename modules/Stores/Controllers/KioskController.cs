@@ -27,7 +27,7 @@ public class KioskController : ControllerBase
     /// <param name="request">DTO chứa StoreId và tên Kiosk hiển thị</param>
     /// <returns>Mã kích hoạt OTP dạng POS-XXXX và thời gian hết hạn</returns>
     [HttpPost("create-code")]
-    [Authorize(Roles = "StoreManager,OperationsAdmin,BusinessOwner")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<KioskCodeResponseDto>>> CreateKioskCode([FromBody] CreateKioskCodeRequestDto request)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -77,10 +77,36 @@ public class KioskController : ControllerBase
     /// <param name="storeId">Mã ID cửa hàng</param>
     /// <returns>Danh sách các máy Kiosk thuộc cửa hàng</returns>
     [HttpGet("store/{storeId}")]
-    [Authorize(Roles = "StoreManager,OperationsAdmin,BusinessOwner")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<KioskActivationResponseDto>>>> GetStoreKiosks(int storeId)
     {
         var result = await _kioskService.GetStoreKiosksAsync(storeId);
         return Ok(result);
     }
+
+    /// <summary>
+    /// [StoreManager/OpsAdmin/Owner] Hủy ghép nối / Dừng hoạt động một trạm Kiosk theo KioskId.
+    /// </summary>
+    /// <param name="kioskId">Mã ID trạm Kiosk</param>
+    [HttpDelete("{kioskId}")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeactivateKiosk(int kioskId)
+    {
+        var result = await _kioskService.DeactivateKioskAsync(kioskId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Public/Kiosk App] Hủy ghép nối trạm Kiosk bằng DeviceToken khi người dùng chọn Đăng xuất trên ứng dụng Kiosk.
+    /// </summary>
+    /// <param name="request">DTO chứa DeviceToken</param>
+    [HttpPost("unpair")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> UnpairKiosk([FromBody] VerifyKioskTokenRequestDto request)
+    {
+        var result = await _kioskService.UnpairKioskTokenAsync(request.DeviceToken);
+        return Ok(result);
+    }
 }
+

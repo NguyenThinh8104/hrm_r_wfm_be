@@ -43,14 +43,13 @@ public class BranchService : IBranchService, IStoreService
         {
             var s = search.Trim().ToLower();
             query = query.Where(b => 
-                b.Code.ToLower().Contains(s) || 
+                b.BranchCode.ToLower().Contains(s) || 
                 b.Name.ToLower().Contains(s) || 
-                b.Address.ToLower().Contains(s) ||
-                (b.Phone != null && b.Phone.Contains(s)));
+                b.Address.ToLower().Contains(s));
         }
 
         var branches = await query
-            .OrderBy(b => b.Code)
+            .OrderBy(b => b.BranchCode)
             .Select(b => MapToBranchDto(b))
             .ToListAsync();
 
@@ -96,7 +95,7 @@ public class BranchService : IBranchService, IStoreService
 
         var normalizedCode = dto.Code.Trim().ToUpper();
         var codeExists = await _context.Branches
-            .AnyAsync(b => b.Code.ToUpper() == normalizedCode);
+            .AnyAsync(b => b.BranchCode.ToUpper() == normalizedCode);
 
         if (codeExists)
         {
@@ -106,10 +105,9 @@ public class BranchService : IBranchService, IStoreService
         var now = DateTime.UtcNow;
         var branch = new Branch
         {
-            Code = normalizedCode,
+            BranchCode = normalizedCode,
             Name = dto.Name.Trim(),
             Address = dto.Address.Trim(),
-            Phone = string.IsNullOrWhiteSpace(dto.Phone) ? null : dto.Phone.Trim(),
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
             CreatedAt = now,
             UpdatedAt = now
@@ -122,7 +120,7 @@ public class BranchService : IBranchService, IStoreService
     }
 
     /// <summary>
-    /// Cập nhật thông tin chi nhánh cửa hàng (Tên, địa chỉ, số điện thoại).
+    /// Cập nhật thông tin chi nhánh cửa hàng (Tên, địa chỉ).
     /// </summary>
     public async Task<ApiResponse<BranchDto>> UpdateBranchAsync(ulong id, UpdateBranchDto dto)
     {
@@ -147,10 +145,6 @@ public class BranchService : IBranchService, IStoreService
 
         branch.Name = dto.Name.Trim();
         branch.Address = dto.Address.Trim();
-        if (dto.Phone != null)
-        {
-            branch.Phone = string.IsNullOrWhiteSpace(dto.Phone) ? null : dto.Phone.Trim();
-        }
         branch.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -351,7 +345,7 @@ public class BranchService : IBranchService, IStoreService
     {
         var kiosks = await _context.KioskDevices
             .Include(k => k.Branch)
-            .OrderBy(k => k.Branch.Code)
+            .OrderBy(k => k.Branch.BranchCode)
             .ThenBy(k => k.KioskCode)
             .Select(k => MapToKioskDto(k, k.Branch))
             .ToListAsync();
@@ -389,7 +383,6 @@ public class BranchService : IBranchService, IStoreService
             Code = b.Code,
             Name = b.Name,
             Address = b.Address,
-            Phone = b.Phone,
             Status = b.Status,
             CreatedAt = b.CreatedAt,
             UpdatedAt = b.UpdatedAt,

@@ -241,4 +241,9 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         return ApiResponse<bool>.Ok(true, "Đặt lại mật khẩu thành công. Bạn có thể đăng nhập bằng mật khẩu mới.");
     }
+
+    public Task<ApiResponse<List<UserSummaryDto>>> GetStoreEmployeesAsync(int storeId)
+    {
+        throw new NotImplementedException();
+    }
 }

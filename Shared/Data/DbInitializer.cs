@@ -5,9 +5,9 @@ namespace Shared.Data;
 
 public static class DbInitializer
 {
-    public static void Initialize(AppDbContext context, bool seedData = false)
+    public static void Initialize(AppDbContext context, bool reseed = false)
     {
-        if (seedData)
+        if (reseed)
         {
             context.Database.EnsureDeleted();
         }
@@ -39,10 +39,9 @@ public static class DbInitializer
                 new Branch
                 {
                     Id = 1,
-                    Code = "CH01",
+                    BranchCode = "CH01",
                     Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy",
                     Address = "123 Cầu Giấy, Q. Cầu Giấy, Hà Nội",
-                    Phone = "02438888888",
                     Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -50,10 +49,9 @@ public static class DbInitializer
                 new Branch
                 {
                     Id = 2,
-                    Code = "CH02",
+                    BranchCode = "CH02",
                     Name = "Cửa hàng Tiện lợi Chi nhánh Lê Văn Việt",
                     Address = "456 Lê Văn Việt, TP. Thủ Đức, TP. Hồ Chí Minh",
-                    Phone = "02839999999",
                     Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow

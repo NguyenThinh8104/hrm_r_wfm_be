@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Domain.Entities;
 
 public class KioskDevice
@@ -6,20 +8,37 @@ public class KioskDevice
     public ulong BranchId { get; set; }
     public Branch Branch { get; set; } = null!;
     
-    public string DeviceName { get; set; } = string.Empty;
-    public string Name { get => DeviceName; set => DeviceName = value; }
+    [Column("Name")]
+    public string Name { get; set; } = string.Empty;
+    
+    [NotMapped]
+    public string DeviceName { get => Name; set => Name = value; }
+    
     public string KioskCode { get; set; } = string.Empty;
     
-    public string? IpWhitelist { get; set; }
-    public string? AllowedIp { get => IpWhitelist; set => IpWhitelist = value; }
-    public string? IpAddress { get => IpWhitelist; set => IpWhitelist = value; }
+    [Column("AllowedIp")]
+    public string? AllowedIp { get; set; }
+    
+    [NotMapped]
+    public string? IpWhitelist { get => AllowedIp; set => AllowedIp = value; }
+    
+    [NotMapped]
+    public string? IpAddress { get => AllowedIp; set => AllowedIp = value; }
 
-    public string KioskToken { get; set; } = string.Empty;
-    public string DeviceToken { get => KioskToken; set => KioskToken = value; }
+    [Column("DeviceToken")]
+    public string DeviceToken { get; set; } = string.Empty;
+    
+    [NotMapped]
+    public string KioskToken { get => DeviceToken; set => DeviceToken = value; }
 
-    public string? UserAgentPattern { get; set; }
-    public string? AllowedBrowser { get => UserAgentPattern; set => UserAgentPattern = value; }
-    public string? LastBrowserUserAgent { get => UserAgentPattern; set => UserAgentPattern = value; }
+    [Column("AllowedBrowser")]
+    public string? AllowedBrowser { get; set; }
+    
+    [NotMapped]
+    public string? UserAgentPattern { get => AllowedBrowser; set => AllowedBrowser = value; }
+    
+    [NotMapped]
+    public string? LastBrowserUserAgent { get => AllowedBrowser; set => AllowedBrowser = value; }
 
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE", "BLOCKED", "INACTIVE"
     public DateTime? LastPingAt { get; set; }

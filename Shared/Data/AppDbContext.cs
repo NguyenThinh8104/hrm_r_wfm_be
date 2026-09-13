@@ -41,7 +41,9 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("branches");
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.Code).IsUnique();
+            entity.Property(e => e.BranchCode).HasColumnName("BranchCode");
+            entity.HasIndex(e => e.BranchCode).IsUnique();
+            entity.Ignore(e => e.Code);
         });
 
         // 2. roles
@@ -78,8 +80,16 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("kiosks");
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).HasColumnName("Name");
+            entity.Property(e => e.DeviceToken).HasColumnName("DeviceToken");
             entity.HasIndex(e => e.KioskCode).IsUnique();
-            entity.HasIndex(e => e.KioskToken).IsUnique();
+            entity.HasIndex(e => e.DeviceToken).IsUnique();
+            entity.Ignore(e => e.DeviceName);
+            entity.Ignore(e => e.KioskToken);
+            entity.Ignore(e => e.IpWhitelist);
+            entity.Ignore(e => e.IpAddress);
+            entity.Ignore(e => e.UserAgentPattern);
+            entity.Ignore(e => e.LastBrowserUserAgent);
 
             entity.HasOne(e => e.Branch)
                 .WithMany(b => b.Kiosks)

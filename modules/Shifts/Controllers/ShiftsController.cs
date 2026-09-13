@@ -204,6 +204,120 @@ public class ShiftsController : ControllerBase
         return Ok(result);
     }
 
+    // =========================================================
+    // 3b. Quản Lý Lịch Tuần & Xung Đột & Công Bố Tuần (UC 2.1 & UC 2.3)
+    // =========================================================
+
+    /// <summary>
+    /// [Store Manager] Khởi tạo khung mẫu ca cho 7 ngày trong tuần theo định mức mặc định (UC 2.1).
+    /// </summary>
+    [HttpPost("schedules/generate-weekly")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<WeeklyScheduleMatrixDto>>> GenerateWeeklySchedule([FromBody] GenerateWeeklyScheduleDto dto)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        ulong.TryParse(empIdClaim, out var userId);
+
+        var result = await _shiftService.GenerateWeeklyScheduleAsync(dto, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager] Lấy ma trận phân bổ ca tuần (7 ngày) kèm chỉ tiêu định mức và danh sách nhân sự (UC 2.1 & UC 2.3).
+    /// </summary>
+    [HttpGet("schedules/weekly-matrix")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<WeeklyScheduleMatrixDto>>> GetWeeklyScheduleMatrix(
+        [FromQuery] ulong branchId,
+        [FromQuery] string weekStartDate)
+    {
+        if (!DateOnly.TryParse(weekStartDate, out var sDate))
+        {
+            return BadRequest(ApiResponse<WeeklyScheduleMatrixDto>.Fail("Định dạng ngày bắt đầu tuần không hợp lệ (YYYY-MM-DD)."));
+        }
+
+        var result = await _shiftService.GetWeeklyScheduleMatrixAsync(branchId, sDate);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager] Phân bổ nhanh danh sách nhân viên Full-time vào ca trực trong tuần (UC 2.1).
+    /// Tự động kiểm tra và chặn gán trùng giờ/trùng ngày ở bất kỳ chi nhánh nào.
+    /// </summary>
+    [HttpPost("assignments/assign-fulltime-batch")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<List<ShiftAssignmentDto>>>> AssignFullTimeBatch([FromBody] AssignFullTimeBatchDto dto)
+    {
+        var result = await _shiftService.AssignFullTimeBatchAsync(dto);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager] Rà soát xung đột và kiểm tra tình trạng đủ/thiếu định mức trước khi công bố lịch tuần (UC 2.3).
+    /// </summary>
+    [HttpGet("schedules/check-conflicts")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<ScheduleConflictCheckResultDto>>> CheckWeeklyConflicts(
+        [FromQuery] ulong branchId,
+        [FromQuery] string weekStartDate)
+    {
+        if (!DateOnly.TryParse(weekStartDate, out var sDate))
+        {
+            return BadRequest(ApiResponse<ScheduleConflictCheckResultDto>.Fail("Định dạng ngày không hợp lệ (YYYY-MM-DD)."));
+        }
+
+        var result = await _shiftService.CheckWeeklyConflictsAsync(branchId, sDate);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager] Công bố phát hành lịch làm việc tuần (UC 2.3).
+    /// </summary>
+    [HttpPost("schedules/publish-weekly")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<bool>>> PublishWeeklySchedule([FromBody] PublishWeeklyScheduleDto dto)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        ulong.TryParse(empIdClaim, out var userId);
+
+        var result = await _shiftService.PublishWeeklyScheduleAsync(dto.BranchId, dto.WeekStartDate, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager] Xóa/Hủy 1 phân công ca làm việc của nhân viên.
+    /// </summary>
+    [HttpDelete("assignments/{assignmentId}")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteAssignment(ulong assignmentId)
+    {
+        var result = await _shiftService.DeleteShiftAssignmentAsync(assignmentId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager] Tự động xếp lịch ca tuần tối ưu bằng Google OR-Tools Constraint Programming Solver (UC 2.1).
+    /// </summary>
+    [HttpPost("schedules/auto-schedule")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<AutoScheduleResultDto>>> AutoScheduleWeekly([FromBody] AutoScheduleWeeklyDto dto)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        ulong.TryParse(empIdClaim, out var userId);
+
+        var result = await _shiftService.AutoScheduleWeeklyAsync(dto, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+
+
     // ==========================================
     // 4. API Hiện Có Giữ Tương Thích
     // ==========================================

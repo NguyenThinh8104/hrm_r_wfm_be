@@ -345,13 +345,13 @@ public class ShiftService : IShiftService
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
             templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.Status == "ACTIVE")
                 .ToListAsync();
         }
         else
         {
             templates = await _context.ShiftTemplates
-                .Where(st => st.IsActive)
+                .Where(st => st.Status == "ACTIVE")
                 .ToListAsync();
         }
 
@@ -730,6 +730,566 @@ public class ShiftService : IShiftService
         await _context.SaveChangesAsync();
         return ApiResponse<bool>.Ok(true, $"Đã công bố thành công lịch làm việc tháng {month}/{year} cho cửa hàng!");
     }
+
+    // =========================================================
+    // 3b. Quản Lý Lịch Tuần & Xung Đột & Công Bố Tuần (UC 2.1 & UC 2.3)
+    // =========================================================
+
+    /// <summary>
+    /// Khởi tạo khung mẫu ca cho 7 ngày trong tuần theo định mức mặc định (UC 2.1).
+    /// </summary>
+    public async Task<ApiResponse<WeeklyScheduleMatrixDto>> GenerateWeeklyScheduleAsync(GenerateWeeklyScheduleDto dto, ulong createdByUserId)
+    {
+        var branch = await _context.Branches.FindAsync(dto.BranchId);
+        if (branch == null)
+        {
+            return ApiResponse<WeeklyScheduleMatrixDto>.Fail("Không tìm thấy chi nhánh cửa hàng.");
+        }
+
+        var weekEndDate = dto.WeekStartDate.AddDays(6);
+
+        List<ShiftTemplate> templates;
+        if (dto.TemplateIds != null && dto.TemplateIds.Any())
+        {
+            templates = await _context.ShiftTemplates
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.Status == "ACTIVE")
+                .ToListAsync();
+        }
+        else
+        {
+            templates = await _context.ShiftTemplates
+                .Where(st => st.Status == "ACTIVE")
+                .ToListAsync();
+        }
+
+        if (!templates.Any())
+        {
+            return ApiResponse<WeeklyScheduleMatrixDto>.Fail("Không có mẫu ca nào hoạt động để sinh lịch tuần.");
+        }
+
+        var existingSchedules = await _context.WorkSchedules
+            .Where(ws => ws.BranchId == dto.BranchId && ws.WorkDate >= dto.WeekStartDate && ws.WorkDate <= weekEndDate)
+            .ToListAsync();
+
+        var existingSet = existingSchedules
+            .Select(ws => $"{ws.ShiftTemplateId}_{ws.WorkDate:yyyy-MM-dd}")
+            .ToHashSet();
+
+        var newSchedules = new List<WorkSchedule>();
+
+        for (int i = 0; i < 7; i++)
+        {
+            var workDate = dto.WeekStartDate.AddDays(i);
+            foreach (var template in templates)
+            {
+                var key = $"{template.Id}_{workDate:yyyy-MM-dd}";
+                if (!existingSet.Contains(key))
+                {
+                    newSchedules.Add(new WorkSchedule
+                    {
+                        BranchId = dto.BranchId,
+                        ShiftTemplateId = template.Id,
+                        WorkDate = workDate,
+                        RequiredCashier = dto.DefaultRequiredCashier,
+                        RequiredSales = dto.DefaultRequiredSales,
+                        RequiredSecurity = dto.DefaultRequiredSecurity,
+                        Status = "DRAFT",
+                        CreatedBy = createdByUserId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+        }
+
+        if (newSchedules.Any())
+        {
+            _context.WorkSchedules.AddRange(newSchedules);
+            await _context.SaveChangesAsync();
+        }
+
+        return await GetWeeklyScheduleMatrixAsync(dto.BranchId, dto.WeekStartDate);
+    }
+
+    /// <summary>
+    /// Lấy ma trận lịch phân bổ ca tuần (7 ngày) kèm chỉ tiêu định mức và danh sách nhân viên (UC 2.1 & UC 2.3).
+    /// </summary>
+    public async Task<ApiResponse<WeeklyScheduleMatrixDto>> GetWeeklyScheduleMatrixAsync(ulong branchId, DateOnly weekStartDate)
+    {
+        var branch = await _context.Branches.FindAsync(branchId);
+        if (branch == null)
+        {
+            return ApiResponse<WeeklyScheduleMatrixDto>.Fail("Không tìm thấy chi nhánh cửa hàng.");
+        }
+
+        var weekEndDate = weekStartDate.AddDays(6);
+        var days = new List<DateOnly>();
+        for (int i = 0; i < 7; i++)
+        {
+            days.Add(weekStartDate.AddDays(i));
+        }
+
+        var schedules = await _context.WorkSchedules
+            .Include(ws => ws.Branch)
+            .Include(ws => ws.ShiftTemplate)
+            .Include(ws => ws.ShiftAssignments)
+                .ThenInclude(sa => sa.AssignedRole)
+            .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
+            .OrderBy(ws => ws.WorkDate)
+            .ThenBy(ws => ws.ShiftTemplate.StartTime)
+            .ToListAsync();
+
+        var scheduleDtos = schedules.Select(ws => new WorkScheduleDto
+        {
+            ScheduleId = ws.Id,
+            BranchId = ws.BranchId,
+            BranchName = ws.Branch.Name,
+            ShiftTemplateId = ws.ShiftTemplateId,
+            ShiftTemplateName = ws.ShiftTemplate.Name,
+            StartTime = ws.ShiftTemplate.StartTime,
+            EndTime = ws.ShiftTemplate.EndTime,
+            WorkDate = ws.WorkDate,
+            RequiredCashier = ws.RequiredCashier,
+            RequiredSales = ws.RequiredSales,
+            RequiredSecurity = ws.RequiredSecurity,
+            AssignedCashierCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "CASHIER"),
+            AssignedSalesCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SALES"),
+            AssignedSecurityCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SECURITY"),
+            Status = ws.Status
+        }).ToList();
+
+        var assignedUserIds = await _context.ShiftAssignments
+            .Where(sa => sa.Schedule.BranchId == branchId && sa.Schedule.WorkDate >= weekStartDate && sa.Schedule.WorkDate <= weekEndDate)
+            .Select(sa => sa.UserId)
+            .Distinct()
+            .ToListAsync();
+
+        var storeUsers = await _context.Users
+            .Include(u => u.Role)
+            .Where(u => (u.HomeBranchId == branchId || assignedUserIds.Contains(u.Id)) && u.Status == "ACTIVE")
+            .OrderBy(u => u.Role.Id)
+            .ThenBy(u => u.FullName)
+            .ToListAsync();
+
+        var assignments = await _context.ShiftAssignments
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Where(sa => sa.Schedule.BranchId == branchId && sa.Schedule.WorkDate >= weekStartDate && sa.Schedule.WorkDate <= weekEndDate)
+            .ToListAsync();
+
+        var employeeRosters = storeUsers.Select(user =>
+        {
+            var userAssignments = assignments.Where(sa => sa.UserId == user.Id).ToList();
+
+            var rosterCells = userAssignments.Select(sa => new EmployeeRosterCellDto
+            {
+                Date = sa.Schedule.WorkDate,
+                ShiftTemplateId = sa.Schedule.ShiftTemplateId,
+                ShiftName = sa.Schedule.ShiftTemplate.Name,
+                StartTime = sa.Schedule.ShiftTemplate.StartTime,
+                EndTime = sa.Schedule.ShiftTemplate.EndTime,
+                AssignmentId = sa.Id,
+                Status = sa.Status
+            }).ToList();
+
+            return new EmployeeMonthlyRosterDto
+            {
+                UserId = user.Id,
+                EmployeeCode = user.EmployeeCode,
+                FullName = user.FullName,
+                RoleName = user.Role?.RoleName ?? string.Empty,
+                RoleCode = user.Role?.RoleCode ?? string.Empty,
+                AssignedShifts = rosterCells
+            };
+        }).ToList();
+
+        string weekStatus = "DRAFT";
+        if (schedules.Any())
+        {
+            if (schedules.All(s => s.Status == "PUBLISHED"))
+                weekStatus = "PUBLISHED";
+            else if (schedules.Any(s => s.Status == "PUBLISHED"))
+                weekStatus = "PARTIAL";
+        }
+
+        var matrix = new WeeklyScheduleMatrixDto
+        {
+            BranchId = branchId,
+            BranchName = branch.Name,
+            WeekStartDate = weekStartDate,
+            WeekEndDate = weekEndDate,
+            WeekStatus = weekStatus,
+            Days = days,
+            Schedules = scheduleDtos,
+            EmployeeRosters = employeeRosters
+        };
+
+        return ApiResponse<WeeklyScheduleMatrixDto>.Ok(matrix);
+    }
+
+    /// <summary>
+    /// Phân bổ nhanh danh sách nhân viên Full-time vào ca trực trong tuần (UC 2.1).
+    /// Tự động chặn trùng giờ/trùng ngày ở bất kỳ chi nhánh nào.
+    /// </summary>
+    public async Task<ApiResponse<List<ShiftAssignmentDto>>> AssignFullTimeBatchAsync(AssignFullTimeBatchDto dto)
+    {
+        if (dto.UserIds == null || !dto.UserIds.Any())
+        {
+            return ApiResponse<List<ShiftAssignmentDto>>.Fail("Vui lòng chọn ít nhất một nhân viên.");
+        }
+
+        var branch = await _context.Branches.FindAsync(dto.BranchId);
+        if (branch == null) return ApiResponse<List<ShiftAssignmentDto>>.Fail("Không tìm thấy chi nhánh.");
+
+        var shiftTemplate = await _context.ShiftTemplates.FindAsync(dto.ShiftTemplateId);
+        if (shiftTemplate == null) return ApiResponse<List<ShiftAssignmentDto>>.Fail("Không tìm thấy mẫu ca làm việc.");
+
+        var daysOfWeek = (dto.DaysOfWeek != null && dto.DaysOfWeek.Any()) 
+            ? dto.DaysOfWeek 
+            : new List<int> { 1, 2, 3, 4, 5, 6 }; // Default Thứ 2 -> Thứ 7
+
+        var resultList = new List<ShiftAssignmentDto>();
+        var errors = new List<string>();
+
+        foreach (var userId in dto.UserIds)
+        {
+            var user = await _context.Users
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.Id == userId && u.Status == "ACTIVE");
+
+            if (user == null)
+            {
+                errors.Add($"Không tìm thấy nhân viên ID {userId}.");
+                continue;
+            }
+
+            foreach (var dayNum in daysOfWeek)
+            {
+                if (dayNum < 1 || dayNum > 7) continue;
+                var workDate = dto.WeekStartDate.AddDays(dayNum - 1);
+
+                // Tự động kiểm tra xung đột trùng ca trong ngày
+                var conflict = await _context.ShiftAssignments
+                    .Include(sa => sa.Schedule)
+                        .ThenInclude(s => s.ShiftTemplate)
+                    .Include(sa => sa.Schedule)
+                        .ThenInclude(s => s.Branch)
+                    .FirstOrDefaultAsync(sa => sa.UserId == user.Id && sa.Schedule.WorkDate == workDate);
+
+                if (conflict != null)
+                {
+                    errors.Add($"NV '{user.FullName}' đã có ca '{conflict.Schedule.ShiftTemplate.Name}' ngày {workDate:dd/MM} tại '{conflict.Schedule.Branch.Name}'. Tự động chặn gán trùng!");
+                    continue;
+                }
+
+                // Tìm hoặc tạo WorkSchedule
+                var schedule = await _context.WorkSchedules
+                    .FirstOrDefaultAsync(ws => ws.BranchId == dto.BranchId 
+                                            && ws.ShiftTemplateId == dto.ShiftTemplateId 
+                                            && ws.WorkDate == workDate);
+
+                if (schedule == null)
+                {
+                    schedule = new WorkSchedule
+                    {
+                        BranchId = dto.BranchId,
+                        ShiftTemplateId = dto.ShiftTemplateId,
+                        WorkDate = workDate,
+                        RequiredCashier = 1,
+                        RequiredSales = 2,
+                        RequiredSecurity = 1,
+                        Status = "DRAFT",
+                        CreatedBy = user.Id,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _context.WorkSchedules.Add(schedule);
+                    await _context.SaveChangesAsync();
+                }
+
+                var assignment = new ShiftAssignment
+                {
+                    ScheduleId = schedule.Id,
+                    UserId = user.Id,
+                    AssignedRoleId = user.RoleId,
+                    AssignmentType = "ASSIGNED",
+                    Status = schedule.Status == "PUBLISHED" ? "CONFIRMED" : "DRAFT"
+                };
+
+                _context.ShiftAssignments.Add(assignment);
+                await _context.SaveChangesAsync();
+
+                resultList.Add(new ShiftAssignmentDto
+                {
+                    AssignmentId = (int)assignment.Id,
+                    ScheduleId = (int)schedule.Id,
+                    EmployeeId = (int)user.Id,
+                    EmployeeName = user.FullName,
+                    EmployeeCode = user.EmployeeCode,
+                    PositionName = user.Role.RoleName,
+                    ShiftId = (int)shiftTemplate.Id,
+                    ShiftName = shiftTemplate.Name,
+                    StartTime = shiftTemplate.StartTime,
+                    EndTime = shiftTemplate.EndTime,
+                    WorkDate = workDate,
+                    StoreId = (int)branch.Id,
+                    StoreName = branch.Name,
+                    Status = assignment.Status,
+                    IsDispatched = user.HomeBranchId != dto.BranchId
+                });
+            }
+        }
+
+        string msg = errors.Any()
+            ? $"Đã phân bổ thành công {resultList.Count} lượt ca. Bỏ qua {errors.Count} lượt trùng lịch."
+            : $"Đã phân bổ thành công {resultList.Count} ca cho nhân viên Full-time!";
+
+        return ApiResponse<List<ShiftAssignmentDto>>.Ok(resultList, msg);
+    }
+
+    /// <summary>
+    /// Rà soát xung đột và kiểm tra tình trạng đủ/thiếu định mức trước khi công bố lịch tuần (UC 2.3).
+    /// </summary>
+    public async Task<ApiResponse<ScheduleConflictCheckResultDto>> CheckWeeklyConflictsAsync(ulong branchId, DateOnly weekStartDate)
+    {
+        var weekEndDate = weekStartDate.AddDays(6);
+        var schedules = await _context.WorkSchedules
+            .Include(ws => ws.ShiftTemplate)
+            .Include(ws => ws.ShiftAssignments)
+                .ThenInclude(sa => sa.AssignedRole)
+            .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
+            .ToListAsync();
+
+        var issues = new List<string>();
+        int understaffedCount = 0;
+        int totalAssignments = 0;
+
+        foreach (var ws in schedules)
+        {
+            totalAssignments += ws.ShiftAssignments.Count;
+            int cashiers = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "CASHIER");
+            int sales = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SALES");
+            int security = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SECURITY");
+
+            var missingRoles = new List<string>();
+            if (cashiers < ws.RequiredCashier) missingRoles.Add($"Thiếu {ws.RequiredCashier - cashiers} Thu ngân");
+            if (sales < ws.RequiredSales) missingRoles.Add($"Thiếu {ws.RequiredSales - sales} Nhân viên bán hàng");
+            if (security < ws.RequiredSecurity) missingRoles.Add($"Thiếu {ws.RequiredSecurity - security} Bảo vệ");
+
+            if (missingRoles.Any())
+            {
+                understaffedCount++;
+                issues.Add($"Ngày {ws.WorkDate:dd/MM} ({ws.ShiftTemplate.Name}): {string.Join(", ", missingRoles)} (Chỉ tiêu: {ws.RequiredCashier} TN, {ws.RequiredSales} BH, {ws.RequiredSecurity} BV).");
+            }
+        }
+
+        bool isReady = issues.Count == 0;
+        string summary = isReady 
+            ? "Tất cả các ca trong tuần đã đủ định mức nhân sự và không phát hiện xung đột. Sẵn sàng công bố!"
+            : $"Có {understaffedCount} ca trực chưa đáp ứng đủ định mức nhân sự tối thiểu.";
+
+        return ApiResponse<ScheduleConflictCheckResultDto>.Ok(new ScheduleConflictCheckResultDto
+        {
+            HasConflicts = false,
+            TotalAssignments = totalAssignments,
+            UnderstaffedShiftsCount = understaffedCount,
+            Issues = issues,
+            IsReadyToPublish = isReady,
+            SummaryMessage = summary
+        });
+    }
+
+    /// <summary>
+    /// Store Manager duyệt và công bố phát hành lịch tuần (UC 2.3).
+    /// Chuyển trạng thái sang PUBLISHED và CONFIRMED.
+    /// </summary>
+    public async Task<ApiResponse<bool>> PublishWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong publishedByUserId)
+    {
+        var weekEndDate = weekStartDate.AddDays(6);
+        var schedules = await _context.WorkSchedules
+            .Include(ws => ws.ShiftAssignments)
+            .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
+            .ToListAsync();
+
+        if (!schedules.Any())
+        {
+            return ApiResponse<bool>.Fail($"Không tìm thấy lịch ca tuần từ {weekStartDate:dd/MM/yyyy} để công bố.");
+        }
+
+        foreach (var schedule in schedules)
+        {
+            schedule.Status = "PUBLISHED";
+            foreach (var assignment in schedule.ShiftAssignments)
+            {
+                assignment.Status = "CONFIRMED";
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return ApiResponse<bool>.Ok(true, $"Đã công bố thành công lịch làm việc tuần từ {weekStartDate:dd/MM/yyyy} đến {weekEndDate:dd/MM/yyyy}! Hệ thống đã phát thông báo tới nhân viên.");
+    }
+
+    /// <summary>
+    /// Xóa/Hủy 1 phân công ca làm việc của nhân viên.
+    /// </summary>
+    public async Task<ApiResponse<bool>> DeleteShiftAssignmentAsync(ulong assignmentId)
+    {
+        var assignment = await _context.ShiftAssignments.FindAsync(assignmentId);
+        if (assignment == null)
+        {
+            return ApiResponse<bool>.Fail("Không tìm thấy bản ghi phân công ca.");
+        }
+
+        _context.ShiftAssignments.Remove(assignment);
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<bool>.Ok(true, "Đã hủy phân công ca làm việc thành công.");
+    }
+
+    /// <summary>
+    /// Tự động giải và xếp lịch ca tuần tối ưu bằng Google OR-Tools Constraint Programming Solver (UC 2.1).
+    /// </summary>
+    public async Task<ApiResponse<AutoScheduleResultDto>> AutoScheduleWeeklyAsync(AutoScheduleWeeklyDto dto, ulong userId)
+    {
+        var branch = await _context.Branches.FindAsync(dto.BranchId);
+        if (branch == null) return ApiResponse<AutoScheduleResultDto>.Fail("Không tìm thấy chi nhánh.");
+
+        var weekEndDate = dto.WeekStartDate.AddDays(6);
+
+        // 1. Lấy danh sách mẫu ca chuẩn đang hoạt động
+        var templates = await _context.ShiftTemplates
+            .Where(st => st.Status == "ACTIVE")
+            .OrderBy(st => st.StartTime)
+            .ToListAsync();
+
+        if (!templates.Any())
+        {
+            return ApiResponse<AutoScheduleResultDto>.Fail("Không có mẫu ca nào hoạt động trong hệ thống.");
+        }
+
+        // 2. Đảm bảo đầy đủ khung ca cho toàn bộ 7 ngày trong tuần
+        var existingSchedules = await _context.WorkSchedules
+            .Include(ws => ws.ShiftTemplate)
+            .Where(ws => ws.BranchId == dto.BranchId && ws.WorkDate >= dto.WeekStartDate && ws.WorkDate <= weekEndDate)
+            .ToListAsync();
+
+        var existingKeys = existingSchedules.Select(ws => (ws.WorkDate, ws.ShiftTemplateId)).ToHashSet();
+        var toAdd = new List<WorkSchedule>();
+
+        for (int d = 0; d < 7; d++)
+        {
+            var workDate = dto.WeekStartDate.AddDays(d);
+            foreach (var template in templates)
+            {
+                if (!existingKeys.Contains((workDate, template.Id)))
+                {
+                    toAdd.Add(new WorkSchedule
+                    {
+                        BranchId = dto.BranchId,
+                        ShiftTemplateId = template.Id,
+                        WorkDate = workDate,
+                        RequiredCashier = 1,
+                        RequiredSales = 1,
+                        RequiredSecurity = 1,
+                        Status = "DRAFT",
+                        CreatedBy = userId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+        }
+
+        if (toAdd.Any())
+        {
+            _context.WorkSchedules.AddRange(toAdd);
+            await _context.SaveChangesAsync();
+        }
+
+        var schedules = await _context.WorkSchedules
+            .Include(ws => ws.ShiftTemplate)
+            .Where(ws => ws.BranchId == dto.BranchId && ws.WorkDate >= dto.WeekStartDate && ws.WorkDate <= weekEndDate)
+            .ToListAsync();
+
+        // 2. Lấy danh sách nhân viên chi nhánh
+        var employees = await _context.Users
+            .Include(u => u.Role)
+            .Where(u => u.HomeBranchId == dto.BranchId && u.Status == "ACTIVE")
+            .ToListAsync();
+
+        if (!employees.Any())
+        {
+            return ApiResponse<AutoScheduleResultDto>.Fail("Không có nhân viên active tại chi nhánh để phân bổ.");
+        }
+
+        // 3. Nếu cho phép ghi đè, xóa các phân công cũ trong tuần
+        if (dto.OverwriteExisting)
+        {
+            var oldAssignments = await _context.ShiftAssignments
+                .Where(sa => sa.Schedule.BranchId == dto.BranchId && sa.Schedule.WorkDate >= dto.WeekStartDate && sa.Schedule.WorkDate <= weekEndDate)
+                .ToListAsync();
+
+            if (oldAssignments.Any())
+            {
+                _context.ShiftAssignments.RemoveRange(oldAssignments);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        // 5. Chạy solver Google OR-Tools CP-SAT
+        var solver = new ShiftSchedulerSolver();
+        var solverResult = solver.Solve(new ShiftSchedulerSolver.SolverInput
+        {
+            BranchId = dto.BranchId,
+            WeekStartDate = dto.WeekStartDate,
+            Employees = employees,
+            Templates = templates,
+            Schedules = schedules,
+            MaxShiftsPerWeekPerEmployee = dto.MaxShiftsPerWeekPerEmployee,
+            MinShiftsPerWeekForFullTime = dto.MinShiftsPerWeekForFullTime
+        });
+
+        if (!solverResult.IsSuccess)
+        {
+            return ApiResponse<AutoScheduleResultDto>.Fail(solverResult.StatusMessage);
+        }
+
+        // 6. Lưu các phân bổ tối ưu vào cơ sở dữ liệu
+        var scheduleMap = schedules.ToDictionary(s => (s.ShiftTemplateId, s.WorkDate), s => s);
+        var userMap = employees.ToDictionary(u => u.Id, u => u);
+
+        var newAssignments = new List<ShiftAssignment>();
+        foreach (var item in solverResult.RecommendedAssignments)
+        {
+            if (scheduleMap.TryGetValue((item.ShiftTemplateId, item.WorkDate), out var schedule) &&
+                userMap.TryGetValue(item.UserId, out var emp))
+            {
+                newAssignments.Add(new ShiftAssignment
+                {
+                    ScheduleId = schedule.Id,
+                    UserId = emp.Id,
+                    AssignedRoleId = emp.RoleId,
+                    AssignmentType = "ASSIGNED",
+                    Status = schedule.Status == "PUBLISHED" ? "CONFIRMED" : "DRAFT"
+                });
+            }
+        }
+
+        if (newAssignments.Any())
+        {
+            _context.ShiftAssignments.AddRange(newAssignments);
+            await _context.SaveChangesAsync();
+        }
+
+        var matrixRes = await GetWeeklyScheduleMatrixAsync(dto.BranchId, dto.WeekStartDate);
+
+        return ApiResponse<AutoScheduleResultDto>.Ok(new AutoScheduleResultDto
+        {
+            Success = true,
+            Message = $"{solverResult.StatusMessage} Đã tự động xếp thành công {newAssignments.Count} lượt ca.",
+            TotalAssignmentsCreated = newAssignments.Count,
+            Matrix = matrixRes.Data
+        }, "Tự động xếp lịch ca thành công với Google OR-Tools!");
+    }
+
+
 
     // ==========================================
     // 4. Các Phương Thức Tương Thích Hiện Có

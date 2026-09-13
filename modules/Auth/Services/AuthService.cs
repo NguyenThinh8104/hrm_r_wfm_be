@@ -111,17 +111,7 @@ public class AuthService : IAuthService
         return ApiResponse<UserSummaryDto>.Ok(MapUserSummary(user));
     }
 
-    public async Task<ApiResponse<List<UserSummaryDto>>> GetStoreEmployeesAsync(int storeId)
-    {
-        var users = await _context.Users
-            .Include(u => u.Role)
-            .Include(u => u.HomeBranch)
-            .Where(u => u.HomeBranchId == (ulong)storeId && u.Status == "ACTIVE")
-            .ToListAsync();
 
-        var result = users.Select(MapUserSummary).ToList();
-        return ApiResponse<List<UserSummaryDto>>.Ok(result);
-    }
 
     private static UserSummaryDto MapUserSummary(User user)
     {

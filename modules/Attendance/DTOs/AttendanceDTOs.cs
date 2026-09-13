@@ -232,4 +232,14 @@ public class AttendanceCheckOutResultDto
     public string Message { get; set; } = string.Empty;
 }
 
+public class KioskEmployeeSearchDto
+{
+    public int EmployeeId { get; set; }
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string PositionName { get; set; } = string.Empty;
+    public string RoleCode { get; set; } = string.Empty;
+    public int StoreId { get; set; }
+}
+
 

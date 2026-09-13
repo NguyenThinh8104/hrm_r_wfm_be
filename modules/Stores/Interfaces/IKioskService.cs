@@ -38,4 +38,27 @@ public interface IKioskService
     /// <param name="storeId">Mã ID chi nhánh cửa hàng</param>
     /// <returns>ApiResponse chứa danh sách các thiết bị Kiosk của cửa hàng</returns>
     Task<ApiResponse<List<KioskActivationResponseDto>>> GetStoreKiosksAsync(int storeId);
+
+    /// <summary>
+    /// Hủy ghép nối / Dừng hoạt động một trạm Kiosk theo KioskId bởi Store Manager.
+    /// </summary>
+    /// <param name="kioskId">Mã ID trạm Kiosk</param>
+    /// <returns>ApiResponse xác nhận kết quả hủy ghép nối</returns>
+    Task<ApiResponse<bool>> DeactivateKioskAsync(int kioskId);
+
+    /// <summary>
+    /// Hủy ghép nối trạm Kiosk bằng DeviceToken khi người dùng chọn Đăng xuất trên ứng dụng Kiosk.
+    /// </summary>
+    /// <param name="deviceToken">Mã Token thiết bị Kiosk cần hủy</param>
+    /// <returns>ApiResponse xác nhận kết quả hủy ghép nối</returns>
+    Task<ApiResponse<bool>> UnpairKioskTokenAsync(string deviceToken);
+
+    /// <summary>
+    /// Xóa vĩnh viễn thiết bị Kiosk khỏi danh sách của cửa hàng.
+    /// </summary>
+    /// <param name="kioskId">Mã ID trạm Kiosk cần xóa</param>
+    /// <returns>ApiResponse xác nhận kết quả xóa Kiosk</returns>
+    Task<ApiResponse<bool>> DeleteKioskAsync(int kioskId);
 }
+
+

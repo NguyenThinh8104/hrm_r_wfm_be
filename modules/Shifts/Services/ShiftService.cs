@@ -66,8 +66,8 @@ public class ShiftService : IShiftService
             StartTime = dto.StartTime,
             EndTime = dto.EndTime,
             IsOvernight = validation.IsOvernight,
-            BreakMinutes = dto.BreakMinutes,
-            Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
+            BreakDurationMinutes = dto.BreakMinutes,
+            IsActive = string.IsNullOrWhiteSpace(dto.Status) || dto.Status.Trim().ToUpper() == "ACTIVE",
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -109,10 +109,10 @@ public class ShiftService : IShiftService
         template.StartTime = dto.StartTime;
         template.EndTime = dto.EndTime;
         template.IsOvernight = validation.IsOvernight;
-        template.BreakMinutes = dto.BreakMinutes;
+        template.BreakDurationMinutes = dto.BreakMinutes;
         if (!string.IsNullOrWhiteSpace(dto.Status))
         {
-            template.Status = dto.Status.Trim().ToUpper();
+            template.IsActive = dto.Status.Trim().ToUpper() == "ACTIVE";
         }
         template.UpdatedAt = DateTime.UtcNow;
 
@@ -138,7 +138,7 @@ public class ShiftService : IShiftService
             return ApiResponse<ShiftTemplateDto>.Fail("Trạng thái không hợp lệ. Chỉ chấp nhận 'ACTIVE' hoặc 'INACTIVE'.");
         }
 
-        template.Status = normalizedStatus;
+        template.IsActive = normalizedStatus == "ACTIVE";
         template.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -147,7 +147,7 @@ public class ShiftService : IShiftService
             ? "Đã vô hiệu hóa mẫu ca chuẩn (không xóa cứng để bảo toàn lịch sử chấm công)."
             : "Đã kích hoạt lại mẫu ca chuẩn.";
 
-        var validation = ValidateAndCalculateShift(template.StartTime, template.EndTime, template.IsOvernight, template.BreakMinutes);
+        var validation = ValidateAndCalculateShift(template.StartTime, template.EndTime, template.IsOvernight, template.BreakDurationMinutes);
         return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), message);
     }
 
@@ -162,7 +162,7 @@ public class ShiftService : IShiftService
             return ApiResponse<ShiftTemplateDto>.Fail("Không tìm thấy mẫu ca làm việc.");
         }
 
-        var validation = ValidateAndCalculateShift(template.StartTime, template.EndTime, template.IsOvernight, template.BreakMinutes);
+        var validation = ValidateAndCalculateShift(template.StartTime, template.EndTime, template.IsOvernight, template.BreakDurationMinutes);
         return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), "Lấy thông tin mẫu ca thành công.");
     }
 
@@ -177,7 +177,7 @@ public class ShiftService : IShiftService
             return ApiResponse<bool>.Fail("Không tìm thấy mẫu ca làm việc.");
         }
 
-        template.Status = "INACTIVE";
+        template.IsActive = false;
         template.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
@@ -193,7 +193,8 @@ public class ShiftService : IShiftService
         if (!string.IsNullOrWhiteSpace(status))
         {
             var filterStatus = status.Trim().ToUpper();
-            query = query.Where(st => st.Status.ToUpper() == filterStatus);
+            bool targetActive = filterStatus == "ACTIVE";
+            query = query.Where(st => st.IsActive == targetActive);
         }
 
         var templates = await query
@@ -202,7 +203,7 @@ public class ShiftService : IShiftService
 
         var dtos = templates.Select(st =>
         {
-            var validation = ValidateAndCalculateShift(st.StartTime, st.EndTime, st.IsOvernight, st.BreakMinutes);
+            var validation = ValidateAndCalculateShift(st.StartTime, st.EndTime, st.IsOvernight, st.BreakDurationMinutes);
             return MapToShiftTemplateDto(st, validation.WorkHours);
         }).ToList();
 
@@ -214,7 +215,7 @@ public class ShiftService : IShiftService
         var query = _context.ShiftTemplates.AsQueryable();
         if (!includeInactive)
         {
-            query = query.Where(st => st.Status == "ACTIVE");
+            query = query.Where(st => st.IsActive);
         }
 
         var templates = await query
@@ -223,7 +224,7 @@ public class ShiftService : IShiftService
 
         var dtos = templates.Select(st =>
         {
-            var validation = ValidateAndCalculateShift(st.StartTime, st.EndTime, st.IsOvernight, st.BreakMinutes);
+            var validation = ValidateAndCalculateShift(st.StartTime, st.EndTime, st.IsOvernight, st.BreakDurationMinutes);
             var baseDto = MapToShiftTemplateDto(st, validation.WorkHours);
             return new ShiftDto
             {
@@ -305,10 +306,10 @@ public class ShiftService : IShiftService
             Description = st.Description,
             StartTime = st.StartTime.ToString("HH\\:mm\\:ss"),
             EndTime = st.EndTime.ToString("HH\\:mm\\:ss"),
-            BreakMinutes = st.BreakMinutes,
+            BreakMinutes = st.BreakDurationMinutes,
             IsOvernight = st.IsOvernight,
             WorkHours = workHours,
-            Status = st.Status,
+            Status = st.IsActive ? "ACTIVE" : "INACTIVE",
             CreatedAt = st.CreatedAt,
             UpdatedAt = st.UpdatedAt
         };

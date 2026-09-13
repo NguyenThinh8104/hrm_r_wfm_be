@@ -200,8 +200,8 @@ public static class DbInitializer
                     StartTime = new TimeOnly(6, 0),
                     EndTime = new TimeOnly(14, 0),
                     IsOvernight = false,
-                    BreakMinutes = 30,
-                    Status = "ACTIVE",
+                    BreakDurationMinutes = 30,
+                    IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
@@ -214,8 +214,8 @@ public static class DbInitializer
                     StartTime = new TimeOnly(14, 0),
                     EndTime = new TimeOnly(22, 0),
                     IsOvernight = false,
-                    BreakMinutes = 30,
-                    Status = "ACTIVE",
+                    BreakDurationMinutes = 30,
+                    IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
@@ -228,8 +228,8 @@ public static class DbInitializer
                     StartTime = new TimeOnly(22, 0),
                     EndTime = new TimeOnly(6, 0),
                     IsOvernight = true,
-                    BreakMinutes = 45,
-                    Status = "ACTIVE",
+                    BreakDurationMinutes = 45,
+                    IsActive = true,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 }

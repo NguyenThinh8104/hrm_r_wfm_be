@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Shared.Data;
 using Shared.Security;
+using Shared.Services;
 
 namespace Shared;
 
@@ -67,6 +68,8 @@ public static class SharedModuleExtensions
         });
 
         services.AddAuthorization();
+        services.AddMemoryCache();
+        services.AddScoped<IEmailService, EmailService>();
 
         return services;
     }

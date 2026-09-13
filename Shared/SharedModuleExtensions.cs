@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using Shared.Common;
 using Shared.Data;
 using Shared.Security;
 
@@ -38,8 +39,11 @@ public static class SharedModuleExtensions
             }
         });
 
-        // 2. JWT Token Service
+        // 2. Security & Time Services
+        services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddSingleton<JwtTokenService>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<IKioskContext, DefaultKioskContext>();
 
         // 3. JWT Bearer Authentication
         var secretKey = configuration["Jwt:Key"] ?? "RetailWorkforceManagementSecretKey_FPT_SWP391_2026_KeyMustBeLongEnough!";

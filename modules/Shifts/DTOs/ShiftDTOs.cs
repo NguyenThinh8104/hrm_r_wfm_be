@@ -319,4 +319,88 @@ public class ReviewSwapRequestDto
     public bool IsApproved { get; set; }
     public string? Remarks { get; set; }
 }
+/// <summary>
+/// DTO yêu cầu khởi tạo khung mẫu lịch làm việc theo tuần cho cửa hàng (UC 2.1).
+/// </summary>
+public class GenerateWeeklyScheduleDto
+{
+    public ulong BranchId { get; set; }
+    public DateOnly WeekStartDate { get; set; }
+    public List<uint>? TemplateIds { get; set; }
+    public byte DefaultRequiredCashier { get; set; } = 1;
+    public byte DefaultRequiredSales { get; set; } = 2;
+    public byte DefaultRequiredSecurity { get; set; } = 1;
+}
+
+/// <summary>
+/// DTO ma trận bảng phân bổ ca tuần (UC 2.1 & UC 2.3).
+/// </summary>
+public class WeeklyScheduleMatrixDto
+{
+    public ulong BranchId { get; set; }
+    public string BranchName { get; set; } = string.Empty;
+    public DateOnly WeekStartDate { get; set; }
+    public DateOnly WeekEndDate { get; set; }
+    public string WeekStatus { get; set; } = "DRAFT";
+    public List<DateOnly> Days { get; set; } = new List<DateOnly>();
+    public List<WorkScheduleDto> Schedules { get; set; } = new List<WorkScheduleDto>();
+    public List<EmployeeMonthlyRosterDto> EmployeeRosters { get; set; } = new List<EmployeeMonthlyRosterDto>();
+}
+
+/// <summary>
+/// DTO kết quả kiểm tra xung đột & rà soát trước khi công bố lịch tuần (UC 2.3).
+/// </summary>
+public class ScheduleConflictCheckResultDto
+{
+    public bool HasConflicts { get; set; }
+    public int TotalAssignments { get; set; }
+    public int UnderstaffedShiftsCount { get; set; }
+    public List<string> Issues { get; set; } = new List<string>();
+    public bool IsReadyToPublish { get; set; }
+    public string SummaryMessage { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// DTO công bố phát hành lịch tuần (UC 2.3).
+/// </summary>
+public class PublishWeeklyScheduleDto
+{
+    public ulong BranchId { get; set; }
+    public DateOnly WeekStartDate { get; set; }
+}
+
+/// <summary>
+/// DTO gán nhanh danh sách nhân viên Full-time vào ca trong tuần (UC 2.1).
+/// </summary>
+public class AssignFullTimeBatchDto
+{
+    public ulong BranchId { get; set; }
+    public DateOnly WeekStartDate { get; set; }
+    public List<ulong> UserIds { get; set; } = new List<ulong>();
+    public uint ShiftTemplateId { get; set; }
+    public List<int> DaysOfWeek { get; set; } = new List<int>(); // 1: Mon, 2: Tue, ..., 7: Sun
+}
+
+/// <summary>
+/// DTO yêu cầu tự động xếp lịch ca tuần bằng Google OR-Tools CP-SAT (UC 2.1).
+/// </summary>
+public class AutoScheduleWeeklyDto
+{
+    public ulong BranchId { get; set; }
+    public DateOnly WeekStartDate { get; set; }
+    public int MaxShiftsPerWeekPerEmployee { get; set; } = 6;
+    public int MinShiftsPerWeekForFullTime { get; set; } = 5;
+    public bool OverwriteExisting { get; set; } = true;
+}
+
+/// <summary>
+/// DTO kết quả tự động xếp lịch ca tuần.
+/// </summary>
+public class AutoScheduleResultDto
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public int TotalAssignmentsCreated { get; set; }
+    public WeeklyScheduleMatrixDto? Matrix { get; set; }
+}
 

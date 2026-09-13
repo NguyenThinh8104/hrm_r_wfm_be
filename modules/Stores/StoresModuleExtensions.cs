@@ -8,6 +8,8 @@ public static class StoresModuleExtensions
 {
     public static IServiceCollection AddStoresModule(this IServiceCollection services)
     {
+        services.AddScoped<IBranchService, BranchService>();
+        services.AddScoped<IStoreService, BranchService>();
         services.AddScoped<IKioskService, KioskService>();
         return services;
     }

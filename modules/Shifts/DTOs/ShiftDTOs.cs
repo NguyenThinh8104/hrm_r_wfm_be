@@ -1,34 +1,68 @@
 namespace Modules.Shifts.DTOs;
 
+// ==========================================
+// 1. Shift Template DTOs (UC 1.3)
+// ==========================================
+
 /// <summary>
-/// DTO thông tin mẫu ca làm việc chuẩn.
+/// DTO thông tin mẫu ca làm việc chuẩn đã được chuẩn hóa hệ thống (UC 1.3).
 /// </summary>
-public class ShiftDto
+public class ShiftTemplateDto
 {
-    public int ShiftId { get; set; }
-    public string ShiftCode { get; set; } = string.Empty;
-    public string ShiftName { get; set; } = string.Empty;
-    public TimeOnly StartTime { get; set; }
-    public TimeOnly EndTime { get; set; }
+    public uint Id { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string StartTime { get; set; } = "00:00:00";
+    public string EndTime { get; set; } = "00:00:00";
+    public uint BreakMinutes { get; set; }
     public bool IsOvernight { get; set; }
-    public uint BreakDurationMinutes { get; set; }
-    public bool IsActive { get; set; } = true;
+    public double WorkHours { get; set; }
+    public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    // Aliases for backward compatibility
+    public int ShiftId => (int)Id;
+    public string ShiftCode => Code;
+    public string TemplateCode => Code;
+    public string ShiftName => Name;
+    public uint BreakDurationMinutes => BreakMinutes;
+    public bool IsActive => Status == "ACTIVE";
+    public bool IsSystemDefault => new[] { "CA_SANG", "CA_CHIEU", "CA_DEM" }.Contains(Code.ToUpper());
 }
+
+public class ShiftDto : ShiftTemplateDto { }
 
 /// <summary>
 /// DTO tạo mẫu ca chuẩn mới (Operations Admin).
 /// </summary>
 public class CreateShiftTemplateDto
 {
+    private string _code = string.Empty;
     /// <summary>
-    /// Mã mẫu ca (Ví dụ: MORNING_01, NIGHT_01).
+    /// Mã mẫu ca viết hoa duy nhất (Ví dụ: CA_SANG, CA_CHIEU, CA_DEM).
     /// </summary>
-    public string TemplateCode { get; set; } = string.Empty;
+    public string Code 
+    { 
+        get => !string.IsNullOrWhiteSpace(_code) ? _code : (!string.IsNullOrWhiteSpace(TemplateCode) ? TemplateCode : (ShiftCode ?? string.Empty));
+        set => _code = value;
+    }
+    public string? TemplateCode { get; set; }
+    public string? ShiftCode { get; set; }
 
+    private string _name = string.Empty;
     /// <summary>
-    /// Tên ca làm việc (Ví dụ: Ca Sáng, Ca Đêm).
+    /// Tên ca làm việc (Ví dụ: Ca Sáng, Ca Chiều, Ca Đêm).
     /// </summary>
-    public string Name { get; set; } = string.Empty;
+    public string Name 
+    { 
+        get => !string.IsNullOrWhiteSpace(_name) ? _name : (ShiftName ?? string.Empty);
+        set => _name = value;
+    }
+    public string? ShiftName { get; set; }
+
+    public string? Description { get; set; }
 
     /// <summary>
     /// Giờ bắt đầu ca (HH:mm:ss).
@@ -41,14 +75,22 @@ public class CreateShiftTemplateDto
     public TimeOnly EndTime { get; set; }
 
     /// <summary>
-    /// Cờ đánh dấu ca làm việc qua đêm.
+    /// Cờ đánh dấu ca làm việc xuyên đêm qua ngày hôm sau.
     /// </summary>
     public bool IsOvernight { get; set; } = false;
 
+    private uint _breakMinutes;
     /// <summary>
     /// Thời gian nghỉ giữa ca (Số phút).
     /// </summary>
-    public uint BreakDurationMinutes { get; set; } = 0;
+    public uint BreakMinutes 
+    { 
+        get => _breakMinutes > 0 ? _breakMinutes : (BreakDurationMinutes ?? 0);
+        set => _breakMinutes = value;
+    }
+    public uint? BreakDurationMinutes { get; set; }
+
+    public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
 }
 
 /// <summary>
@@ -56,12 +98,37 @@ public class CreateShiftTemplateDto
 /// </summary>
 public class UpdateShiftTemplateDto
 {
-    public string Name { get; set; } = string.Empty;
+    private string _name = string.Empty;
+    public string Name 
+    { 
+        get => !string.IsNullOrWhiteSpace(_name) ? _name : (ShiftName ?? string.Empty);
+        set => _name = value;
+    }
+    public string? ShiftName { get; set; }
+
+    public string? Description { get; set; }
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
     public bool IsOvernight { get; set; }
-    public uint BreakDurationMinutes { get; set; }
-    public bool IsActive { get; set; }
+    
+    private uint _breakMinutes;
+    public uint BreakMinutes 
+    { 
+        get => _breakMinutes > 0 ? _breakMinutes : (BreakDurationMinutes ?? 0);
+        set => _breakMinutes = value;
+    }
+    public uint? BreakDurationMinutes { get; set; }
+
+    public string? Status { get; set; }
+}
+
+/// <summary>
+/// DTO cập nhật trạng thái mẫu ca chuẩn (ACTIVE / INACTIVE).
+/// </summary>
+public class UpdateShiftTemplateStatusDto
+{
+    public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
+    public string? Reason { get; set; }
 }
 
 /// <summary>
@@ -252,3 +319,4 @@ public class ReviewSwapRequestDto
     public bool IsApproved { get; set; }
     public string? Remarks { get; set; }
 }
+

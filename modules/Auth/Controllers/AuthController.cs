@@ -51,12 +51,6 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
-    [HttpGet("store-employees/{storeId}")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<List<UserSummaryDto>>>> GetStoreEmployees(int storeId)
-    {
-        var result = await _authService.GetStoreEmployeesAsync(storeId);
-        return Ok(result);
-    }
 }
+
 

@@ -29,7 +29,7 @@ public class AttendanceController : ControllerBase
     /// <returns>Xác nhận tạo báo cáo ngoại lệ điểm danh</returns>
 
     [HttpPost("report-fraud")]
-    [Authorize(Roles = "ShiftLeader,StoreManager")]
+    [Authorize(Roles = "SHIFT_LEADER,STORE_MANAGER")]
     public async Task<ActionResult<ApiResponse<bool>>> ReportFraud([FromBody] ReportAttendanceFraudDto request)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -51,7 +51,7 @@ public class AttendanceController : ControllerBase
     /// <param name="date">Ngày tra cứu lịch sử (định dạng YYYY-MM-DD, mặc định là hôm nay)</param>
     /// <returns>Danh sách các bản ghi điểm danh chi tiết trong ngày</returns>
     [HttpGet("history")]
-    [Authorize(Roles = "ShiftLeader,StoreManager,OperationsAdmin,BusinessOwner")]
+    [Authorize(Roles = "SHIFT_LEADER,STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<AttendanceRecordDto>>>> GetAttendanceHistory(
         [FromQuery] int storeId,
         [FromQuery] string? date)

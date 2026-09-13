@@ -109,5 +109,22 @@ public class KioskAttendanceController : ControllerBase
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    /// <summary>
+    /// [Bước 1 - Kiosk] Tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý khi điểm danh.
+    /// </summary>
+    /// <param name="storeId">Mã ID cửa hàng</param>
+    /// <param name="query">Từ khóa tìm kiếm theo Mã NV hoặc Tên</param>
+    /// <returns>Danh sách nhân viên thỏa điều kiện</returns>
+    [HttpGet("search-employees")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<List<KioskEmployeeSearchDto>>>> SearchEmployees(
+        [FromQuery] int storeId,
+        [FromQuery] string? query = null)
+    {
+        var result = await _attendanceService.SearchStoreEmployeesAsync(storeId, query);
+        return Ok(result);
+    }
 }
+
 

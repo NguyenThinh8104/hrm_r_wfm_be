@@ -52,4 +52,21 @@ public interface IAttendanceService
     /// <param name="date">Ngày tra cứu lịch sử điểm danh</param>
     /// <returns>ApiResponse chứa danh sách bản ghi điểm danh chi tiết trong ngày</returns>
     Task<ApiResponse<List<AttendanceRecordDto>>> GetAttendanceHistoryAsync(int storeId, DateOnly date);
+
+    /// <summary>
+    /// Xử lý nghiệp vụ điểm danh đầu ca (Check-in) tại quầy Kiosk theo các bước quy chuẩn.
+    /// </summary>
+    /// <param name="userId">Mã ID nhân viên trong hệ thống (users.id)</param>
+    /// <param name="pin">Mã PIN cá nhân 6 chữ số của nhân viên</param>
+    /// <returns>ApiResponse chứa bản ghi điểm danh đầu ca (AttendanceLogDto) hoặc thông báo lỗi</returns>
+    Task<ApiResponse<AttendanceLogDto>> CheckInAsync(long userId, string pin);
+
+    /// <summary>
+    /// Xử lý nghiệp vụ điểm danh kết thúc ca (Check-out) tại quầy Kiosk theo 3 bước quy chuẩn.
+    /// </summary>
+    /// <param name="userId">Mã ID nhân viên trong hệ thống (users.id)</param>
+    /// <param name="pin">Mã PIN cá nhân 6 chữ số của nhân viên</param>
+    /// <returns>ApiResponse chứa kết quả điểm danh kết thúc ca (AttendanceCheckOutResultDto) bao gồm tổng số phút làm việc</returns>
+    Task<ApiResponse<AttendanceCheckOutResultDto>> CheckOutAsync(long userId, string pin);
 }
+

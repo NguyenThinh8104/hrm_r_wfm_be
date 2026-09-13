@@ -81,4 +81,33 @@ public class KioskAttendanceController : ControllerBase
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    /// <summary>
+    /// [Quy trình mới] Điểm danh Check-in đầu ca tại quầy Kiosk (Sử dụng IKioskContext & TimeProvider).
+    /// </summary>
+    /// <param name="request">DTO chứa UserId và Mã PIN 6 chữ số</param>
+    /// <returns>ApiResponse chứa thông tin bản ghi Check-in thành công</returns>
+    [HttpPost("v2/check-in")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<AttendanceLogDto>>> CheckInV2([FromBody] CheckInRequestDto request)
+    {
+        var result = await _attendanceService.CheckInAsync(request.UserId, request.Pin);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Quy trình mới] Điểm danh Check-out kết thúc ca theo 3 bước nghiệp vụ (Sử dụng IKioskContext & TimeProvider).
+    /// </summary>
+    /// <param name="request">DTO chứa UserId và Mã PIN 6 chữ số</param>
+    /// <returns>ApiResponse chứa kết quả Check-out và tổng số phút làm việc</returns>
+    [HttpPost("v2/check-out")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<AttendanceCheckOutResultDto>>> CheckOutV2([FromBody] CheckOutRequestDto request)
+    {
+        var result = await _attendanceService.CheckOutAsync(request.UserId, request.Pin);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }
+

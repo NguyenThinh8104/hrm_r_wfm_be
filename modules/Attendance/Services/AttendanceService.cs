@@ -10,15 +10,32 @@ using Shared.Security;
 namespace Modules.Attendance.Services;
 
 /// <summary>
-/// Dịch vụ xử lý logic chấm công Kiosk, xác thực PIN và ghi nhận ngoại lệ gian lận.
+/// Dịch vụ xử lý logic điểm danh Kiosk (Check-in, Check-out), xác thực mã PIN và quản lý báo cáo gian lận.
 /// </summary>
 public class AttendanceService : IAttendanceService
 {
     private readonly AppDbContext _context;
+    private readonly IKioskContext _kioskContext;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly TimeProvider _timeProvider;
 
-    public AttendanceService(AppDbContext context)
+    /// <summary>
+    /// Khởi tạo AttendanceService với các Dependency Injections cần thiết.
+    /// </summary>
+    /// <param name="context">Database Context kết nối tới EF Core DB</param>
+    /// <param name="kioskContext">Ngữ cảnh máy Kiosk (Chi nhánh và Id Kiosk)</param>
+    /// <param name="passwordHasher">Dịch vụ mã hóa và kiểm tra mã PIN</param>
+    /// <param name="timeProvider">Dịch vụ cung cấp thời gian thực của Server</param>
+    public AttendanceService(
+        AppDbContext context,
+        IKioskContext kioskContext,
+        IPasswordHasher passwordHasher,
+        TimeProvider timeProvider)
     {
         _context = context;
+        _kioskContext = kioskContext;
+        _passwordHasher = passwordHasher;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>
@@ -45,12 +62,12 @@ public class AttendanceService : IAttendanceService
             return ApiResponse<ValidatePinResponseDto>.Fail(AttendanceMessages.EmployeeInactive);
         }
 
-        if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !_passwordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
         {
             return ApiResponse<ValidatePinResponseDto>.Fail(AttendanceMessages.InvalidPin);
         }
 
-        var today = DateOnly.FromDateTime(DateTime.Now);
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
 
         var assignment = await _context.ShiftAssignments
             .Include(sa => sa.Schedule)
@@ -127,12 +144,12 @@ public class AttendanceService : IAttendanceService
 
         if (user == null) return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.EmployeeNotFound);
 
-        if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !_passwordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
         {
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.InvalidPin);
         }
 
-        var today = DateOnly.FromDateTime(DateTime.Now);
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
 
         var assignment = await _context.ShiftAssignments
             .Include(sa => sa.Schedule)
@@ -152,11 +169,11 @@ public class AttendanceService : IAttendanceService
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.AlreadyCheckedIn);
         }
 
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.GetLocalNow().DateTime;
         var status = "Present";
 
         var shiftStartDt = today.ToDateTime(assignment.Schedule.ShiftTemplate.StartTime);
-        if (DateTime.Now > shiftStartDt.AddMinutes(15))
+        if (now > shiftStartDt.AddMinutes(15))
         {
             status = "Late";
         }
@@ -167,14 +184,14 @@ public class AttendanceService : IAttendanceService
             BranchId = (ulong)request.StoreId,
             KioskId = request.KioskId.HasValue ? (ulong)request.KioskId.Value : null,
             CheckInTime = now,
-            OpeningFloatCash = request.OpeningFloatCash,
+            OpeningFloatCash = null,
             CreatedAt = now
         };
 
         _context.AttendanceLogs.Add(log);
         await _context.SaveChangesAsync();
 
-        var successMessage = string.Format(AttendanceMessages.CheckInSuccess, log.CheckInTime.ToLocalTime().ToString("HH:mm:ss"));
+        var successMessage = string.Format(AttendanceMessages.CheckInSuccess, log.CheckInTime.ToString("HH:mm:ss"));
 
         return ApiResponse<AttendanceRecordDto>.Ok(new AttendanceRecordDto
         {
@@ -200,12 +217,12 @@ public class AttendanceService : IAttendanceService
         var user = await _context.Users.FindAsync((ulong)request.EmployeeId);
         if (user == null) return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.EmployeeNotFound);
 
-        if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !_passwordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
         {
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.InvalidPin);
         }
 
-        var today = DateOnly.FromDateTime(DateTime.Now);
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
 
         var assignment = await _context.ShiftAssignments
             .Include(sa => sa.Schedule)
@@ -223,13 +240,14 @@ public class AttendanceService : IAttendanceService
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.NotCheckedIn);
         }
 
-        log.CheckOutTime = DateTime.UtcNow;
+        var now = _timeProvider.GetLocalNow().DateTime;
+        log.CheckOutTime = now;
         if (request.KioskId.HasValue) log.KioskId = (ulong)request.KioskId.Value;
         assignment.Status = "COMPLETED";
 
         await _context.SaveChangesAsync();
 
-        var successMessage = string.Format(AttendanceMessages.CheckOutSuccess, log.CheckOutTime?.ToLocalTime().ToString("HH:mm:ss"));
+        var successMessage = string.Format(AttendanceMessages.CheckOutSuccess, log.CheckOutTime?.ToString("HH:mm:ss"));
 
         return ApiResponse<AttendanceRecordDto>.Ok(new AttendanceRecordDto
         {
@@ -284,7 +302,7 @@ public class AttendanceService : IAttendanceService
                 .ThenInclude(sa => sa.User)
             .Include(al => al.Branch)
             .Include(al => al.FraudFlaggedByUser)
-            .Where(al => al.BranchId == (ulong)storeId && DateOnly.FromDateTime(al.CreatedAt.ToLocalTime()) == date)
+            .Where(al => al.BranchId == (ulong)storeId && DateOnly.FromDateTime(al.CreatedAt) == date)
             .OrderByDescending(al => al.CreatedAt)
             .Select(al => new AttendanceRecordDto
             {
@@ -308,5 +326,180 @@ public class AttendanceService : IAttendanceService
             .ToListAsync();
 
         return ApiResponse<List<AttendanceRecordDto>>.Ok(records);
+    }
+
+    /// <summary>
+    /// Xử lý nghiệp vụ điểm danh đầu ca (Check-in) tại quầy Kiosk theo các bước quy chuẩn.
+    /// </summary>
+    /// <param name="userId">Mã ID nhân viên trong hệ thống (users.id)</param>
+    /// <param name="pin">Mã PIN cá nhân 6 chữ số của nhân viên</param>
+    /// <returns>ApiResponse chứa bản ghi điểm danh đầu ca (AttendanceLogDto) hoặc thông báo lỗi</returns>
+    public async Task<ApiResponse<AttendanceLogDto>> CheckInAsync(long userId, string pin)
+    {
+        // Bước 1: Query User theo userId và Status == "ACTIVE", Include Role
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == (ulong)userId && u.Status == "ACTIVE");
+
+        if (user == null)
+        {
+            return ApiResponse<AttendanceLogDto>.Fail(AttendanceMessages.EmployeeNotFound);
+        }
+
+        // Xác thực mã PIN nhân viên qua IPasswordHasher
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !_passwordHasher.Verify(pin, user.KioskPinHash))
+        {
+            return ApiResponse<AttendanceLogDto>.Fail(AttendanceMessages.InvalidPin);
+        }
+
+        // Bước 2: Lấy ngày làm việc hôm nay từ TimeProvider
+        var currentLocalOffset = _timeProvider.GetLocalNow();
+        var currentLocalTime = currentLocalOffset.DateTime;
+        var today = DateOnly.FromDateTime(currentLocalTime);
+
+        // Query ShiftAssignments (Include WorkSchedule & ShiftTemplate) kiểm tra phân công ca làm việc
+        var assignment = await _context.ShiftAssignments
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .FirstOrDefaultAsync(sa =>
+                sa.UserId == user.Id &&
+                sa.Status == "CONFIRMED" &&
+                sa.Schedule.BranchId == _kioskContext.BranchId &&
+                sa.Schedule.WorkDate == today &&
+                sa.Schedule.Status == "PUBLISHED");
+
+        if (assignment == null)
+        {
+            return ApiResponse<AttendanceLogDto>.Fail(AttendanceMessages.NoScheduleAtBranch);
+        }
+
+        // Bước 3: Kiểm tra xem ca làm việc này đã được điểm danh hay chưa
+        var existingLog = await _context.AttendanceLogs
+            .FirstOrDefaultAsync(al => al.AssignmentId == assignment.Id);
+
+        if (existingLog != null)
+        {
+            return ApiResponse<AttendanceLogDto>.Fail(AttendanceMessages.AlreadyCheckedInShift);
+        }
+
+        // Bước 4: Kiểm tra thời gian bắt đầu ca và quy định điểm danh sớm tối đa 30 phút
+        var shiftTemplate = assignment.Schedule.ShiftTemplate;
+        var shiftStartDateTime = today.ToDateTime(shiftTemplate.StartTime);
+        var earliestCheckInTime = shiftStartDateTime.AddMinutes(-30);
+
+        if (currentLocalTime < earliestCheckInTime)
+        {
+            return ApiResponse<AttendanceLogDto>.Fail(AttendanceMessages.TooEarlyForCheckIn);
+        }
+
+        // Bước 5: Khởi tạo bản ghi AttendanceLog và lưu cơ sở dữ liệu
+        bool isLate = currentLocalTime > shiftStartDateTime;
+        string status = isLate ? "Late" : "Present";
+
+        var log = new AttendanceLog
+        {
+            AssignmentId = assignment.Id,
+            BranchId = _kioskContext.BranchId,
+            KioskId = _kioskContext.KioskId,
+            CheckInTime = currentLocalTime,
+            OpeningFloatCash = null,
+            CreatedAt = currentLocalTime
+        };
+
+        _context.AttendanceLogs.Add(log);
+        await _context.SaveChangesAsync();
+
+        var dto = new AttendanceLogDto
+        {
+            Id = log.Id,
+            AssignmentId = assignment.Id,
+            UserId = user.Id,
+            EmployeeCode = user.EmployeeCode,
+            FullName = user.FullName,
+            BranchId = _kioskContext.BranchId,
+            KioskId = _kioskContext.KioskId,
+            CheckInTime = log.CheckInTime,
+            OpeningFloatCash = null,
+            IsLate = isLate,
+            Status = status
+        };
+
+        var message = string.Format(AttendanceMessages.CheckInSuccess, currentLocalTime.ToString("HH:mm:ss"));
+        return ApiResponse<AttendanceLogDto>.Ok(dto, message);
+    }
+
+    /// <summary>
+    /// Xử lý nghiệp vụ điểm danh kết thúc ca (Check-out) tại quầy Kiosk theo 3 bước quy chuẩn.
+    /// </summary>
+    /// <param name="userId">Mã ID nhân viên trong hệ thống (users.id)</param>
+    /// <param name="pin">Mã PIN cá nhân 6 chữ số của nhân viên</param>
+    /// <returns>ApiResponse chứa kết quả điểm danh kết thúc ca (AttendanceCheckOutResultDto) bao gồm tổng số phút làm việc</returns>
+    public async Task<ApiResponse<AttendanceCheckOutResultDto>> CheckOutAsync(long userId, string pin)
+    {
+        // Bước 1: Query User theo userId và Status == "ACTIVE", xác thực mã PIN qua IPasswordHasher
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == (ulong)userId && u.Status == "ACTIVE");
+
+        if (user == null)
+        {
+            return ApiResponse<AttendanceCheckOutResultDto>.Fail(AttendanceMessages.EmployeeNotFound);
+        }
+
+        if (string.IsNullOrEmpty(user.KioskPinHash) || !_passwordHasher.Verify(pin, user.KioskPinHash))
+        {
+            return ApiResponse<AttendanceCheckOutResultDto>.Fail(AttendanceMessages.InvalidPin);
+        }
+
+        // Bước 2: Tìm phiên điểm danh đang mở (WorkDate = today HOẶC (IsOvernight = true VÀ WorkDate = yesterday))
+        var currentLocalOffset = _timeProvider.GetLocalNow();
+        var currentLocalTime = currentLocalOffset.DateTime;
+        var today = DateOnly.FromDateTime(currentLocalTime);
+        var yesterday = today.AddDays(-1);
+
+        var log = await _context.AttendanceLogs
+            .Include(al => al.Assignment)
+                .ThenInclude(sa => sa.Schedule)
+                    .ThenInclude(s => s.ShiftTemplate)
+            .Where(al => al.Assignment.UserId == user.Id &&
+                         al.CheckOutTime == null &&
+                         (al.Assignment.Schedule.WorkDate == today ||
+                          (al.Assignment.Schedule.ShiftTemplate.IsOvernight && al.Assignment.Schedule.WorkDate == yesterday)))
+            .OrderByDescending(al => al.CheckInTime)
+            .FirstOrDefaultAsync();
+
+        if (log == null)
+        {
+            return ApiResponse<AttendanceCheckOutResultDto>.Fail(AttendanceMessages.NoOpenAttendanceLogForCheckOut);
+        }
+
+        // Bước 3: Cập nhật CheckOutTime, tính số phút làm việc thực tế và cập nhật trạng thái phân công
+        log.CheckOutTime = currentLocalTime;
+        if (log.Assignment != null)
+        {
+            log.Assignment.Status = "COMPLETED";
+        }
+
+        double actualMinutes = Math.Max(0, (currentLocalTime - log.CheckInTime).TotalMinutes);
+
+        await _context.SaveChangesAsync();
+
+        var shiftName = log.Assignment?.Schedule?.ShiftTemplate?.Name ?? "Ca làm việc";
+
+        var resultDto = new AttendanceCheckOutResultDto
+        {
+            AttendanceLogId = log.Id,
+            AssignmentId = log.AssignmentId,
+            UserId = user.Id,
+            EmployeeCode = user.EmployeeCode,
+            FullName = user.FullName,
+            ShiftName = shiftName,
+            CheckInTime = log.CheckInTime,
+            CheckOutTime = currentLocalTime,
+            ActualWorkMinutes = Math.Round(actualMinutes, 2),
+            Message = string.Format(AttendanceMessages.CheckOutSuccess, currentLocalTime.ToString("HH:mm:ss"))
+        };
+
+        return ApiResponse<AttendanceCheckOutResultDto>.Ok(resultDto, resultDto.Message);
     }
 }

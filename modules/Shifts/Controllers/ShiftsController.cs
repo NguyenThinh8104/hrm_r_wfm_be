@@ -37,7 +37,7 @@ public class ShiftsController : ControllerBase
     {
         var result = await _shiftService.CreateShiftTemplateAsync(dto);
         if (!result.Success) return BadRequest(result);
-        return Ok(result);
+        return StatusCode(201, result);
     }
 
     /// <summary>

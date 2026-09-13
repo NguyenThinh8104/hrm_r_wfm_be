@@ -1,67 +1,82 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using Modules.Stores.DTOs;
+using Modules.Stores.Interfaces;
 using Shared.Common;
-using Shared.Data;
 
 namespace Modules.Stores.Controllers;
 
 /// <summary>
-/// API Controller quản lý danh mục chi nhánh cửa hàng.
+/// API Controller quản lý danh mục chi nhánh cửa hàng (Route tương thích: /api/Stores).
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class StoresController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly IBranchService _branchService;
 
-    public StoresController(AppDbContext context)
+    public StoresController(IBranchService branchService)
     {
-        _context = context;
+        _branchService = branchService;
     }
 
     /// <summary>
-    /// Lấy danh sách toàn bộ các chi nhánh cửa hàng đang hoạt động trong hệ thống.
+    /// Lấy danh sách toàn bộ các chi nhánh cửa hàng trong hệ thống.
     /// </summary>
-    /// <returns>Danh sách cửa hàng kèm mã, tên, địa chỉ và số điện thoại</returns>
     [HttpGet]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse>> GetAllStores()
+    public async Task<ActionResult<ApiResponse<List<BranchDto>>>> GetAllStores([FromQuery] string? status = null, [FromQuery] string? search = null)
     {
-        var stores = await _context.Branches
-            .Where(b => b.Status == "ACTIVE")
-            .Select(b => new
-            {
-                StoreId = (int)b.Id,
-                StoreCode = b.BranchCode,
-                StoreName = b.Name,
-                Address = b.Address
-            })
-            .ToListAsync();
-
-        return Ok(ApiResponse<object>.Ok(stores, "Lấy danh sách cửa hàng thành công."));
+        var result = await _branchService.GetAllBranchesAsync(status, search);
+        return Ok(result);
     }
 
     /// <summary>
     /// Lấy thông tin chi tiết của một cửa hàng theo ID.
     /// </summary>
-    /// <param name="id">Mã ID chi nhánh cửa hàng</param>
-    /// <returns>Thông tin chi tiết cửa hàng</returns>
     [HttpGet("{id}")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse>> GetStoreById(int id)
+    public async Task<ActionResult<ApiResponse<BranchDto>>> GetStoreById(ulong id)
     {
-        var store = await _context.Branches
-            .FirstOrDefaultAsync(b => b.Id == (ulong)id);
+        var result = await _branchService.GetBranchByIdAsync(id);
+        if (!result.Success) return NotFound(result);
+        return Ok(result);
+    }
 
-        if (store == null) return NotFound(ApiResponse.Fail("Không tìm thấy cửa hàng."));
+    /// <summary>
+    /// [Operations Admin] Thêm mới chi nhánh cửa hàng vào chuỗi siêu thị.
+    /// </summary>
+    [HttpPost]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    public async Task<ActionResult<ApiResponse<BranchDto>>> CreateStore([FromBody] CreateBranchDto dto)
+    {
+        var result = await _branchService.CreateBranchAsync(dto);
+        if (!result.Success) return BadRequest(result);
+        return StatusCode(201, result);
+    }
 
-        return Ok(ApiResponse<object>.Ok(new
-        {
-            StoreId = (int)store.Id,
-            StoreCode = store.BranchCode,
-            StoreName = store.Name,
-            Address = store.Address
-        }));
+    /// <summary>
+    /// [Operations Admin] Cập nhật thông tin chi nhánh cửa hàng.
+    /// </summary>
+    [HttpPut("{id}")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    public async Task<ActionResult<ApiResponse<BranchDto>>> UpdateStore(ulong id, [FromBody] UpdateBranchDto dto)
+    {
+        var result = await _branchService.UpdateBranchAsync(id, dto);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Operations Admin] Khóa hoặc Mở khóa chi nhánh cửa hàng.
+    /// </summary>
+    [HttpPut("{id}/status")]
+    [HttpPatch("{id}/status")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<BranchDto>>> UpdateStoreStatus(ulong id, [FromBody] UpdateBranchStatusDto dto)
+    {
+        var result = await _branchService.UpdateBranchStatusAsync(id, dto);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
     }
 }

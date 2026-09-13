@@ -20,100 +20,155 @@ public class ShiftService : IShiftService
     }
 
     // ==========================================
-    // 1. Quản lý Mẫu Ca Chuẩn (Operations Admin)
+    // 1. Quản lý Mẫu Ca Chuẩn (UC 1.3 - Operations Admin)
     // ==========================================
 
     /// <summary>
-    /// Tạo mẫu ca làm việc chuẩn mới áp dụng cho hệ thống chuỗi cửa hàng.
-    /// Logic đặc biệt: Kiểm tra trùng duy nhất mã ca TemplateCode (viết hoa), hỗ trợ ca qua đêm (IsOvernight = true) và thời gian nghỉ break.
+    /// Tạo mẫu ca làm việc chuẩn mới áp dụng cho hệ thống chuỗi cửa hàng (UC 1.3).
+    /// Nghiệp vụ: Validate start_time != end_time, start_time > end_time => is_overnight = true, unique code.
     /// </summary>
-    /// <param name="dto">DTO chứa dữ liệu đầu vào bao gồm TemplateCode, Name, StartTime, EndTime, IsOvernight, BreakDurationMinutes</param>
-    /// <returns>ApiResponse chứa thông tin mẫu ca vừa tạo thành công (ShiftDto) hoặc thông báo lỗi nếu trùng mã</returns>
-    public async Task<ApiResponse<ShiftDto>> CreateShiftTemplateAsync(CreateShiftTemplateDto dto)
+    public async Task<ApiResponse<ShiftTemplateDto>> CreateShiftTemplateAsync(CreateShiftTemplateDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.TemplateCode) || string.IsNullOrWhiteSpace(dto.Name))
+        if (string.IsNullOrWhiteSpace(dto.Code))
         {
-            return ApiResponse<ShiftDto>.Fail("Mã mẫu ca và Tên ca làm việc không được để trống.");
+            return ApiResponse<ShiftTemplateDto>.Fail("Mã mẫu ca (code) không được để trống.");
         }
 
+        if (string.IsNullOrWhiteSpace(dto.Name))
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Tên ca làm việc (name) không được để trống.");
+        }
+
+        var normalizedCode = dto.Code.Trim().ToUpper();
         var codeExists = await _context.ShiftTemplates
-            .AnyAsync(st => st.TemplateCode.ToLower() == dto.TemplateCode.Trim().ToLower());
+            .AnyAsync(st => st.Code.ToUpper() == normalizedCode);
 
         if (codeExists)
         {
-            return ApiResponse<ShiftDto>.Fail($"Mã mẫu ca '{dto.TemplateCode}' đã tồn tại trong hệ thống.");
+            return ApiResponse<ShiftTemplateDto>.Fail($"Mã mẫu ca '{normalizedCode}' đã tồn tại trong hệ thống.");
         }
 
+        // Validate quy tắc khung giờ
+        var validation = ValidateAndCalculateShift(dto.StartTime, dto.EndTime, dto.IsOvernight, dto.BreakMinutes);
+        if (!validation.IsValid)
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail(validation.ErrorMessage ?? "Cấu hình khung ca không hợp lệ.");
+        }
+
+        var now = DateTime.UtcNow;
         var template = new ShiftTemplate
         {
-            TemplateCode = dto.TemplateCode.Trim().ToUpper(),
+            Code = normalizedCode,
             Name = dto.Name.Trim(),
+            Description = string.IsNullOrWhiteSpace(dto.Description) 
+                ? $"Khung ca từ {dto.StartTime:HH\\:mm} đến {dto.EndTime:HH\\:mm}" 
+                : dto.Description.Trim(),
             StartTime = dto.StartTime,
             EndTime = dto.EndTime,
-            IsOvernight = dto.IsOvernight,
-            BreakDurationMinutes = dto.BreakDurationMinutes,
-            IsActive = true
+            IsOvernight = validation.IsOvernight,
+            BreakMinutes = dto.BreakMinutes,
+            Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
+            CreatedAt = now,
+            UpdatedAt = now
         };
 
         _context.ShiftTemplates.Add(template);
         await _context.SaveChangesAsync();
 
-        return ApiResponse<ShiftDto>.Ok(new ShiftDto
-        {
-            ShiftId = (int)template.Id,
-            ShiftCode = template.TemplateCode,
-            ShiftName = template.Name,
-            StartTime = template.StartTime,
-            EndTime = template.EndTime,
-            IsOvernight = template.IsOvernight,
-            BreakDurationMinutes = template.BreakDurationMinutes,
-            IsActive = template.IsActive
-        }, "Tạo mẫu ca chuẩn thành công.");
+        return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), "Tạo mẫu ca chuẩn thành công.");
     }
 
     /// <summary>
-    /// Cập nhật thông tin chi tiết của một mẫu ca làm việc chuẩn.
-    /// Logic đặc biệt: Cho phép cập nhật giờ bắt đầu, giờ kết thúc, cờ qua đêm, số phút nghỉ giữa ca và bật/tắt trạng thái hoạt động IsActive.
+    /// Cập nhật thông tin chi tiết của một mẫu ca làm việc chuẩn (UC 1.3).
     /// </summary>
-    /// <param name="id">Mã ID định danh mẫu ca chuẩn (ShiftTemplate.Id)</param>
-    /// <param name="dto">DTO chứa thông tin mới cần cập nhật</param>
-    /// <returns>ApiResponse chứa thông tin mẫu ca sau khi cập nhật (ShiftDto) hoặc báo lỗi nếu không tìm thấy ID</returns>
-    public async Task<ApiResponse<ShiftDto>> UpdateShiftTemplateAsync(uint id, UpdateShiftTemplateDto dto)
+    public async Task<ApiResponse<ShiftTemplateDto>> UpdateShiftTemplateAsync(uint id, UpdateShiftTemplateDto dto)
     {
         var template = await _context.ShiftTemplates.FindAsync(id);
         if (template == null)
         {
-            return ApiResponse<ShiftDto>.Fail("Không tìm thấy mẫu ca làm việc.");
+            return ApiResponse<ShiftTemplateDto>.Fail("Không tìm thấy mẫu ca làm việc cần cập nhật.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Tên ca làm việc không được để trống.");
+        }
+
+        // Validate quy tắc khung giờ
+        var validation = ValidateAndCalculateShift(dto.StartTime, dto.EndTime, dto.IsOvernight, dto.BreakMinutes);
+        if (!validation.IsValid)
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail(validation.ErrorMessage ?? "Cấu hình khung ca không hợp lệ.");
         }
 
         template.Name = dto.Name.Trim();
+        if (dto.Description != null)
+        {
+            template.Description = dto.Description.Trim();
+        }
         template.StartTime = dto.StartTime;
         template.EndTime = dto.EndTime;
-        template.IsOvernight = dto.IsOvernight;
-        template.BreakDurationMinutes = dto.BreakDurationMinutes;
-        template.IsActive = dto.IsActive;
+        template.IsOvernight = validation.IsOvernight;
+        template.BreakMinutes = dto.BreakMinutes;
+        if (!string.IsNullOrWhiteSpace(dto.Status))
+        {
+            template.Status = dto.Status.Trim().ToUpper();
+        }
+        template.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
-        return ApiResponse<ShiftDto>.Ok(new ShiftDto
-        {
-            ShiftId = (int)template.Id,
-            ShiftCode = template.TemplateCode,
-            ShiftName = template.Name,
-            StartTime = template.StartTime,
-            EndTime = template.EndTime,
-            IsOvernight = template.IsOvernight,
-            BreakDurationMinutes = template.BreakDurationMinutes,
-            IsActive = template.IsActive
-        }, "Cập nhật mẫu ca thành công.");
+        return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), "Cập nhật mẫu ca thành công.");
     }
 
     /// <summary>
-    /// Vô hiệu hóa (Soft delete) mẫu ca làm việc chuẩn.
-    /// Logic đặc biệt: Đổi cờ IsActive = false thay vì xóa cứng dữ liệu để bảo toàn lịch sử chấm công và ca trực đã xếp.
+    /// Cập nhật trạng thái mẫu ca làm việc (ACTIVE / INACTIVE) - Không xóa cứng để bảo toàn lịch sử chấm công (UC 1.3).
     /// </summary>
-    /// <param name="id">Mã ID định danh mẫu ca chuẩn cần vô hiệu hóa</param>
-    /// <returns>ApiResponse trả về cờ boolean xác nhận thao tác vô hiệu hóa thành công</returns>
+    public async Task<ApiResponse<ShiftTemplateDto>> UpdateShiftTemplateStatusAsync(uint id, UpdateShiftTemplateStatusDto dto)
+    {
+        var template = await _context.ShiftTemplates.FindAsync(id);
+        if (template == null)
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Không tìm thấy mẫu ca làm việc.");
+        }
+
+        var normalizedStatus = (dto.Status ?? string.Empty).Trim().ToUpper();
+        if (normalizedStatus != "ACTIVE" && normalizedStatus != "INACTIVE")
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Trạng thái không hợp lệ. Chỉ chấp nhận 'ACTIVE' hoặc 'INACTIVE'.");
+        }
+
+        template.Status = normalizedStatus;
+        template.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        var message = normalizedStatus == "INACTIVE"
+            ? "Đã vô hiệu hóa mẫu ca chuẩn (không xóa cứng để bảo toàn lịch sử chấm công)."
+            : "Đã kích hoạt lại mẫu ca chuẩn.";
+
+        var validation = ValidateAndCalculateShift(template.StartTime, template.EndTime, template.IsOvernight, template.BreakMinutes);
+        return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), message);
+    }
+
+    /// <summary>
+    /// Lấy thông tin chi tiết mẫu ca chuẩn theo ID.
+    /// </summary>
+    public async Task<ApiResponse<ShiftTemplateDto>> GetShiftTemplateByIdAsync(uint id)
+    {
+        var template = await _context.ShiftTemplates.FindAsync(id);
+        if (template == null)
+        {
+            return ApiResponse<ShiftTemplateDto>.Fail("Không tìm thấy mẫu ca làm việc.");
+        }
+
+        var validation = ValidateAndCalculateShift(template.StartTime, template.EndTime, template.IsOvernight, template.BreakMinutes);
+        return ApiResponse<ShiftTemplateDto>.Ok(MapToShiftTemplateDto(template, validation.WorkHours), "Lấy thông tin mẫu ca thành công.");
+    }
+
+    /// <summary>
+    /// Vô hiệu hóa (Soft delete) mẫu ca làm việc chuẩn - Không xóa cứng để bảo toàn lịch sử (UC 1.3).
+    /// </summary>
     public async Task<ApiResponse<bool>> DeleteShiftTemplateAsync(uint id)
     {
         var template = await _context.ShiftTemplates.FindAsync(id);
@@ -122,42 +177,141 @@ public class ShiftService : IShiftService
             return ApiResponse<bool>.Fail("Không tìm thấy mẫu ca làm việc.");
         }
 
-        template.IsActive = false;
+        template.Status = "INACTIVE";
+        template.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return ApiResponse<bool>.Ok(true, "Đã vô hiệu hóa mẫu ca chuẩn.");
+        return ApiResponse<bool>.Ok(true, "Đã vô hiệu hóa mẫu ca chuẩn thành công.");
     }
 
     /// <summary>
-    /// Lấy danh sách tất cả các ca làm việc mẫu trong hệ thống.
-    /// Logic đặc biệt: Mặc định chỉ lấy các ca active. Nếu includeInactive = true sẽ lấy tất cả ca phục vụ màn hình quản trị Admin.
+    /// Lấy danh sách tất cả các ca làm việc mẫu trong hệ thống (hỗ trợ lọc status: ACTIVE / INACTIVE).
     /// </summary>
-    /// <param name="includeInactive">Cờ tùy chọn: True lấy cả ca đã vô hiệu hóa, False chỉ lấy ca đang hoạt động</param>
-    /// <returns>ApiResponse chứa danh sách DTO thông tin mẫu ca chuẩn (List&lt;ShiftDto&gt;)</returns>
+    public async Task<ApiResponse<List<ShiftTemplateDto>>> GetAllShiftTemplatesAsync(string? status = null)
+    {
+        var query = _context.ShiftTemplates.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var filterStatus = status.Trim().ToUpper();
+            query = query.Where(st => st.Status.ToUpper() == filterStatus);
+        }
+
+        var templates = await query
+            .OrderBy(st => st.StartTime)
+            .ToListAsync();
+
+        var dtos = templates.Select(st =>
+        {
+            var validation = ValidateAndCalculateShift(st.StartTime, st.EndTime, st.IsOvernight, st.BreakMinutes);
+            return MapToShiftTemplateDto(st, validation.WorkHours);
+        }).ToList();
+
+        return ApiResponse<List<ShiftTemplateDto>>.Ok(dtos, "Lấy danh sách mẫu ca chuẩn thành công.");
+    }
+
     public async Task<ApiResponse<List<ShiftDto>>> GetAllShiftTemplatesAsync(bool includeInactive = false)
     {
         var query = _context.ShiftTemplates.AsQueryable();
         if (!includeInactive)
         {
-            query = query.Where(st => st.IsActive);
+            query = query.Where(st => st.Status == "ACTIVE");
         }
 
-        var shifts = await query
+        var templates = await query
             .OrderBy(st => st.StartTime)
-            .Select(st => new ShiftDto
-            {
-                ShiftId = (int)st.Id,
-                ShiftCode = st.TemplateCode,
-                ShiftName = st.Name,
-                StartTime = st.StartTime,
-                EndTime = st.EndTime,
-                IsOvernight = st.IsOvernight,
-                BreakDurationMinutes = st.BreakDurationMinutes,
-                IsActive = st.IsActive
-            })
             .ToListAsync();
 
-        return ApiResponse<List<ShiftDto>>.Ok(shifts);
+        var dtos = templates.Select(st =>
+        {
+            var validation = ValidateAndCalculateShift(st.StartTime, st.EndTime, st.IsOvernight, st.BreakMinutes);
+            var baseDto = MapToShiftTemplateDto(st, validation.WorkHours);
+            return new ShiftDto
+            {
+                Id = baseDto.Id,
+                Code = baseDto.Code,
+                Name = baseDto.Name,
+                Description = baseDto.Description,
+                StartTime = baseDto.StartTime,
+                EndTime = baseDto.EndTime,
+                BreakMinutes = baseDto.BreakMinutes,
+                IsOvernight = baseDto.IsOvernight,
+                WorkHours = baseDto.WorkHours,
+                Status = baseDto.Status,
+                CreatedAt = baseDto.CreatedAt,
+                UpdatedAt = baseDto.UpdatedAt
+            };
+        }).ToList();
+
+        return ApiResponse<List<ShiftDto>>.Ok(dtos);
+    }
+
+    private static (bool IsValid, string? ErrorMessage, double WorkHours, bool IsOvernight) ValidateAndCalculateShift(
+        TimeOnly startTime, TimeOnly endTime, bool isOvernight, uint breakMinutes)
+    {
+        if (startTime == endTime)
+        {
+            return (false, "Giờ bắt đầu (start_time) và giờ kết thúc (end_time) không được trùng nhau.", 0, false);
+        }
+
+        // Nếu start_time > end_time thì bắt buộc is_overnight = true (ca đêm qua ngày)
+        if (startTime > endTime)
+        {
+            isOvernight = true;
+        }
+        else if (isOvernight && startTime < endTime)
+        {
+            isOvernight = false;
+        }
+
+        int startMinutes = startTime.Hour * 60 + startTime.Minute;
+        int endMinutes = endTime.Hour * 60 + endTime.Minute;
+
+        int totalDurationMinutes;
+        if (isOvernight)
+        {
+            totalDurationMinutes = (24 * 60 - startMinutes) + endMinutes;
+        }
+        else
+        {
+            totalDurationMinutes = endMinutes - startMinutes;
+        }
+
+        if (totalDurationMinutes < 60)
+        {
+            return (false, "Thời lượng ca làm việc tối thiểu phải từ 1 giờ trở lên.", 0, isOvernight);
+        }
+
+        if (totalDurationMinutes > 16 * 60)
+        {
+            return (false, "Thời lượng ca làm việc không được vượt quá 16 giờ.", 0, isOvernight);
+        }
+
+        if (breakMinutes >= totalDurationMinutes)
+        {
+            return (false, $"Thời gian nghỉ ({breakMinutes} phút) không được lớn hơn hoặc bằng tổng thời lượng ca ({totalDurationMinutes} phút).", 0, isOvernight);
+        }
+
+        double workHours = Math.Round((totalDurationMinutes - (double)breakMinutes) / 60.0, 2);
+        return (true, null, workHours, isOvernight);
+    }
+
+    private static ShiftTemplateDto MapToShiftTemplateDto(ShiftTemplate st, double workHours)
+    {
+        return new ShiftTemplateDto
+        {
+            Id = st.Id,
+            Code = st.Code,
+            Name = st.Name,
+            Description = st.Description,
+            StartTime = st.StartTime.ToString("HH\\:mm\\:ss"),
+            EndTime = st.EndTime.ToString("HH\\:mm\\:ss"),
+            BreakMinutes = st.BreakMinutes,
+            IsOvernight = st.IsOvernight,
+            WorkHours = workHours,
+            Status = st.Status,
+            CreatedAt = st.CreatedAt,
+            UpdatedAt = st.UpdatedAt
+        };
     }
 
     // =========================================================

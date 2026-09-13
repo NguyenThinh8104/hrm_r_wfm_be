@@ -39,18 +39,24 @@ public static class DbInitializer
                 new Branch
                 {
                     Id = 1,
-                    BranchCode = "CH01",
+                    Code = "CH01",
                     Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy",
                     Address = "123 Cầu Giấy, Q. Cầu Giấy, Hà Nội",
-                    Status = "ACTIVE"
+                    Phone = "02438888888",
+                    Status = "ACTIVE",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                 },
                 new Branch
                 {
                     Id = 2,
-                    BranchCode = "CH02",
+                    Code = "CH02",
                     Name = "Cửa hàng Tiện lợi Chi nhánh Lê Văn Việt",
                     Address = "456 Lê Văn Việt, TP. Thủ Đức, TP. Hồ Chí Minh",
-                    Status = "ACTIVE"
+                    Phone = "02839999999",
+                    Status = "ACTIVE",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                 }
             };
             context.Branches.AddRange(branches);
@@ -190,35 +196,44 @@ public static class DbInitializer
                 new ShiftTemplate
                 {
                     Id = 1,
-                    TemplateCode = "CA_SANG",
+                    Code = "CA_SANG",
                     Name = "Ca Sáng (06:00 - 14:00)",
+                    Description = "Ca sáng tiêu chuẩn từ 06:00 đến 14:00 (nghỉ 30 phút)",
                     StartTime = new TimeOnly(6, 0),
                     EndTime = new TimeOnly(14, 0),
                     IsOvernight = false,
-                    BreakDurationMinutes = 30,
-                    IsActive = true
+                    BreakMinutes = 30,
+                    Status = "ACTIVE",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                 },
                 new ShiftTemplate
                 {
                     Id = 2,
-                    TemplateCode = "CA_CHIEU",
+                    Code = "CA_CHIEU",
                     Name = "Ca Chiều (14:00 - 22:00)",
+                    Description = "Ca chiều tiêu chuẩn từ 14:00 đến 22:00 (nghỉ 30 phút)",
                     StartTime = new TimeOnly(14, 0),
                     EndTime = new TimeOnly(22, 0),
                     IsOvernight = false,
-                    BreakDurationMinutes = 30,
-                    IsActive = true
+                    BreakMinutes = 30,
+                    Status = "ACTIVE",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                 },
                 new ShiftTemplate
                 {
                     Id = 3,
-                    TemplateCode = "CA_DEM",
+                    Code = "CA_DEM",
                     Name = "Ca Đêm (22:00 - 06:00)",
+                    Description = "Ca đêm xuyên đêm từ 22:00 đến 06:00 hôm sau (nghỉ 45 phút)",
                     StartTime = new TimeOnly(22, 0),
                     EndTime = new TimeOnly(6, 0),
                     IsOvernight = true,
-                    BreakDurationMinutes = 45,
-                    IsActive = true
+                    BreakMinutes = 45,
+                    Status = "ACTIVE",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                 }
             };
             context.ShiftTemplates.AddRange(templates);
@@ -233,10 +248,13 @@ public static class DbInitializer
                 Id = 1,
                 BranchId = 1,
                 KioskCode = "CH01-POS01",
-                Name = "Máy Kiosk Cầu Giấy 01",
-                DeviceToken = "ksk_tok_demo_pos01",
+                DeviceName = "Máy Kiosk Cầu Giấy 01",
+                KioskToken = "ksk_tok_demo_pos01",
+                IpWhitelist = "192.168.1.100,127.0.0.1,::1",
+                UserAgentPattern = "Chrome,Edge,KioskBrowser",
                 Status = "ACTIVE",
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
             context.KioskDevices.Add(kiosk);
             context.SaveChanges();

@@ -5,15 +5,13 @@ namespace Shared.Data;
 
 public static class DbInitializer
 {
-    public static void Initialize(AppDbContext context, bool reseed = false)
+    public static void Initialize(AppDbContext context, bool seedData = false)
     {
-        if (reseed)
+        if (seedData)
         {
-            // Xóa và khởi tạo lại DB khi người dùng truyền cờ --seed
             context.Database.EnsureDeleted();
         }
 
-        // Đảm bảo DB được tạo nếu chưa tồn tại (giữ nguyên dữ liệu nếu DB đã có)
         context.Database.EnsureCreated();
 
         // 1. Seed Roles

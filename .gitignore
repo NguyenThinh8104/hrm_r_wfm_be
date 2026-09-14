@@ -38,3 +38,5 @@ Desktop.ini
 appsettings.Local.json
 appsettings.*.local.json
 secrets.json
+appsettings.json
+appsettings.Development.json

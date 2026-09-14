@@ -29,7 +29,7 @@ public class ShiftService : IShiftService
     /// </summary>
     public async Task<ApiResponse<ShiftTemplateDto>> CreateShiftTemplateAsync(CreateShiftTemplateDto dto)
     {
-        if (string.IsNullOrWhiteSpace(dto.Code))
+        if (string.IsNullOrWhiteSpace(dto.TemplateCode))
         {
             return ApiResponse<ShiftTemplateDto>.Fail("Mã mẫu ca (code) không được để trống.");
         }
@@ -39,9 +39,9 @@ public class ShiftService : IShiftService
             return ApiResponse<ShiftTemplateDto>.Fail("Tên ca làm việc (name) không được để trống.");
         }
 
-        var normalizedCode = dto.Code.Trim().ToUpper();
+        var normalizedCode = dto.TemplateCode.Trim().ToUpper();
         var codeExists = await _context.ShiftTemplates
-            .AnyAsync(st => st.Code.ToUpper() == normalizedCode);
+            .AnyAsync(st => st.TemplateCode.ToUpper() == normalizedCode);
 
         if (codeExists)
         {
@@ -58,7 +58,7 @@ public class ShiftService : IShiftService
         var now = DateTime.UtcNow;
         var template = new ShiftTemplate
         {
-            Code = normalizedCode,
+            TemplateCode = normalizedCode,
             Name = dto.Name.Trim(),
             Description = string.IsNullOrWhiteSpace(dto.Description) 
                 ? $"Khung ca từ {dto.StartTime:HH\\:mm} đến {dto.EndTime:HH\\:mm}" 
@@ -229,7 +229,7 @@ public class ShiftService : IShiftService
             return new ShiftDto
             {
                 Id = baseDto.Id,
-                Code = baseDto.Code,
+                TemplateCode = baseDto.TemplateCode,
                 Name = baseDto.Name,
                 Description = baseDto.Description,
                 StartTime = baseDto.StartTime,
@@ -301,7 +301,7 @@ public class ShiftService : IShiftService
         return new ShiftTemplateDto
         {
             Id = st.Id,
-            Code = st.Code,
+            TemplateCode = st.TemplateCode,
             Name = st.Name,
             Description = st.Description,
             StartTime = st.StartTime.ToString("HH\\:mm\\:ss"),
@@ -346,13 +346,13 @@ public class ShiftService : IShiftService
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
             templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.Status == "ACTIVE")
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
                 .ToListAsync();
         }
         else
         {
             templates = await _context.ShiftTemplates
-                .Where(st => st.Status == "ACTIVE")
+                .Where(st => st.IsActive)
                 .ToListAsync();
         }
 
@@ -753,13 +753,13 @@ public class ShiftService : IShiftService
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
             templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.Status == "ACTIVE")
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
                 .ToListAsync();
         }
         else
         {
             templates = await _context.ShiftTemplates
-                .Where(st => st.Status == "ACTIVE")
+                .Where(st => st.IsActive)
                 .ToListAsync();
         }
 
@@ -1157,7 +1157,7 @@ public class ShiftService : IShiftService
 
         // 1. Lấy danh sách mẫu ca chuẩn đang hoạt động
         var templates = await _context.ShiftTemplates
-            .Where(st => st.Status == "ACTIVE")
+            .Where(st => st.IsActive)
             .OrderBy(st => st.StartTime)
             .ToListAsync();
 

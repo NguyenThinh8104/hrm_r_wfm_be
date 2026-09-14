@@ -45,6 +45,35 @@ public class AttendanceController : ControllerBase
 
 
     /// <summary>
+    /// [ShiftLeader/Manager/OpsAdmin] Theo dõi quân số ca trực thời gian thực kèm Presigned Temp URL xem ảnh Kiosk S3.
+    /// </summary>
+    [HttpGet("live-roster")]
+    [Authorize(Roles = "SHIFT_LEADER,STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<List<LiveRosterDto>>>> GetLiveRoster(
+        [FromQuery] ulong storeId,
+        [FromQuery] string? date)
+    {
+        var targetDate = string.IsNullOrEmpty(date) || !DateOnly.TryParse(date, out var parsedDate)
+            ? DateOnly.FromDateTime(DateTime.Now)
+            : parsedDate;
+
+        var result = await _attendanceService.GetLiveRosterAsync(storeId, targetDate);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [StoreManager/OpsAdmin] Phân xử khiếu nại cờ vi phạm (Khôi phục giờ công hoặc Bác bỏ).
+    /// </summary>
+    [HttpPost("resolve-fraud")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN")]
+    public async Task<ActionResult<ApiResponse<bool>>> ResolveFraud([FromBody] ResolveFraudDto request)
+    {
+        var result = await _attendanceService.ResolveFraudAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// [ShiftLeader/Manager] Lấy lịch sử danh sách bản ghi điểm danh trong ngày của chi nhánh cửa hàng.
     /// </summary>
     /// <param name="storeId">Mã ID chi nhánh cửa hàng</param>

@@ -111,6 +111,30 @@ public class KioskAttendanceController : ControllerBase
     }
 
     /// <summary>
+    /// [Quy trình V3 điểm danh thuần túy] Check-in với OTP 60s & chụp/upload ảnh S3 tự động.
+    /// </summary>
+    [HttpPost("v3/check-in")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckInV3([FromBody] KioskCheckInV3Dto request)
+    {
+        var result = await _attendanceService.CheckInV3Async(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Quy trình V3 điểm danh thuần túy] Check-out với OTP 60s & chụp/upload ảnh S3 tự động.
+    /// </summary>
+    [HttpPost("v3/check-out")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOutV3([FromBody] KioskCheckOutV3Dto request)
+    {
+        var result = await _attendanceService.CheckOutV3Async(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// [Bước 1 - Kiosk] Tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý khi điểm danh.
     /// </summary>
     /// <param name="storeId">Mã ID cửa hàng</param>

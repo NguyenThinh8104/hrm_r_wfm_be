@@ -7,6 +7,8 @@ using Shared.Common.Constants;
 using Shared.Data;
 using Shared.Security;
 
+using Shared.Services;
+
 namespace Modules.Attendance.Services;
 
 /// <summary>
@@ -18,24 +20,23 @@ public class AttendanceService : IAttendanceService
     private readonly IKioskContext _kioskContext;
     private readonly IPasswordHasher _passwordHasher;
     private readonly TimeProvider _timeProvider;
+    private readonly IRedisOtpService _redisOtpService;
+    private readonly IS3StorageService _s3StorageService;
 
-    /// <summary>
-    /// Khởi tạo AttendanceService với các Dependency Injections cần thiết.
-    /// </summary>
-    /// <param name="context">Database Context kết nối tới EF Core DB</param>
-    /// <param name="kioskContext">Ngữ cảnh máy Kiosk (Chi nhánh và Id Kiosk)</param>
-    /// <param name="passwordHasher">Dịch vụ mã hóa và kiểm tra mã PIN</param>
-    /// <param name="timeProvider">Dịch vụ cung cấp thời gian thực của Server</param>
     public AttendanceService(
         AppDbContext context,
         IKioskContext kioskContext,
         IPasswordHasher passwordHasher,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IRedisOtpService redisOtpService,
+        IS3StorageService s3StorageService)
     {
         _context = context;
         _kioskContext = kioskContext;
         _passwordHasher = passwordHasher;
         _timeProvider = timeProvider;
+        _redisOtpService = redisOtpService;
+        _s3StorageService = s3StorageService;
     }
 
     /// <summary>
@@ -532,5 +533,270 @@ public class AttendanceService : IAttendanceService
 
         return ApiResponse<List<KioskEmployeeSearchDto>>.Ok(result);
     }
+
+    /// <summary>
+    /// Lấy quân số theo dõi trực tiếp thời gian thực tại cửa hàng kèm Presigned Temporary URL ảnh S3.
+    /// </summary>
+    public async Task<ApiResponse<List<LiveRosterDto>>> GetLiveRosterAsync(ulong storeId, DateOnly? date = null)
+    {
+        var targetDate = date ?? DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+
+        var assignments = await _context.ShiftAssignments
+            .Include(sa => sa.User)
+                .ThenInclude(u => u.Role)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.AttendanceLog)
+                .ThenInclude(al => al!.FraudFlaggedByUser)
+            .Where(sa => sa.Schedule.BranchId == storeId && sa.Schedule.WorkDate == targetDate && sa.Status != "CANCELLED")
+            .OrderBy(sa => sa.Schedule.ShiftTemplate.StartTime)
+            .ToListAsync();
+
+        var result = assignments.Select(sa =>
+        {
+            var att = sa.AttendanceLog;
+            string status = "ABSENT";
+            if (att != null)
+            {
+                if (att.IsFraudFlagged) status = "FRAUD_FLAGGED";
+                else if (att.CheckOutTime.HasValue) status = "COMPLETED";
+                else if (att.CheckInTime != default) status = "PRESENT";
+            }
+
+            string? checkInPhotoUrl = _s3StorageService.GetPresignedUrl(att?.CheckInPhotoKey);
+            string? checkOutPhotoUrl = _s3StorageService.GetPresignedUrl(att?.CheckOutPhotoKey);
+
+            return new LiveRosterDto
+            {
+                AttendanceId = att?.Id,
+                AssignmentId = sa.Id,
+                UserId = sa.UserId,
+                EmployeeCode = sa.User.EmployeeCode,
+                FullName = sa.User.FullName,
+                PositionName = sa.User.Role?.RoleName ?? string.Empty,
+                ShiftName = sa.Schedule.ShiftTemplate.Name,
+                StartTime = sa.Schedule.ShiftTemplate.StartTime,
+                EndTime = sa.Schedule.ShiftTemplate.EndTime,
+                CheckInTime = att?.CheckInTime,
+                CheckOutTime = att?.CheckOutTime,
+                CheckInPhotoPresignedUrl = checkInPhotoUrl,
+                CheckOutPhotoPresignedUrl = checkOutPhotoUrl,
+                IsFraudFlagged = att?.IsFraudFlagged ?? false,
+                FraudReason = att?.FraudReason,
+                ReportedByName = att?.FraudFlaggedByUser?.FullName,
+                Status = status
+            };
+        }).ToList();
+
+        return ApiResponse<List<LiveRosterDto>>.Ok(result);
+    }
+
+    /// <summary>
+    /// Store Manager phân xử khiếu nại (Duyệt khôi phục giờ công hoặc Bác bỏ).
+    /// </summary>
+    public async Task<ApiResponse<bool>> ResolveFraudAsync(ResolveFraudDto request)
+    {
+        var log = await _context.AttendanceLogs
+            .Include(al => al.Assignment)
+            .FirstOrDefaultAsync(al => al.Id == request.AttendanceId);
+
+        if (log == null) return ApiResponse<bool>.Fail("Không tìm thấy bản ghi điểm danh cần phân xử.");
+
+        if (request.IsApproved)
+        {
+            log.IsFraudFlagged = false;
+            log.FraudReason = null;
+            if (log.Assignment != null)
+            {
+                log.Assignment.Status = log.CheckOutTime.HasValue ? "COMPLETED" : "CONFIRMED";
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return ApiResponse<bool>.Ok(true, request.IsApproved ? "Đã duyệt khôi phục giờ công thành công." : "Đã giữ nguyên cờ vi phạm.");
+    }
+
+    /// <summary>
+    /// Điểm danh Check-in V3 trên Kiosk: Xác thực Kiosk Token, mã OTP 60s và chụp/upload ảnh S3.
+    /// </summary>
+    public async Task<ApiResponse<AttendanceRecordDto>> CheckInV3Async(KioskCheckInV3Dto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.KioskDeviceToken))
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Mã định danh Kiosk DeviceToken không hợp lệ.");
+        }
+
+        var kiosk = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .FirstOrDefaultAsync(k => k.DeviceToken == request.KioskDeviceToken.Trim() && k.Status == "ACTIVE");
+
+        if (kiosk == null)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Thiết bị trạm Kiosk không hợp lệ hoặc chưa được kích hoạt.");
+        }
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == request.UserId && u.Status == "ACTIVE");
+        if (user == null)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Không tìm thấy thông tin nhân viên.");
+        }
+
+        // Xác thực & Hủy mã OTP 60s từ Redis
+        var isOtpValid = await _redisOtpService.VerifyAndConsumeOtpAsync(request.UserId, request.OtpCode, "CHECK_IN");
+        if (!isOtpValid)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Mã OTP Check-in không chính xác, đã được sử dụng hoặc hết hạn 60 giây.");
+        }
+
+        var now = _timeProvider.GetLocalNow().DateTime;
+        var today = DateOnly.FromDateTime(now);
+
+        var assignment = await _context.ShiftAssignments
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.AttendanceLog)
+            .FirstOrDefaultAsync(sa => sa.UserId == user.Id && sa.Schedule.BranchId == kiosk.BranchId && sa.Schedule.WorkDate == today);
+
+        if (assignment == null)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail($"Nhân viên {user.FullName} không có ca làm việc được phân công hôm nay tại cửa hàng {kiosk.Branch.Name}.");
+        }
+
+        if (assignment.AttendanceLog != null && assignment.AttendanceLog.CheckInTime != default)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Bạn đã thực hiện điểm danh Check-in cho ca làm việc này rồi.");
+        }
+
+        // Upload ảnh chân dung lên S3
+        string? photoS3Key = null;
+        if (!string.IsNullOrWhiteSpace(request.ImageBase64))
+        {
+            photoS3Key = await _s3StorageService.UploadBase64ImageAsync(request.ImageBase64, "attendance/checkin");
+        }
+
+        var shiftStartDt = today.ToDateTime(assignment.Schedule.ShiftTemplate.StartTime);
+        bool isLate = now > shiftStartDt.AddMinutes(15);
+        string status = isLate ? "Late" : "Present";
+
+        var log = new AttendanceLog
+        {
+            AssignmentId = assignment.Id,
+            BranchId = kiosk.BranchId,
+            KioskId = kiosk.Id,
+            CheckInTime = now,
+            CheckInPhotoKey = photoS3Key,
+            CreatedAt = now
+        };
+
+        _context.AttendanceLogs.Add(log);
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<AttendanceRecordDto>.Ok(new AttendanceRecordDto
+        {
+            AttendanceId = (int)log.Id,
+            AssignmentId = (int)assignment.Id,
+            EmployeeId = (int)user.Id,
+            EmployeeName = user.FullName,
+            EmployeeCode = user.EmployeeCode,
+            StoreId = (int)kiosk.BranchId,
+            KioskId = (int)kiosk.Id,
+            StoreName = kiosk.Branch.Name,
+            CheckInTime = log.CheckInTime,
+            CheckInMethod = "Kiosk_OTP_S3",
+            Status = status,
+            HasException = false
+        }, $"Check-in thành công lúc {now:HH:mm:ss}!");
+    }
+
+    /// <summary>
+    /// Điểm danh Check-out V3 trên Kiosk: Xác thực Kiosk Token, mã OTP 60s, chụp/upload ảnh S3 và tính giờ công.
+    /// </summary>
+    public async Task<ApiResponse<AttendanceRecordDto>> CheckOutV3Async(KioskCheckOutV3Dto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.KioskDeviceToken))
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Mã định danh Kiosk DeviceToken không hợp lệ.");
+        }
+
+        var kiosk = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .FirstOrDefaultAsync(k => k.DeviceToken == request.KioskDeviceToken.Trim() && k.Status == "ACTIVE");
+
+        if (kiosk == null)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Thiết bị trạm Kiosk không hợp lệ hoặc chưa được kích hoạt.");
+        }
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == request.UserId && u.Status == "ACTIVE");
+        if (user == null)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Không tìm thấy thông tin nhân viên.");
+        }
+
+        var isOtpValid = await _redisOtpService.VerifyAndConsumeOtpAsync(request.UserId, request.OtpCode, "CHECK_OUT");
+        if (!isOtpValid)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Mã OTP Check-out không chính xác, đã sử dụng hoặc hết hạn 60 giây.");
+        }
+
+        var now = _timeProvider.GetLocalNow().DateTime;
+        var today = DateOnly.FromDateTime(now);
+        var yesterday = today.AddDays(-1);
+
+        var log = await _context.AttendanceLogs
+            .Include(al => al.Assignment)
+                .ThenInclude(sa => sa.Schedule)
+                    .ThenInclude(s => s.ShiftTemplate)
+            .Where(al => al.Assignment.UserId == user.Id &&
+                         al.CheckOutTime == null &&
+                         (al.Assignment.Schedule.WorkDate == today ||
+                          (al.Assignment.Schedule.ShiftTemplate.IsOvernight && al.Assignment.Schedule.WorkDate == yesterday)))
+            .OrderByDescending(al => al.CheckInTime)
+            .FirstOrDefaultAsync();
+
+        if (log == null)
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail("Không tìm thấy phiên điểm danh Check-in đang mở để Check-out.");
+        }
+
+        string? photoS3Key = null;
+        if (!string.IsNullOrWhiteSpace(request.ImageBase64))
+        {
+            photoS3Key = await _s3StorageService.UploadBase64ImageAsync(request.ImageBase64, "attendance/checkout");
+        }
+
+        log.CheckOutTime = now;
+        log.CheckOutPhotoKey = photoS3Key;
+        log.KioskId = kiosk.Id;
+
+        if (log.Assignment != null)
+        {
+            log.Assignment.Status = "COMPLETED";
+        }
+
+        await _context.SaveChangesAsync();
+
+        double workMinutes = Math.Round(log.ActualWorkMinutes ?? 0, 1);
+        int hours = (int)(workMinutes / 60);
+        int mins = (int)(workMinutes % 60);
+
+        return ApiResponse<AttendanceRecordDto>.Ok(new AttendanceRecordDto
+        {
+            AttendanceId = (int)log.Id,
+            AssignmentId = (int)log.AssignmentId,
+            EmployeeId = (int)user.Id,
+            EmployeeName = user.FullName,
+            EmployeeCode = user.EmployeeCode,
+            StoreId = (int)kiosk.BranchId,
+            KioskId = (int)kiosk.Id,
+            StoreName = kiosk.Branch.Name,
+            CheckInTime = log.CheckInTime,
+            CheckOutTime = log.CheckOutTime,
+            CheckInMethod = "Kiosk_OTP_S3",
+            CheckOutMethod = "Kiosk_OTP_S3",
+            Status = "Completed"
+        }, $"Tạm biệt! Bạn đã hoàn thành ca làm việc lúc {now:HH:mm:ss}. Tổng thời gian: {hours} giờ {mins} phút.");
+    }
 }
+
 

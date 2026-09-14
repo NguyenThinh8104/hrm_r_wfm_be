@@ -1,5 +1,63 @@
 namespace Modules.Attendance.DTOs;
 
+public class RequestAttendanceOtpDto
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public string Type { get; set; } = "CHECK_IN"; // "CHECK_IN" or "CHECK_OUT"
+}
+
+public class RequestAttendanceOtpResponseDto
+{
+    public string OtpCode { get; set; } = string.Empty;
+    public int ExpiresInSeconds { get; set; } = 60;
+    public double DistanceMeters { get; set; }
+    public string BranchName { get; set; } = string.Empty;
+}
+
+public class LiveRosterDto
+{
+    public ulong? AttendanceId { get; set; }
+    public ulong AssignmentId { get; set; }
+    public ulong UserId { get; set; }
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string PositionName { get; set; } = string.Empty;
+    public string ShiftName { get; set; } = string.Empty;
+    public TimeOnly StartTime { get; set; }
+    public TimeOnly EndTime { get; set; }
+    public DateTime? CheckInTime { get; set; }
+    public DateTime? CheckOutTime { get; set; }
+    public string? CheckInPhotoPresignedUrl { get; set; }
+    public string? CheckOutPhotoPresignedUrl { get; set; }
+    public bool IsFraudFlagged { get; set; }
+    public string? FraudReason { get; set; }
+    public string? ReportedByName { get; set; }
+    public string Status { get; set; } = "ABSENT";
+}
+
+public class ResolveFraudDto
+{
+    public ulong AttendanceId { get; set; }
+    public bool IsApproved { get; set; }
+}
+
+public class KioskCheckInV3Dto
+{
+    public string KioskDeviceToken { get; set; } = string.Empty;
+    public ulong UserId { get; set; }
+    public string OtpCode { get; set; } = string.Empty;
+    public string ImageBase64 { get; set; } = string.Empty;
+}
+
+public class KioskCheckOutV3Dto
+{
+    public string KioskDeviceToken { get; set; } = string.Empty;
+    public ulong UserId { get; set; }
+    public string OtpCode { get; set; } = string.Empty;
+    public string ImageBase64 { get; set; } = string.Empty;
+}
+
 /// <summary>
 /// DTO yêu cầu điểm danh Check-in đầu ca tại trạm Kiosk.
 /// </summary>

@@ -3,7 +3,7 @@ namespace Domain.Entities;
 public class ShiftTemplate
 {
     public uint Id { get; set; }
-    public string Code { get; set; } = string.Empty;
+    public string TemplateCode { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public TimeOnly StartTime { get; set; }

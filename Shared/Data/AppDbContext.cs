@@ -120,7 +120,7 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("shift_templates");
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.Code).IsUnique();
+            entity.HasIndex(e => e.TemplateCode).IsUnique();
         });
 
         // 7. work_schedules

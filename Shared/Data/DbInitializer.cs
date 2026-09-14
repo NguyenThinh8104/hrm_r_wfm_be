@@ -43,6 +43,9 @@ public static class DbInitializer
                     Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy",
                     Address = "123 Cầu Giấy, Q. Cầu Giấy, Hà Nội",
                     Status = "ACTIVE",
+                    Latitude = 21.0333,
+                    Longitude = 105.7833,
+                    GeofenceRadiusMeters = 50,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
@@ -53,6 +56,9 @@ public static class DbInitializer
                     Name = "Cửa hàng Tiện lợi Chi nhánh Lê Văn Việt",
                     Address = "456 Lê Văn Việt, TP. Thủ Đức, TP. Hồ Chí Minh",
                     Status = "ACTIVE",
+                    Latitude = 10.8456,
+                    Longitude = 106.7925,
+                    GeofenceRadiusMeters = 50,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 }
@@ -194,7 +200,7 @@ public static class DbInitializer
                 new ShiftTemplate
                 {
                     Id = 1,
-                    Code = "CA_SANG",
+                    TemplateCode = "CA_SANG",
                     Name = "Ca Sáng (06:00 - 14:00)",
                     Description = "Ca sáng tiêu chuẩn từ 06:00 đến 14:00 (nghỉ 30 phút)",
                     StartTime = new TimeOnly(6, 0),
@@ -208,7 +214,7 @@ public static class DbInitializer
                 new ShiftTemplate
                 {
                     Id = 2,
-                    Code = "CA_CHIEU",
+                    TemplateCode = "CA_CHIEU",
                     Name = "Ca Chiều (14:00 - 22:00)",
                     Description = "Ca chiều tiêu chuẩn từ 14:00 đến 22:00 (nghỉ 30 phút)",
                     StartTime = new TimeOnly(14, 0),
@@ -222,7 +228,7 @@ public static class DbInitializer
                 new ShiftTemplate
                 {
                     Id = 3,
-                    Code = "CA_DEM",
+                    TemplateCode = "CA_DEM",
                     Name = "Ca Đêm (22:00 - 06:00)",
                     Description = "Ca đêm xuyên đêm từ 22:00 đến 06:00 hôm sau (nghỉ 45 phút)",
                     StartTime = new TimeOnly(22, 0),

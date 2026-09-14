@@ -10,7 +10,7 @@ namespace Modules.Shifts.DTOs;
 public class ShiftTemplateDto
 {
     public uint Id { get; set; }
-    public string Code { get; set; } = string.Empty;
+    public string TemplateCode { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string StartTime { get; set; } = "00:00:00";
@@ -24,12 +24,12 @@ public class ShiftTemplateDto
 
     // Aliases for backward compatibility
     public int ShiftId => (int)Id;
-    public string ShiftCode => Code;
-    public string TemplateCode => Code;
+    public string Code => TemplateCode;
+    public string ShiftCode => TemplateCode;
     public string ShiftName => Name;
     public uint BreakDurationMinutes => BreakMinutes;
     public bool IsActive => Status == "ACTIVE";
-    public bool IsSystemDefault => new[] { "CA_SANG", "CA_CHIEU", "CA_DEM" }.Contains(Code.ToUpper());
+    public bool IsSystemDefault => new[] { "CA_SANG", "CA_CHIEU", "CA_DEM" }.Contains(TemplateCode.ToUpper());
 }
 
 public class ShiftDto : ShiftTemplateDto { }
@@ -39,16 +39,16 @@ public class ShiftDto : ShiftTemplateDto { }
 /// </summary>
 public class CreateShiftTemplateDto
 {
-    private string _code = string.Empty;
+    private string _templateCode = string.Empty;
     /// <summary>
     /// Mã mẫu ca viết hoa duy nhất (Ví dụ: CA_SANG, CA_CHIEU, CA_DEM).
     /// </summary>
-    public string Code 
+    public string TemplateCode 
     { 
-        get => !string.IsNullOrWhiteSpace(_code) ? _code : (!string.IsNullOrWhiteSpace(TemplateCode) ? TemplateCode : (ShiftCode ?? string.Empty));
-        set => _code = value;
+        get => !string.IsNullOrWhiteSpace(_templateCode) ? _templateCode : (!string.IsNullOrWhiteSpace(Code) ? Code : (ShiftCode ?? string.Empty));
+        set => _templateCode = value;
     }
-    public string? TemplateCode { get; set; }
+    public string? Code { get; set; }
     public string? ShiftCode { get; set; }
 
     private string _name = string.Empty;

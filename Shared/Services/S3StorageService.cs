@@ -28,7 +28,7 @@ public class S3StorageService : IS3StorageService
 
         var accessKey = _configuration["AWS:AccessKeyId"];
         var secretKey = _configuration["AWS:SecretAccessKey"];
-        var regionName = _configuration["AWS:Region"] ?? "ap-southeast-1";
+        var regionName = _configuration["AWS:Region"] ?? "us-east-1";
 
         if (!string.IsNullOrEmpty(accessKey) && !string.IsNullOrEmpty(secretKey))
         {

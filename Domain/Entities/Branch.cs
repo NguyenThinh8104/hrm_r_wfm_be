@@ -14,6 +14,14 @@ public class Branch
     public string Code { get => BranchCode; set => BranchCode = value; }
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
+    public string? KioskAllowedIp { get; set; }
+
+    [NotMapped]
+    public string? Phone { get; set; }
+
+    [NotMapped]
+    public string? KioskAllowedBrowser { get; set; }
+
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" or "INACTIVE"
     
     [Column("Location", TypeName = "POINT")]

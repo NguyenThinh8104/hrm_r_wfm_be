@@ -16,6 +16,7 @@ public interface IBranchService
     Task<ApiResponse<BranchDto>> CreateBranchAsync(CreateBranchDto dto);
     Task<ApiResponse<BranchDto>> UpdateBranchAsync(ulong id, UpdateBranchDto dto);
     Task<ApiResponse<BranchDto>> UpdateBranchStatusAsync(ulong id, UpdateBranchStatusDto dto);
+    Task<ApiResponse<bool>> DeleteBranchAsync(ulong id);
 
     // ==========================================
     // 2. Kiosk Management

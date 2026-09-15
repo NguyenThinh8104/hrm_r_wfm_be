@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Domain.Entities;
 
 public class CashHandover
@@ -10,6 +12,8 @@ public class CashHandover
     public decimal OpeningCash { get; set; }
     public decimal SystemExpectedCash { get; set; }
     public decimal ClosingActualCash { get; set; }
+
+    [NotMapped]
     public decimal DifferenceAmount => ClosingActualCash - SystemExpectedCash;
     public string? DiscrepancyReason { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

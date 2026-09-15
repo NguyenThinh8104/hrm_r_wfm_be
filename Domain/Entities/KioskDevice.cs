@@ -16,14 +16,14 @@ public class KioskDevice
     
     public string KioskCode { get; set; } = string.Empty;
     
-    [Column("AllowedIp")]
-    public string? AllowedIp { get; set; }
+    [Column("IpAddress")]
+    public string? IpAddress { get; set; }
     
     [NotMapped]
-    public string? IpWhitelist { get => AllowedIp; set => AllowedIp = value; }
+    public string? AllowedIp { get => IpAddress; set => IpAddress = value; }
     
     [NotMapped]
-    public string? IpAddress { get => AllowedIp; set => AllowedIp = value; }
+    public string? IpWhitelist { get => IpAddress; set => IpAddress = value; }
 
     [Column("DeviceToken")]
     public string DeviceToken { get; set; } = string.Empty;
@@ -31,7 +31,7 @@ public class KioskDevice
     [NotMapped]
     public string KioskToken { get => DeviceToken; set => DeviceToken = value; }
 
-    [Column("AllowedBrowser")]
+    [NotMapped]
     public string? AllowedBrowser { get; set; }
     
     [NotMapped]
@@ -43,5 +43,7 @@ public class KioskDevice
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE", "BLOCKED", "INACTIVE"
     public DateTime? LastPingAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    [NotMapped]
+    public DateTime? UpdatedAt { get; set; }
 }

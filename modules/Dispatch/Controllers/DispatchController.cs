@@ -9,7 +9,7 @@ namespace Modules.Dispatch.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+[Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
 
 public class DispatchController : ControllerBase
 {

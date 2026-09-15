@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Mail;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Shared.Interfaces;
 
 namespace Shared.Services;
 
@@ -30,14 +31,14 @@ public class EmailService : IEmailService
             using var message = new MailMessage();
             message.From = new MailAddress(senderEmail, senderName);
             message.To.Add(new MailAddress(recipientEmail, recipientName));
-            message.Subject = $"[R-WFM] Mã xác thực OTP đặt lại mật khẩu: {otpCode}";
+            message.Subject = $"[RWFM Support] Mã xác thực OTP đặt lại mật khẩu: {otpCode}";
             message.IsBodyHtml = true;
             message.Priority = MailPriority.High;
 
             message.Body = $@"
             <div style='font-family: Arial, sans-serif; max-width: 550px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;'>
                 <div style='text-align: center; margin-bottom: 20px;'>
-                    <h2 style='color: #1e293b; margin: 0;'>R-WFM Retail Platform</h2>
+                    <h2 style='color: #1e293b; margin: 0;'>RWFM Retail Platform</h2>
                     <p style='color: #64748b; font-size: 14px;'>Hệ thống Quản trị Nhân sự Vận hành Chuỗi Siêu thị</p>
                 </div>
                 <p>Xin chào <strong>{recipientName}</strong>,</p>

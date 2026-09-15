@@ -27,7 +27,7 @@ public class KioskController : ControllerBase
     /// <param name="request">DTO chứa StoreId và tên Kiosk hiển thị</param>
     /// <returns>Mã kích hoạt OTP dạng POS-XXXX và thời gian hết hạn</returns>
     [HttpPost("create-code")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<KioskCodeResponseDto>>> CreateKioskCode([FromBody] CreateKioskCodeRequestDto request)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -77,7 +77,7 @@ public class KioskController : ControllerBase
     /// <param name="storeId">Mã ID cửa hàng</param>
     /// <returns>Danh sách các máy Kiosk thuộc cửa hàng</returns>
     [HttpGet("store/{storeId}")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<KioskActivationResponseDto>>>> GetStoreKiosks(int storeId)
     {
         var result = await _kioskService.GetStoreKiosksAsync(storeId);
@@ -89,7 +89,7 @@ public class KioskController : ControllerBase
     /// </summary>
     /// <param name="kioskId">Mã ID trạm Kiosk</param>
     [HttpDelete("{kioskId}")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<bool>>> DeactivateKiosk(int kioskId)
     {
         var result = await _kioskService.DeactivateKioskAsync(kioskId);

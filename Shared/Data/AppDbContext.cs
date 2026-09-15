@@ -42,8 +42,16 @@ public partial class AppDbContext : DbContext
             entity.ToTable("branches");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.BranchCode).HasColumnName("BranchCode");
+            entity.Property(e => e.Name).HasColumnName("Name");
+            entity.Property(e => e.Address).HasColumnName("Address");
+            entity.Property(e => e.KioskAllowedIp).HasColumnName("KioskAllowedIp");
+            entity.Property(e => e.Status).HasColumnName("Status");
+            entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
+            entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.BranchCode).IsUnique();
             entity.Ignore(e => e.Code);
+            entity.Ignore(e => e.Phone);
+            entity.Ignore(e => e.KioskAllowedBrowser);
         });
 
         // 2. roles
@@ -80,16 +88,24 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("kiosks");
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.BranchId).HasColumnName("BranchId");
+            entity.Property(e => e.KioskCode).HasColumnName("KioskCode");
             entity.Property(e => e.Name).HasColumnName("Name");
             entity.Property(e => e.DeviceToken).HasColumnName("DeviceToken");
+            entity.Property(e => e.Status).HasColumnName("Status");
+            entity.Property(e => e.IpAddress).HasColumnName("IpAddress");
+            entity.Property(e => e.LastPingAt).HasColumnName("LastPingAt");
+            entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
             entity.HasIndex(e => e.KioskCode).IsUnique();
             entity.HasIndex(e => e.DeviceToken).IsUnique();
             entity.Ignore(e => e.DeviceName);
             entity.Ignore(e => e.KioskToken);
+            entity.Ignore(e => e.AllowedIp);
             entity.Ignore(e => e.IpWhitelist);
-            entity.Ignore(e => e.IpAddress);
+            entity.Ignore(e => e.AllowedBrowser);
             entity.Ignore(e => e.UserAgentPattern);
             entity.Ignore(e => e.LastBrowserUserAgent);
+            entity.Ignore(e => e.UpdatedAt);
 
             entity.HasOne(e => e.Branch)
                 .WithMany(b => b.Kiosks)
@@ -120,7 +136,19 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("shift_templates");
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.Code).IsUnique();
+            entity.Property(e => e.TemplateCode).HasColumnName("TemplateCode");
+            entity.Property(e => e.Name).HasColumnName("Name");
+            entity.Property(e => e.StartTime).HasColumnName("StartTime");
+            entity.Property(e => e.EndTime).HasColumnName("EndTime");
+            entity.Property(e => e.IsOvernight).HasColumnName("IsOvernight");
+            entity.Property(e => e.BreakDurationMinutes).HasColumnName("BreakDurationMinutes");
+            entity.Property(e => e.IsActive).HasColumnName("IsActive");
+            entity.HasIndex(e => e.TemplateCode).IsUnique();
+            entity.Ignore(e => e.Code);
+            entity.Ignore(e => e.Description);
+            entity.Ignore(e => e.CreatedAt);
+            entity.Ignore(e => e.UpdatedAt);
+            entity.Ignore(e => e.Status);
         });
 
         // 7. work_schedules
@@ -300,6 +328,7 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("cash_handovers");
             entity.HasKey(e => e.Id);
+            entity.Ignore(e => e.DifferenceAmount);
 
             entity.HasOne(e => e.ShiftHandover)
                 .WithMany(sh => sh.CashHandovers)

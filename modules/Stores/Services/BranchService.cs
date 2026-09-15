@@ -108,6 +108,7 @@ public class BranchService : IBranchService, IStoreService
             BranchCode = normalizedCode,
             Name = dto.Name.Trim(),
             Address = dto.Address.Trim(),
+            KioskAllowedIp = string.IsNullOrWhiteSpace(dto.KioskAllowedIp) ? null : dto.KioskAllowedIp.Trim(),
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
             CreatedAt = now,
             UpdatedAt = now
@@ -120,7 +121,7 @@ public class BranchService : IBranchService, IStoreService
     }
 
     /// <summary>
-    /// Cập nhật thông tin chi nhánh cửa hàng (Tên, địa chỉ).
+    /// Cập nhật thông tin chi nhánh cửa hàng (Tên, địa chỉ, IP Kiosk).
     /// </summary>
     public async Task<ApiResponse<BranchDto>> UpdateBranchAsync(ulong id, UpdateBranchDto dto)
     {
@@ -145,6 +146,10 @@ public class BranchService : IBranchService, IStoreService
 
         branch.Name = dto.Name.Trim();
         branch.Address = dto.Address.Trim();
+        if (dto.KioskAllowedIp != null)
+        {
+            branch.KioskAllowedIp = string.IsNullOrWhiteSpace(dto.KioskAllowedIp) ? null : dto.KioskAllowedIp.Trim();
+        }
         branch.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -195,6 +200,32 @@ public class BranchService : IBranchService, IStoreService
             : "Đã kích hoạt lại chi nhánh thành công.";
 
         return ApiResponse<BranchDto>.Ok(MapToBranchDto(branch), message);
+    }
+
+    /// <summary>
+    /// Xóa chi nhánh cửa hàng (Operations Admin).
+    /// </summary>
+    public async Task<ApiResponse<bool>> DeleteBranchAsync(ulong id)
+    {
+        var branch = await _context.Branches
+            .Include(b => b.Kiosks)
+            .Include(b => b.Users)
+            .FirstOrDefaultAsync(b => b.Id == id);
+
+        if (branch == null)
+        {
+            return ApiResponse<bool>.Fail("Không tìm thấy chi nhánh cửa hàng cần xóa.");
+        }
+
+        foreach (var user in branch.Users)
+        {
+            user.HomeBranchId = null;
+        }
+
+        _context.Branches.Remove(branch);
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<bool>.Ok(true, "Đã xóa chi nhánh cửa hàng thành công.");
     }
 
     // ==========================================
@@ -383,6 +414,8 @@ public class BranchService : IBranchService, IStoreService
             Code = b.Code,
             Name = b.Name,
             Address = b.Address,
+            KioskAllowedIp = b.KioskAllowedIp,
+            KioskAllowedBrowser = b.KioskAllowedBrowser,
             Status = b.Status,
             CreatedAt = b.CreatedAt,
             UpdatedAt = b.UpdatedAt,
@@ -408,7 +441,7 @@ public class BranchService : IBranchService, IStoreService
             Status = k.Status,
             LastPingAt = k.LastPingAt,
             CreatedAt = k.CreatedAt,
-            UpdatedAt = k.UpdatedAt
+            UpdatedAt = k.UpdatedAt ?? k.CreatedAt
         };
     }
 }

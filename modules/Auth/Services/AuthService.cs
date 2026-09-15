@@ -9,6 +9,12 @@ using Shared.Services;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using System.Security.Cryptography;
+using Shared.Common.Constants;
+using Shared.Interfaces;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Google.Apis.Auth;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Modules.Auth.Services;
 
@@ -17,16 +23,18 @@ public class AuthService : IAuthService
     private readonly AppDbContext _context;
     private readonly JwtTokenService _jwtTokenService;
     private readonly IEmailService _emailService;
+    private readonly IConfiguration _config;
     private readonly IMemoryCache _cache;
     private readonly ILogger<AuthService> _logger;
 
     private const int OTP_EXPIRY_MINUTES = 5;
 
-public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmailService emailService, IMemoryCache cache, ILogger<AuthService> logger)
+public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmailService emailService, IConfiguration config, IMemoryCache cache, ILogger<AuthService> logger)
     {
         _context = context;
         _jwtTokenService = jwtTokenService;
         _emailService = emailService;
+        _config = config;
         _cache = cache;
         _logger = logger;
     }
@@ -35,7 +43,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
     {
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
         {
-            return ApiResponse<AuthResponseDto>.Fail("Vui lòng nhập tên đăng nhập và mật khẩu.");
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.USERNAME_PASSWORD_INVALID);
         }
 
         var user = await _context.Users
@@ -46,12 +54,12 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (user == null || !PasswordHasher.Verify(request.Password, user.PasswordHash))
         {
-            return ApiResponse<AuthResponseDto>.Fail("Tên đăng nhập hoặc mật khẩu không chính xác.");
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.INVALID_CREDENTIALS);
         }
 
         if (user.Status != "ACTIVE")
         {
-            return ApiResponse<AuthResponseDto>.Fail("Tài khoản người dùng đang bị khóa.");
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ACCOUNT_LOCKED);
         }
 
         var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
@@ -62,14 +70,14 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
             Token = token,
             ExpiresAt = expiresAt,
             User = summary
-        }, "Đăng nhập thành công.");
+        }, AuthMessages.LOGIN_SUCCESS);
     }
 
     public async Task<ApiResponse<AuthResponseDto>> KioskLoginAsync(KioskLoginRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.EmployeeCode) || string.IsNullOrWhiteSpace(request.PinCode))
         {
-            return ApiResponse<AuthResponseDto>.Fail("Vui lòng nhập mã nhân viên và mã PIN.");
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.KIOSK_LOGIN_REQUIRED);
         }
 
         var user = await _context.Users
@@ -79,12 +87,12 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (user == null)
         {
-            return ApiResponse<AuthResponseDto>.Fail("Không tìm thấy nhân viên với mã này.");
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.EMPLOYEE_NOT_FOUND);
         }
 
         if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
         {
-            return ApiResponse<AuthResponseDto>.Fail("Mã PIN không chính xác.");
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.PIN_INVALID);
         }
 
         var today = DateOnly.FromDateTime(DateTime.Now);
@@ -94,7 +102,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (user.HomeBranchId != (ulong)request.StoreId && !isDispatched)
         {
-            return ApiResponse<AuthResponseDto>.Fail($"Nhân viên {user.FullName} không thuộc chi nhánh này và không có lệnh điều động hợp lệ.");
+            return ApiResponse<AuthResponseDto>.Fail(string.Format(AuthMessages.NOT_ASSIGNED_TO_BRANCH, user.FullName));
         }
 
         var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
@@ -105,7 +113,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
             Token = token,
             ExpiresAt = expiresAt,
             User = summary
-        }, "Xác thực Kiosk thành công.");
+        }, AuthMessages.KIOSK_LOGIN_SUCCESS);
     }
 
     public async Task<ApiResponse<UserSummaryDto>> GetCurrentUserAsync(int userId)
@@ -117,7 +125,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (user == null)
         {
-            return ApiResponse<UserSummaryDto>.Fail("Không tìm thấy thông tin người dùng.");
+            return ApiResponse<UserSummaryDto>.Fail(AuthMessages.USER_NOT_FOUND);
         }
 
         return ApiResponse<UserSummaryDto>.Ok(MapUserSummary(user));
@@ -152,12 +160,12 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
         if (user == null)
         {
-            return ApiResponse<bool>.Fail("Email này không tồn tại trong hệ thống nhân viên.");
+            return ApiResponse<bool>.Fail(AuthMessages.EMAIL_NOT_IN_SYSTEM);
         }
 
         if (user.Status != "ACTIVE")
         {
-            return ApiResponse<bool>.Fail("Tài khoản người dùng hiện đang bị khóa hoặc ngừng hoạt động.");
+            return ApiResponse<bool>.Fail(AuthMessages.ACCOUNT_INACTIVE);
         }
 
         // 2. Sinh mã OTP 6 chữ số ngẫu nhiên
@@ -177,10 +185,10 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
         {
             // Nếu gửi mail thất bại, xóa cache để tránh kẹt mã
             _cache.Remove(cacheKey);
-            return ApiResponse<bool>.Fail("Hệ thống tạm thời không thể gửi email. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau ít phút.");
+            return ApiResponse<bool>.Fail(AuthMessages.EMAIL_SEND_FAILED);
         }
 
-        return ApiResponse<bool>.Ok(true, $"Mã xác thực OTP đã được gửi đến hòm thư {user.Email}. Mã có hiệu lực trong 5 phút.");
+        return ApiResponse<bool>.Ok(true, string.Format(AuthMessages.OTP_SENT_SUCCESS, user.Email, OTP_EXPIRY_MINUTES));
     }
 
     public async Task<ApiResponse<bool>> VerifyOtpAsync(VerifyOtpRequestDto request)
@@ -190,22 +198,22 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (!_cache.TryGetValue(cacheKey, out string? cachedOtp) || string.IsNullOrEmpty(cachedOtp))
         {
-            return ApiResponse<bool>.Fail("Mã OTP đã hết hạn (quá 5 phút) hoặc chưa được gửi yêu cầu. Vui lòng nhấn gửi lại mã mới.");
+            return ApiResponse<bool>.Fail(ResetPassword.OTP_EXPIRED);
         }
 
         if (cachedOtp != request.OtpCode.Trim())
         {
-            return ApiResponse<bool>.Fail("Mã OTP không chính xác. Vui lòng kiểm tra lại hòm thư email.");
+            return ApiResponse<bool>.Fail(ResetPassword.OTP_INVALID);
         }
 
         // Kiểm tra User trong database
         var userExists = await _context.Users.AnyAsync(u => u.Email.ToLower() == email && u.Status == "ACTIVE");
         if (!userExists)
         {
-            return ApiResponse<bool>.Fail("Tài khoản người dùng không tồn tại hoặc đã bị vô hiệu hóa.");
+            return ApiResponse<bool>.Fail(ResetPassword.USER_NOT_FOUND);
         }
 
-        return ApiResponse<bool>.Ok(true, "Xác thực mã OTP thành công. Bạn có thể đặt lại mật khẩu mới.");
+        return ApiResponse<bool>.Ok(true, ResetPassword.OTP_SUCCESS);
     }
 
     public async Task<ApiResponse<bool>> ResetPasswordAsync(ResetPasswordRequestDto request)
@@ -215,18 +223,18 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (!_cache.TryGetValue(cacheKey, out string? cachedOtp) || string.IsNullOrEmpty(cachedOtp))
         {
-            return ApiResponse<bool>.Fail("Mã OTP đã hết hạn (quá 5 phút) hoặc không tồn tại. Vui lòng thao tác lại.");
+            return ApiResponse<bool>.Fail(ResetPassword.OTP_EXPIRED);
         }
 
         if (cachedOtp != request.OtpCode.Trim())
         {
-            return ApiResponse<bool>.Fail("Mã OTP không chính xác. Vui lòng kiểm tra lại.");
+            return ApiResponse<bool>.Fail(ResetPassword.OTP_INVALID);
         }
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email);
         if (user == null)
         {
-            return ApiResponse<bool>.Fail("Không tìm thấy thông tin tài khoản nhân viên.");
+            return ApiResponse<bool>.Fail(ResetPassword.EMAIL_NOT_FOUND);
         }
 
         user.PasswordHash = PasswordHasher.Hash(request.NewPassword);
@@ -239,11 +247,75 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         _logger.LogInformation("Nhân viên {EmployeeCode} ({Email}) đã đặt lại mật khẩu thành công.", user.EmployeeCode, user.Email);
 
-        return ApiResponse<bool>.Ok(true, "Đặt lại mật khẩu thành công. Bạn có thể đăng nhập bằng mật khẩu mới.");
+        return ApiResponse<bool>.Ok(true, ResetPassword.PASSWORD_RESET_SUCCESS);
     }
 
     public Task<ApiResponse<List<UserSummaryDto>>> GetStoreEmployeesAsync(int storeId)
     {
         throw new NotImplementedException();
+    }
+
+    public async Task<ApiResponse<AuthResponseDto>> GoogleLoginAsync(GoogleLoginDTOs request)
+    {
+        if (string.IsNullOrWhiteSpace(request.IdToken))
+        {
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ID_TOKEN_REQUIRED);
+        }
+
+        GoogleJsonWebSignature.Payload payload;
+        try
+        {
+            var clientId = _config["Google:ClientId"];
+            var settings = new GoogleJsonWebSignature.ValidationSettings();
+            if (!string.IsNullOrEmpty(clientId))
+            {
+                settings.Audience = new[] { clientId };
+            }
+
+            payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Xác thực Google ID Token thất bại: {Message}", ex.Message);
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.GOOGLE_TOKEN_INVALID);
+        }
+
+        if (payload == null || string.IsNullOrWhiteSpace(payload.Email))
+        {
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.GOOGLE_TOKEN_INVALID);
+        }
+
+        if (!payload.EmailVerified)
+        {
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.GOOGLE_EMAIL_UNVERIFIED);
+        }
+
+        var normalizedEmail = payload.Email.Trim().ToLowerInvariant();
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
+
+        if (user == null)
+        {
+            return ApiResponse<AuthResponseDto>.Fail(string.Format(AuthMessages.GOOGLE_ACCOUNT_NOT_FOUND, payload.Email));
+        }
+
+        if (user.Status != "ACTIVE")
+        {
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ACCOUNT_LOCKED);
+        }
+
+        var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
+        var summary = MapUserSummary(user);
+
+        _logger.LogInformation("Người dùng {FullName} ({Email}) đăng nhập Google thành công với vai trò {Role}.", user.FullName, user.Email, summary.Role);
+
+        return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
+        {
+            Token = token,
+            ExpiresAt = expiresAt,
+            User = summary
+        }, AuthMessages.GOOGLE_LOGIN_SUCCESS);
     }
 }

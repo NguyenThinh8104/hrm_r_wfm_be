@@ -41,7 +41,7 @@ public class ShiftService : IShiftService
 
         var normalizedCode = dto.Code.Trim().ToUpper();
         var codeExists = await _context.ShiftTemplates
-            .AnyAsync(st => st.Code.ToUpper() == normalizedCode);
+            .AnyAsync(st => st.TemplateCode.ToUpper() == normalizedCode);
 
         if (codeExists)
         {
@@ -346,13 +346,13 @@ public class ShiftService : IShiftService
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
             templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.Status == "ACTIVE")
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
                 .ToListAsync();
         }
         else
         {
             templates = await _context.ShiftTemplates
-                .Where(st => st.Status == "ACTIVE")
+                .Where(st => st.IsActive)
                 .ToListAsync();
         }
 
@@ -753,13 +753,13 @@ public class ShiftService : IShiftService
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
             templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.Status == "ACTIVE")
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
                 .ToListAsync();
         }
         else
         {
             templates = await _context.ShiftTemplates
-                .Where(st => st.Status == "ACTIVE")
+                .Where(st => st.IsActive)
                 .ToListAsync();
         }
 
@@ -1157,7 +1157,7 @@ public class ShiftService : IShiftService
 
         // 1. Lấy danh sách mẫu ca chuẩn đang hoạt động
         var templates = await _context.ShiftTemplates
-            .Where(st => st.Status == "ACTIVE")
+            .Where(st => st.IsActive)
             .OrderBy(st => st.StartTime)
             .ToListAsync();
 

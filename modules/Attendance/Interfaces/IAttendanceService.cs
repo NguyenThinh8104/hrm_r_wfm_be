@@ -96,6 +96,17 @@ public interface IAttendanceService
     /// Điểm danh Check-out V3 trên Kiosk: Xác thực Kiosk Token, mã OTP 60s, chụp/upload ảnh S3 và tính giờ công.
     /// </summary>
     Task<ApiResponse<AttendanceRecordDto>> CheckOutV3Async(KioskCheckOutV3Dto request);
+
+    /// <summary>
+    /// Lấy lịch làm việc cá nhân theo tuần (Calendar View)
+    /// </summary>
+    Task<ApiResponse<MyWeeklyScheduleDto>> GetMyWeeklyScheduleAsync(ulong userId, DateOnly weekStart);
+
+    /// <summary>
+    /// Lấy lịch sử chấm công cá nhân theo tháng
+    /// </summary>
+    Task<ApiResponse<MyAttendanceHistoryDto>> GetMyAttendanceHistoryAsync(ulong userId, int month, int year);
 }
+
 
 

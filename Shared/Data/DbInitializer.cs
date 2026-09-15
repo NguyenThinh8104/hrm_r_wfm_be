@@ -210,7 +210,7 @@ public static class DbInitializer
             context.SaveChanges();
         }
 
-        // 4. Seed ShiftTemplates
+        // 4. Seed ShiftTemplates (4 ca x 6 tiếng = 24h)
         if (!context.ShiftTemplates.Any())
         {
             var templates = new List<ShiftTemplate>
@@ -218,42 +218,60 @@ public static class DbInitializer
                 new ShiftTemplate
                 {
                     Id = 1,
-                    TemplateCode = "CA_SANG",
-                    Name = "Ca Sáng (06:00 - 14:00)",
-                    Description = "Ca sáng tiêu chuẩn từ 06:00 đến 14:00 (nghỉ 30 phút)",
+                    TemplateCode = "CA_01",
+                    Name = "Ca 1 - Sáng (06:00 - 12:00)",
+                    Description = "Ca sáng sớm từ 06:00 đến 12:00 (6 tiếng)",
                     StartTime = new TimeOnly(6, 0),
-                    EndTime = new TimeOnly(14, 0),
+                    EndTime = new TimeOnly(12, 0),
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
+                    Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
                 new ShiftTemplate
                 {
                     Id = 2,
-                    TemplateCode = "CA_CHIEU",
-                    Name = "Ca Chiều (14:00 - 22:00)",
-                    Description = "Ca chiều tiêu chuẩn từ 14:00 đến 22:00 (nghỉ 30 phút)",
-                    StartTime = new TimeOnly(14, 0),
-                    EndTime = new TimeOnly(22, 0),
+                    TemplateCode = "CA_02",
+                    Name = "Ca 2 - Chiều (12:00 - 18:00)",
+                    Description = "Ca trưa - chiều từ 12:00 đến 18:00 (6 tiếng)",
+                    StartTime = new TimeOnly(12, 0),
+                    EndTime = new TimeOnly(18, 0),
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
+                    Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
                 new ShiftTemplate
                 {
                     Id = 3,
-                    TemplateCode = "CA_DEM",
-                    Name = "Ca Đêm (22:00 - 06:00)",
-                    Description = "Ca đêm xuyên đêm từ 22:00 đến 06:00 hôm sau (nghỉ 45 phút)",
-                    StartTime = new TimeOnly(22, 0),
-                    EndTime = new TimeOnly(6, 0),
+                    TemplateCode = "CA_03",
+                    Name = "Ca 3 - Tối (18:00 - 00:00)",
+                    Description = "Ca tối từ 18:00 đến 00:00 (6 tiếng)",
+                    StartTime = new TimeOnly(18, 0),
+                    EndTime = new TimeOnly(0, 0),
                     IsOvernight = true,
-                    BreakDurationMinutes = 45,
+                    BreakDurationMinutes = 30,
                     IsActive = true,
+                    Status = "ACTIVE",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                },
+                new ShiftTemplate
+                {
+                    Id = 4,
+                    TemplateCode = "CA_04",
+                    Name = "Ca 4 - Đêm (00:00 - 06:00)",
+                    Description = "Ca đêm xuyên sáng từ 00:00 đến 06:00 (6 tiếng)",
+                    StartTime = new TimeOnly(0, 0),
+                    EndTime = new TimeOnly(6, 0),
+                    IsOvernight = false,
+                    BreakDurationMinutes = 30,
+                    IsActive = true,
+                    Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 }

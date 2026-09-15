@@ -316,20 +316,34 @@ public class CreateShiftAssignmentDto
 public class ShiftSwapRequestDto
 {
     public int SwapRequestId { get; set; }
+    public string RequestType { get; set; } = "SWAP"; // "SWAP" or "TRANSFER"
     public int AssignmentId { get; set; }
     public int RequesterEmployeeId { get; set; }
     public string RequesterName { get; set; } = string.Empty;
+    public string RequesterRoleName { get; set; } = string.Empty;
+    public string RequesterShiftName { get; set; } = string.Empty;
+    public string RequesterWorkDate { get; set; } = string.Empty;
+    public string RequesterTimeRange { get; set; } = string.Empty;
     public int TargetEmployeeId { get; set; }
     public string TargetName { get; set; } = string.Empty;
+    public string TargetRoleName { get; set; } = string.Empty;
+    public int? TargetAssignmentId { get; set; }
+    public string? TargetShiftName { get; set; }
+    public string? TargetWorkDate { get; set; }
+    public string? TargetTimeRange { get; set; }
     public string? Reason { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string? ReviewedByName { get; set; }
+    public DateTime? ReviewedAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
 public class CreateSwapRequestDto
 {
+    public string RequestType { get; set; } = "SWAP"; // "SWAP" or "TRANSFER"
     public int AssignmentId { get; set; }
     public int TargetEmployeeId { get; set; }
+    public int? TargetAssignmentId { get; set; }
     public string? Reason { get; set; }
 }
 
@@ -338,6 +352,24 @@ public class ReviewSwapRequestDto
     public int SwapRequestId { get; set; }
     public bool IsApproved { get; set; }
     public string? Remarks { get; set; }
+}
+
+public class ColleagueDto
+{
+    public int EmployeeId { get; set; }
+    public string FullName { get; set; } = string.Empty;
+    public string RoleName { get; set; } = string.Empty;
+    public string PhoneNumber { get; set; } = string.Empty;
+}
+
+public class ColleagueShiftDto
+{
+    public int AssignmentId { get; set; }
+    public int ScheduleId { get; set; }
+    public string ShiftName { get; set; } = string.Empty;
+    public string WorkDate { get; set; } = string.Empty;
+    public string TimeRange { get; set; } = string.Empty;
+    public string BranchName { get; set; } = string.Empty;
 }
 /// <summary>
 /// DTO yêu cầu khởi tạo khung mẫu lịch làm việc theo tuần cho cửa hàng (UC 2.1).

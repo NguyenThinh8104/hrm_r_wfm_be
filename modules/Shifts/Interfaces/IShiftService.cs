@@ -222,4 +222,19 @@ public interface IShiftService
     /// <param name="storeId">ID cửa hàng</param>
     /// <returns>ApiResponse chứa danh sách ShiftSwapRequestDto</returns>
     Task<ApiResponse<List<ShiftSwapRequestDto>>> GetSwapRequestsByStoreAsync(int storeId);
+
+    /// <summary>
+    /// Lấy danh sách các yêu cầu đổi/chuyển ca của chính nhân viên (đã gửi hoặc được nhờ).
+    /// </summary>
+    Task<ApiResponse<List<ShiftSwapRequestDto>>> GetMySwapRequestsAsync(int employeeId);
+
+    /// <summary>
+    /// Lấy danh sách đồng nghiệp cùng chi nhánh đủ điều kiện để đổi/chuyển ca.
+    /// </summary>
+    Task<ApiResponse<List<ColleagueDto>>> GetColleaguesForSwapAsync(int currentEmployeeId, int branchId);
+
+    /// <summary>
+    /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để chọn đổi.
+    /// </summary>
+    Task<ApiResponse<List<ColleagueShiftDto>>> GetColleagueShiftsAsync(int colleagueEmployeeId);
 }

@@ -207,9 +207,15 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(e => e.RequestingAssignmentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            entity.HasOne(e => e.TargetUser)
+                .WithMany()
+                .HasForeignKey(e => e.TargetUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             entity.HasOne(e => e.TargetAssignment)
                 .WithMany()
                 .HasForeignKey(e => e.TargetAssignmentId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(e => e.ReviewedByUser)

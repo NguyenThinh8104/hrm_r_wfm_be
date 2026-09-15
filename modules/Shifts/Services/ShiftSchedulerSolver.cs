@@ -139,6 +139,8 @@ public class ShiftSchedulerSolver
                     continue;
                 }
 
+                // Trưởng ca (SHIFT_LEADER - RoleId = 4)
+                var leaderVars = new List<BoolVar>();
                 // Thu ngân (CASHIER - RoleId = 5)
                 var cashierVars = new List<BoolVar>();
                 // Bán hàng (SALES_STAFF - RoleId = 6)
@@ -149,7 +151,11 @@ public class ShiftSchedulerSolver
                 for (int e = 0; e < numEmployees; e++)
                 {
                     var emp = employees[e];
-                    if (emp.RoleId == 5)
+                    if (emp.RoleId == 4)
+                    {
+                        leaderVars.Add(x[(e, d, s)]);
+                    }
+                    else if (emp.RoleId == 5)
                     {
                         cashierVars.Add(x[(e, d, s)]);
                     }
@@ -161,10 +167,6 @@ public class ShiftSchedulerSolver
                     {
                         securityVars.Add(x[(e, d, s)]);
                     }
-                    else if (emp.RoleId == 4)
-                    {
-                        salesVars.Add(x[(e, d, s)]); // Trưởng ca có thể hỗ trợ bán hàng
-                    }
                     else
                     {
                         // Store Manager hoặc các vai trò quản trị khác không xếp vào ca trực
@@ -172,6 +174,10 @@ public class ShiftSchedulerSolver
                     }
                 }
 
+                if (leaderVars.Any())
+                {
+                    model.Add(LinearExpr.Sum(leaderVars) <= 1);
+                }
                 if (cashierVars.Any())
                 {
                     model.Add(LinearExpr.Sum(cashierVars) <= ws.RequiredCashier);

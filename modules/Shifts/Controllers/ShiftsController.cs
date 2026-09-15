@@ -472,4 +472,49 @@ public class ShiftsController : ControllerBase
         var result = await _shiftService.GetSwapRequestsByStoreAsync(storeId);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Nhân viên lấy danh sách các yêu cầu đổi/chuyển ca của chính mình (đã gửi hoặc được nhờ).
+    /// </summary>
+    [HttpGet("my-swap-requests")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetMySwapRequests()
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        if (!int.TryParse(empIdClaim, out var empId))
+        {
+            return Unauthorized(ApiResponse<List<ShiftSwapRequestDto>>.Fail("Không xác định được danh tính nhân viên."));
+        }
+
+        var result = await _shiftService.GetMySwapRequestsAsync(empId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách đồng nghiệp cùng chi nhánh để nhân viên chọn khi đổi/chuyển ca.
+    /// </summary>
+    [HttpGet("colleagues/{branchId}")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<ColleagueDto>>>> GetColleagues(int branchId)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        int.TryParse(empIdClaim, out var empId);
+
+        var result = await _shiftService.GetColleaguesForSwapAsync(empId, branchId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách ca làm việc của một đồng nghiệp trong tương lai để chọn đổi.
+    /// </summary>
+    [HttpGet("colleague-shifts/{colleagueEmployeeId}")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<ColleagueShiftDto>>>> GetColleagueShifts(int colleagueEmployeeId)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        int.TryParse(empIdClaim, out var empId);
+
+        var result = await _shiftService.GetColleagueShiftsAsync(empId, colleagueEmployeeId);
+        return Ok(result);
+    }
 }

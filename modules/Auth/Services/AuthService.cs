@@ -46,13 +46,29 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
             return ApiResponse<AuthResponseDto>.Fail(AuthMessages.USERNAME_PASSWORD_INVALID);
         }
 
+        var normalizedInput = request.Username.Trim();
+        var normalizedUsername = normalizedInput.ToLower();
+
         var user = await _context.Users
             .Include(u => u.Role)
             .Include(u => u.HomeBranch)
-            .FirstOrDefaultAsync(u => u.Email.ToLower() == request.Username.Trim().ToLower() 
-                                   || u.EmployeeCode.ToLower() == request.Username.Trim().ToLower());
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedUsername 
+                                   || u.EmployeeCode.ToLower() == normalizedUsername
+                                   || u.Phone == normalizedInput);
 
-        if (user == null || !PasswordHasher.Verify(request.Password, user.PasswordHash))
+        if (user == null)
+        {
+            _logger.LogWarning("Đăng nhập thất bại: Không tìm thấy tài khoản với Username '{Username}'", request.Username);
+            return ApiResponse<AuthResponseDto>.Fail("Tên đăng nhập hoặc mật khẩu không chính xác.");
+        }
+
+        var rawPassword = request.Password ?? string.Empty;
+        var trimmedPassword = rawPassword.Trim();
+
+        bool isPasswordValid = PasswordHasher.Verify(rawPassword, user.PasswordHash)
+                            || PasswordHasher.Verify(trimmedPassword, user.PasswordHash);
+
+        if (!isPasswordValid)
         {
             return ApiResponse<AuthResponseDto>.Fail(AuthMessages.INVALID_CREDENTIALS);
         }

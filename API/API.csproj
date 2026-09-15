@@ -7,7 +7,7 @@
     <TargetLatestRuntimePatch>false</TargetLatestRuntimePatch>
     <RuntimeFrameworkVersion>8.0.23</RuntimeFrameworkVersion>
     <RollForward>LatestMajor</RollForward>
-    <UserSecretsId>5ea82e65-8b21-4020-9615-7483537e0526</UserSecretsId>
+    <UserSecretsId>4060cc41-9fb9-4fe6-8714-1f5f2e1b9859</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

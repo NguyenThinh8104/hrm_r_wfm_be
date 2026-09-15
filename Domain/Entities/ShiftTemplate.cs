@@ -5,17 +5,7 @@ namespace Domain.Entities;
 public class ShiftTemplate
 {
     public uint Id { get; set; }
-
-    [Column("TemplateCode")]
     public string TemplateCode { get; set; } = string.Empty;
-
-    [NotMapped]
-    public string Code
-    {
-        get => TemplateCode;
-        set => TemplateCode = value;
-    }
-
     public string Name { get; set; } = string.Empty;
 
     [NotMapped]

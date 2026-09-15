@@ -50,6 +50,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.BranchCode).IsUnique();
             entity.Ignore(e => e.Code);
+            entity.Ignore(e => e.Latitude);
+            entity.Ignore(e => e.Longitude);
+            entity.Property(e => e.Location).HasColumnType("POINT");
             entity.Ignore(e => e.Phone);
             entity.Ignore(e => e.KioskAllowedBrowser);
         });
@@ -136,6 +139,7 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("shift_templates");
             entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.TemplateCode).IsUnique();
             entity.Property(e => e.TemplateCode).HasColumnName("TemplateCode");
             entity.Property(e => e.Name).HasColumnName("Name");
             entity.Property(e => e.StartTime).HasColumnName("StartTime");

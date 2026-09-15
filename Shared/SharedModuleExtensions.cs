@@ -33,7 +33,7 @@ public static class SharedModuleExtensions
             }
             else if (provider.Equals("MySql", StringComparison.OrdinalIgnoreCase))
             {
-                options.UseMySql(mySqlConn, ServerVersion.AutoDetect(mySqlConn));
+                options.UseMySql(mySqlConn, ServerVersion.AutoDetect(mySqlConn), x => x.UseNetTopologySuite());
             }
             else
             {
@@ -74,7 +74,25 @@ public static class SharedModuleExtensions
 
         services.AddAuthorization();
         services.AddMemoryCache();
+
+        // 4. Redis Distributed Cache & Shared Services
+        var redisConn = configuration.GetConnectionString("RedisConnection");
+        if (!string.IsNullOrEmpty(redisConn))
+        {
+            services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = redisConn;
+                options.InstanceName = "RWFM_";
+            });
+        }
+        else
+        {
+            services.AddDistributedMemoryCache();
+        }
+
         services.AddScoped<IEmailService, EmailService>();
+        services.AddScoped<IRedisOtpService, RedisOtpService>();
+        services.AddSingleton<IS3StorageService, S3StorageService>();
 
         return services;
     }

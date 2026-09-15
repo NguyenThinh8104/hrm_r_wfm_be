@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations.Schema;
+using NetTopologySuite.Geometries;
 
 namespace Domain.Entities;
 
@@ -22,6 +23,39 @@ public class Branch
     public string? KioskAllowedBrowser { get; set; }
 
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" or "INACTIVE"
+    
+    [Column("Location", TypeName = "POINT")]
+    public Point? Location { get; set; }
+
+    [NotMapped]
+    public double? Latitude
+    {
+        get => Location?.Y;
+        set
+        {
+            if (value.HasValue)
+            {
+                double lng = Location?.X ?? 105.7833;
+                Location = new Point(lng, value.Value) { SRID = 4326 };
+            }
+        }
+    }
+
+    [NotMapped]
+    public double? Longitude
+    {
+        get => Location?.X;
+        set
+        {
+            if (value.HasValue)
+            {
+                double lat = Location?.Y ?? 21.0333;
+                Location = new Point(value.Value, lat) { SRID = 4326 };
+            }
+        }
+    }
+
+    public int GeofenceRadiusMeters { get; set; } = 50;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

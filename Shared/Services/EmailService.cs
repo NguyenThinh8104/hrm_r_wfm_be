@@ -82,6 +82,7 @@ public class EmailService : IEmailService
             var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
             var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
             var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
+            var loginUrl = _configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/login";
 
             using var message = new MailMessage();
             message.From = new MailAddress(senderEmail, senderName);
@@ -91,6 +92,7 @@ public class EmailService : IEmailService
             message.Priority = MailPriority.Normal;
 
             var assignedBranch = string.IsNullOrWhiteSpace(branchName) ? "Chi nhánh Cửa hàng" : branchName;
+            var safePassword = System.Net.WebUtility.HtmlEncode(initialPassword);
 
             message.Body = $@"
             <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
@@ -127,13 +129,14 @@ public class EmailService : IEmailService
                         </tr>
                         <tr>
                             <td style='padding: 8px 0; font-weight: bold;'>Mật khẩu khởi tạo:</td>
-                            <td style='padding: 8px 0;'><code style='background-color: #f1f5f9; color: #dc2626; padding: 4px 8px; border-radius: 4px; font-size: 15px; font-weight: bold;'>{initialPassword}</code></td>
+                            <td style='padding: 8px 0;'><code style='background-color: #f1f5f9; color: #dc2626; padding: 4px 8px; border-radius: 4px; font-size: 15px; font-weight: bold;'>{safePassword}</code></td>
                         </tr>
                     </table>
                 </div>
 
                 <div style='text-align: center; margin: 28px 0;'>
-                    <a href='http://localhost:5173/login' style='background-color: #2563eb; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>Đăng Nhập Vào Hệ Thống</a>
+                    <a href='{loginUrl}' style='background-color: #2563eb; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>Đăng Nhập Vào Hệ Thống</a>
+                    <p style='margin-top: 10px; font-size: 13px; color: #64748b;'>Hoặc truy cập trực tiếp: <a href='{loginUrl}' style='color: #2563eb; text-decoration: underline;'>{loginUrl}</a></p>
                 </div>
 
                 <div style='background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 4px; font-size: 13px; color: #1e40af;'>
@@ -148,19 +151,20 @@ public class EmailService : IEmailService
 
             using var client = new SmtpClient(smtpServer, smtpPort)
             {
-                Credentials = new NetworkCredential(senderEmail, senderPassword),
                 EnableSsl = enableSsl,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(senderEmail, senderPassword),
                 DeliveryMethod = SmtpDeliveryMethod.Network,
-                Timeout = 12000
+                Timeout = 15000
             };
 
             await client.SendMailAsync(message);
-            _logger.LogInformation("Đã gửi Welcome Email thành công tới nhân sự mới: {Email} ({EmployeeCode})", recipientEmail, employeeCode);
+            _logger.LogInformation(">>> [SUCCESS] Đã gửi Welcome Email thành công tới: {Email} ({EmployeeCode})", recipientEmail, employeeCode);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Lỗi khi gửi Welcome Email tới: {Email}", recipientEmail);
+            _logger.LogError(ex, ">>> [ERROR] Lỗi khi gửi Welcome Email tới: {Email} | Chi tiết: {Message}", recipientEmail, ex.Message);
             return false;
         }
     }

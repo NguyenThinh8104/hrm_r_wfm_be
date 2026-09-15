@@ -79,4 +79,16 @@ public class StoresController : ControllerBase
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    /// <summary>
+    /// [Operations Admin] Xóa chi nhánh cửa hàng.
+    /// </summary>
+    [HttpDelete("{id}")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteStore(ulong id)
+    {
+        var result = await _branchService.DeleteBranchAsync(id);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }

@@ -13,6 +13,7 @@ public interface IAuthService
     Task<ApiResponse<bool>> ForgotPasswordAsync(ForgotPasswordRequestDto request);
     Task<ApiResponse<bool>> VerifyOtpAsync(VerifyOtpRequestDto request);
     Task<ApiResponse<bool>> ResetPasswordAsync(ResetPasswordRequestDto request);
+    Task<ApiResponse<AuthResponseDto>> GoogleLoginAsync(GoogleLoginDTOs request);
 }
 
 

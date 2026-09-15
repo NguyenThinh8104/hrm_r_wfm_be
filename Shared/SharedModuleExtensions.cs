@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using Shared.Common;
 using Shared.Data;
+using Shared.Interfaces;
 using Shared.Security;
 using Shared.Services;
 

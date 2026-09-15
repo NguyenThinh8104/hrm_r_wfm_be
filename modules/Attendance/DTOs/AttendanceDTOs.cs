@@ -136,6 +136,8 @@ public class KioskPinCheckInDto
     public string PinCode { get; set; } = string.Empty;
     public int StoreId { get; set; }
     public int? KioskId { get; set; }
+    public decimal? OpeningFloatCash { get; set; }
+    public string? PhotoKey { get; set; }
 }
 
 public class KioskPinCheckOutDto
@@ -144,6 +146,20 @@ public class KioskPinCheckOutDto
     public string PinCode { get; set; } = string.Empty;
     public int StoreId { get; set; }
     public int? KioskId { get; set; }
+    public string? PhotoKey { get; set; }
+}
+
+public class UploadPhotoResponseDto
+{
+    public string PhotoKey { get; set; } = string.Empty;
+    public string? PresignedUrl { get; set; }
+}
+
+public class PresignedUrlResponseDto
+{
+    public string PhotoKey { get; set; } = string.Empty;
+    public string? PresignedUrl { get; set; }
+    public DateTime ExpiresAt { get; set; }
 }
 
 public class ReportAttendanceFraudDto

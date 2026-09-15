@@ -1,9 +1,11 @@
 using System.Security.Claims;
+using Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Modules.Attendance.DTOs;
 using Shared.Common;
+using Shared.Common.Constants;
 using Shared.Data;
 using Shared.Services;
 
@@ -43,41 +45,77 @@ public class AttendanceOtpController : ControllerBase
 
         var today = DateOnly.FromDateTime(DateTime.Now);
 
-        // Tìm ca trực của nhân viên hôm nay để xác định chi nhánh cửa hàng
-        var assignment = await _context.ShiftAssignments
-            .Include(sa => sa.Schedule)
-                .ThenInclude(s => s.Branch)
-            .FirstOrDefaultAsync(sa => sa.UserId == userId && sa.Schedule.WorkDate == today && sa.Status == "CONFIRMED");
+        // 1. Kiểm tra xem nhân viên có lệnh điều động tạm thời có hiệu lực hôm nay hay không
+        var activeDispatch = await _context.TemporaryDispatches
+            .Include(td => td.TargetBranch)
+            .FirstOrDefaultAsync(td => td.UserId == userId &&
+                                       td.Status == "APPROVED" &&
+                                       td.StartDate <= today &&
+                                       today <= td.EndDate);
 
-        var branch = assignment?.Schedule?.Branch;
-        if (branch == null && user.HomeBranchId.HasValue)
+        Branch? branch = null;
+
+        if (activeDispatch != null)
         {
-            branch = await _context.Branches.FindAsync(user.HomeBranchId.Value);
+            // Nếu có lệnh điều động sang TargetBranch, bắt buộc phải có ca trực được xếp lịch tại TargetBranch hôm nay
+            var dispatchedShift = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule)
+                    .ThenInclude(s => s.Branch)
+                .FirstOrDefaultAsync(sa => sa.UserId == userId &&
+                                           sa.Schedule.WorkDate == today &&
+                                           sa.Schedule.BranchId == activeDispatch.TargetBranchId &&
+                                           (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED"));
+
+            if (dispatchedShift == null)
+            {
+                return BadRequest(ApiResponse<RequestAttendanceOtpResponseDto>.Fail(
+                    string.Format(AttendanceMessages.DispatchedButNoShiftToday, activeDispatch.TargetBranch.Name)));
+            }
+
+            branch = activeDispatch.TargetBranch;
+        }
+        else
+        {
+            // Nếu không có lệnh điều động, tìm ca trực hợp lệ hôm nay của nhân viên
+            var regularShift = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule)
+                    .ThenInclude(s => s.Branch)
+                .FirstOrDefaultAsync(sa => sa.UserId == userId &&
+                                           sa.Schedule.WorkDate == today &&
+                                           (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED"));
+
+            if (regularShift == null)
+            {
+                return BadRequest(ApiResponse<RequestAttendanceOtpResponseDto>.Fail(AttendanceMessages.NoShiftTodayForOtp));
+            }
+
+            branch = regularShift.Schedule.Branch;
         }
 
-        if (branch == null)
+        if (request.Latitude == 0 || request.Longitude == 0)
         {
-            return BadRequest(ApiResponse<RequestAttendanceOtpResponseDto>.Fail("Bạn không có lịch làm việc hôm nay và chưa được phân công chi nhánh."));
+            return BadRequest(ApiResponse<RequestAttendanceOtpResponseDto>.Fail(AttendanceMessages.LocationRequired));
         }
 
-        if (!branch.Latitude.HasValue || !branch.Longitude.HasValue)
+        double? branchLat = branch.Location?.Y ?? branch.Latitude;
+        double? branchLng = branch.Location?.X ?? branch.Longitude;
+
+        if (!branchLat.HasValue || !branchLng.HasValue)
         {
-            // Mặc định nếu cửa hàng chưa nhập tọa độ GPS -> coi như nằm tại chỗ để không chặn nhân viên thử nghiệm
-            branch.Latitude = 21.0333;
-            branch.Longitude = 105.7833;
+            return BadRequest(ApiResponse<RequestAttendanceOtpResponseDto>.Fail(
+                string.Format(AttendanceMessages.BranchLocationNotConfigured, branch.Name)));
         }
 
-        double branchLat = branch.Latitude.Value;
-        double branchLng = branch.Longitude.Value;
-        int maxRadius = branch.GeofenceRadiusMeters > 0 ? branch.GeofenceRadiusMeters : 50;
+        // Bán kính Geofence tối đa theo cấu hình riêng của cửa hàng mục tiêu (mặc định 200m)
+        int maxRadius = branch.GeofenceRadiusMeters > 0 ? branch.GeofenceRadiusMeters : 200;
 
-        // Tính khoảng cách từ GPS di động của nhân viên đến cửa hàng (mét)
-        double distanceMeters = CalculateDistanceMeters(request.Latitude, request.Longitude, branchLat, branchLng);
+        // Tính khoảng cách thực tế từ GPS di động của nhân viên đến vị trí cửa hàng mục tiêu (mét)
+        double distanceMeters = CalculateDistanceMeters(request.Latitude, request.Longitude, branchLat.Value, branchLng.Value);
 
         if (distanceMeters > maxRadius)
         {
             return BadRequest(ApiResponse<RequestAttendanceOtpResponseDto>.Fail(
-                $"Bạn chưa đến phạm vi cửa hàng {branch.Name} (Cách: {Math.Round(distanceMeters, 1)} mét). Bán kính cho phép: {maxRadius}m."));
+                string.Format(AttendanceMessages.LocationOutOfGeofence, branch.Name, Math.Round(distanceMeters, 0), maxRadius)));
         }
 
         var otpType = string.Equals(request.Type, "CHECK_OUT", StringComparison.OrdinalIgnoreCase) ? "CHECK_OUT" : "CHECK_IN";
@@ -89,7 +127,7 @@ public class AttendanceOtpController : ControllerBase
             ExpiresInSeconds = 60,
             DistanceMeters = Math.Round(distanceMeters, 1),
             BranchName = branch.Name
-        }, $"Đã cấp mã OTP {otpType} 60 giây thành công."));
+        }, string.Format(AttendanceMessages.OtpGeneratedSuccess, otpType)));
     }
 
     private static double CalculateDistanceMeters(double lat1, double lon1, double lat2, double lon2)

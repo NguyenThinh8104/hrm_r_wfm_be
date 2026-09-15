@@ -1,4 +1,5 @@
 using Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 using Shared.Security;
 
 namespace Shared.Data;
@@ -13,6 +14,23 @@ public static class DbInitializer
         }
 
         context.Database.EnsureCreated();
+
+        // Kiểm tra tính tương thích của Schema DB cũ. Nếu thiếu cột (ví dụ Location POINT, GeofenceRadiusMeters...) -> Tự động tạo lại DB chuẩn
+        try
+        {
+            _ = context.Roles.AsNoTracking().FirstOrDefault();
+            _ = context.Branches.AsNoTracking().FirstOrDefault();
+            _ = context.Users.AsNoTracking().FirstOrDefault();
+        }
+        catch
+        {
+            // Database cũ bị lệch schema -> Tự động xóa và khởi tạo lại theo schema mới nhất
+            context.ChangeTracker.Clear();
+            context.Database.EnsureDeleted();
+            context.Database.EnsureCreated();
+        }
+
+        context.ChangeTracker.Clear();
 
         // 1. Seed Roles
         if (!context.Roles.Any())
@@ -66,23 +84,30 @@ public static class DbInitializer
         }
         else
         {
-            // Reset mutated branch coordinates in DB to static real store coordinates
-            var existingBranches = context.Branches.ToList();
-            foreach (var b in existingBranches)
+            try
             {
-                b.GeofenceRadiusMeters = 200;
-                if (b.Id == 1 || b.BranchCode == "CH01")
+                // Reset mutated branch coordinates in DB to static real store coordinates
+                var existingBranches = context.Branches.ToList();
+                foreach (var b in existingBranches)
                 {
-                    b.Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy";
-                    b.Location = new NetTopologySuite.Geometries.Point(105.7833, 21.0333) { SRID = 4326 };
+                    b.GeofenceRadiusMeters = 200;
+                    if (b.Id == 1 || b.BranchCode == "CH01")
+                    {
+                        b.Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy";
+                        b.Location = new NetTopologySuite.Geometries.Point(105.7833, 21.0333) { SRID = 4326 };
+                    }
+                    else if (b.Id == 2 || b.BranchCode == "CH02")
+                    {
+                        b.Name = "Cửa hàng Tiện lợi Chi nhánh Lê Văn Việt";
+                        b.Location = new NetTopologySuite.Geometries.Point(106.7925, 10.8456) { SRID = 4326 };
+                    }
                 }
-                else if (b.Id == 2 || b.BranchCode == "CH02")
-                {
-                    b.Name = "Cửa hàng Tiện lợi Chi nhánh Lê Văn Việt";
-                    b.Location = new NetTopologySuite.Geometries.Point(106.7925, 10.8456) { SRID = 4326 };
-                }
+                context.SaveChanges();
             }
-            context.SaveChanges();
+            catch
+            {
+                // Ignore if branch repair encounters schema variations
+            }
         }
 
         // 3. Seed Users

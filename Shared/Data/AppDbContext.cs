@@ -44,18 +44,13 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.BranchCode).HasColumnName("BranchCode");
             entity.Property(e => e.Name).HasColumnName("Name");
             entity.Property(e => e.Address).HasColumnName("Address");
-            entity.Property(e => e.KioskAllowedIp).HasColumnName("KioskAllowedIp");
             entity.Property(e => e.Status).HasColumnName("Status");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.BranchCode).IsUnique();
-            entity.Ignore(e => e.Code);
-            entity.Ignore(e => e.Latitude);
-            entity.Ignore(e => e.Longitude);
             entity.Property(e => e.Location).HasColumnType("POINT");
-            entity.Ignore(e => e.Phone);
-            entity.Ignore(e => e.KioskAllowedBrowser);
         });
+
 
         // 2. roles
         modelBuilder.Entity<Role>(entity =>

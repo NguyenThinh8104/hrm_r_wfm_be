@@ -108,7 +108,6 @@ public class BranchService : IBranchService, IStoreService
             BranchCode = normalizedCode,
             Name = dto.Name.Trim(),
             Address = dto.Address.Trim(),
-            KioskAllowedIp = string.IsNullOrWhiteSpace(dto.KioskAllowedIp) ? null : dto.KioskAllowedIp.Trim(),
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
             CreatedAt = now,
             UpdatedAt = now
@@ -146,10 +145,6 @@ public class BranchService : IBranchService, IStoreService
 
         branch.Name = dto.Name.Trim();
         branch.Address = dto.Address.Trim();
-        if (dto.KioskAllowedIp != null)
-        {
-            branch.KioskAllowedIp = string.IsNullOrWhiteSpace(dto.KioskAllowedIp) ? null : dto.KioskAllowedIp.Trim();
-        }
         branch.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -414,8 +409,8 @@ public class BranchService : IBranchService, IStoreService
             Code = b.Code,
             Name = b.Name,
             Address = b.Address,
-            KioskAllowedIp = b.KioskAllowedIp,
-            KioskAllowedBrowser = b.KioskAllowedBrowser,
+            KioskAllowedIp = null,
+            KioskAllowedBrowser = null,
             Status = b.Status,
             CreatedAt = b.CreatedAt,
             UpdatedAt = b.UpdatedAt,

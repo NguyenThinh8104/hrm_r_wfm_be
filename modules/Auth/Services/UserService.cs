@@ -118,24 +118,26 @@ public class UserService : IUserService
         }, ipAddress);
 
         // Tự động gửi Welcome Email thông báo tài khoản & mật khẩu
-        _ = Task.Run(async () =>
+        bool emailSent = false;
+        try
         {
-            try
-            {
-                await _emailService.SendWelcomeEmailAsync(
-                    newUser.Email,
-                    newUser.FullName,
-                    newUser.EmployeeCode,
-                    storeManagerRole.RoleName,
-                    branch.Name,
-                    plainPassword
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi gửi welcome email cho Cửa hàng trưởng {Email}", newUser.Email);
-            }
-        });
+            emailSent = await _emailService.SendWelcomeEmailAsync(
+                newUser.Email,
+                newUser.FullName,
+                newUser.EmployeeCode,
+                storeManagerRole.RoleName,
+                branch.Name,
+                plainPassword
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi welcome email cho Cửa hàng trưởng {Email}", newUser.Email);
+        }
+
+        var successMessage = emailSent
+            ? $"Tạo Cửa hàng trưởng thành công. Email chào mừng kèm thông tin tài khoản và link đăng nhập đã được gửi tới {newUser.Email}."
+            : $"Tạo Cửa hàng trưởng thành công. Tuy nhiên gửi email thông báo thất bại, vui lòng kiểm tra hộp thư hoặc cấu hình SMTP.";
 
         return ApiResponse<StoreManagerDto>.Ok(new StoreManagerDto
         {
@@ -148,8 +150,7 @@ public class UserService : IUserService
             BranchCode = branch.BranchCode,
             BranchName = branch.Name,
             Status = newUser.Status,
-            CreatedAt = newUser.CreatedAt
-        }, $"Cấp tài khoản Cửa hàng trưởng thành công! Mật khẩu khởi tạo ({plainPassword}) đã được tự động gửi tới email {newUser.Email}.");
+        }, successMessage);
     }
 
     public async Task<ApiResponse<bool>> ToggleUserStatusAsync(ulong userId, UpdateStatusDto dto, ulong actorId, string? ipAddress)
@@ -397,24 +398,26 @@ public class UserService : IUserService
         }, ipAddress);
 
         // 5. Tự động gửi Welcome Email thông báo tài khoản & mật khẩu cho nhân sự
-        _ = Task.Run(async () =>
+        bool emailSent = false;
+        try
         {
-            try
-            {
-                await _emailService.SendWelcomeEmailAsync(
-                    newUser.Email,
-                    newUser.FullName,
-                    newUser.EmployeeCode,
-                    targetRole.RoleName,
-                    branch.Name,
-                    plainPassword
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi gửi welcome email cho nhân viên mới {Email}", newUser.Email);
-            }
-        });
+            emailSent = await _emailService.SendWelcomeEmailAsync(
+                newUser.Email,
+                newUser.FullName,
+                newUser.EmployeeCode,
+                targetRole.RoleName,
+                branch.Name,
+                plainPassword
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi welcome email cho nhân viên mới {Email}", newUser.Email);
+        }
+
+        var successMessage = emailSent
+            ? $"Khai báo hồ sơ nhân sự thành công. Email chào mừng kèm thông tin tài khoản và liên kết đăng nhập đã được gửi đến {newUser.Email}."
+            : $"Khai báo hồ sơ nhân sự thành công. Tuy nhiên gửi email thông báo thất bại, vui lòng kiểm tra hộp thư hoặc cấu hình SMTP.";
 
         return ApiResponse<EmployeeDetailDto>.Ok(new EmployeeDetailDto
         {
@@ -433,7 +436,7 @@ public class UserService : IUserService
             Status = newUser.Status,
             CreatedAt = newUser.CreatedAt,
             UpdatedAt = newUser.UpdatedAt
-        }, $"Khai báo hồ sơ nhân sự thành công! Mật khẩu khởi tạo ({plainPassword}) đã được tự động gửi tới email {newUser.Email}.");
+        }, successMessage);
     }
 
     public async Task<ApiResponse<EmployeeDetailDto>> UpdateEmployeeAsync(ulong userId, UpdateEmployeeDto dto, ulong actorId, string actorRole, ulong? actorBranchId, string? ipAddress)

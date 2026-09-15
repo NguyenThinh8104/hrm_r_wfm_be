@@ -511,7 +511,10 @@ public class ShiftsController : ControllerBase
     [Authorize]
     public async Task<ActionResult<ApiResponse<List<ColleagueShiftDto>>>> GetColleagueShifts(int colleagueEmployeeId)
     {
-        var result = await _shiftService.GetColleagueShiftsAsync(colleagueEmployeeId);
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        int.TryParse(empIdClaim, out var empId);
+
+        var result = await _shiftService.GetColleagueShiftsAsync(empId, colleagueEmployeeId);
         return Ok(result);
     }
 }

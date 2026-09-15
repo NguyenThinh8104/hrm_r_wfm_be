@@ -234,7 +234,7 @@ public interface IShiftService
     Task<ApiResponse<List<ColleagueDto>>> GetColleaguesForSwapAsync(int currentEmployeeId, int branchId);
 
     /// <summary>
-    /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để chọn đổi.
+    /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để chọn đổi (loại bỏ các ca mà nhân viên hiện tại đã có lịch).
     /// </summary>
-    Task<ApiResponse<List<ColleagueShiftDto>>> GetColleagueShiftsAsync(int colleagueEmployeeId);
+    Task<ApiResponse<List<ColleagueShiftDto>>> GetColleagueShiftsAsync(int currentEmployeeId, int colleagueEmployeeId);
 }

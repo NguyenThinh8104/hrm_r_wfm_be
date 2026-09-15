@@ -32,7 +32,7 @@ public static class SharedModuleExtensions
             }
             else if (provider.Equals("MySql", StringComparison.OrdinalIgnoreCase))
             {
-                options.UseMySql(mySqlConn, ServerVersion.AutoDetect(mySqlConn));
+                options.UseMySql(mySqlConn, ServerVersion.AutoDetect(mySqlConn), x => x.UseNetTopologySuite());
             }
             else
             {

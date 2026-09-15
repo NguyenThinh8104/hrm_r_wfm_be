@@ -44,6 +44,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.BranchCode).HasColumnName("BranchCode");
             entity.HasIndex(e => e.BranchCode).IsUnique();
             entity.Ignore(e => e.Code);
+            entity.Ignore(e => e.Latitude);
+            entity.Ignore(e => e.Longitude);
+            entity.Property(e => e.Location).HasColumnType("POINT");
         });
 
         // 2. roles

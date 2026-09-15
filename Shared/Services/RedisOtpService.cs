@@ -48,8 +48,32 @@ public class RedisOtpService : IRedisOtpService
         return false;
     }
 
+    public async Task<bool> VerifyOtpAsync(ulong userId, string otpCode, bool consume = false)
+    {
+        if (string.IsNullOrWhiteSpace(otpCode)) return false;
+        var code = otpCode.Trim();
+
+        var types = new[] { "CHECK_IN", "CHECK_OUT" };
+        foreach (var type in types)
+        {
+            var key = GetCacheKey(userId, type);
+            var storedOtp = await _cache.GetStringAsync(key);
+            if (!string.IsNullOrEmpty(storedOtp) && storedOtp.Trim() == code)
+            {
+                if (consume)
+                {
+                    await _cache.RemoveAsync(key);
+                }
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static string GetCacheKey(ulong userId, string otpType)
     {
         return $"attendance:otp:{userId}:{otpType.ToUpper()}";
     }
 }
+

@@ -24,7 +24,7 @@ public class BranchesController : ControllerBase
     /// [Operations Admin] Lấy danh sách toàn bộ các chi nhánh cửa hàng trong hệ thống (hỗ trợ lọc status & search).
     /// </summary>
     [HttpGet]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    [Authorize]
     public async Task<ActionResult<ApiResponse<List<BranchDto>>>> GetAllBranches(
         [FromQuery] string? status = null, 
         [FromQuery] string? search = null)

@@ -430,9 +430,10 @@ public class ShiftService : IShiftService
 
         await _context.SaveChangesAsync();
 
-        int cashierCount = schedule.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "CASHIER");
-        int salesCount = schedule.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SALES");
-        int securityCount = schedule.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SECURITY");
+        int leaderCount = schedule.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SHIFT_LEADER" || sa.AssignedRole.RoleCode == "LEADER"));
+        int cashierCount = schedule.ShiftAssignments.Count(sa => sa.AssignedRole != null && sa.AssignedRole.RoleCode == "CASHIER");
+        int salesCount = schedule.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SALES" || sa.AssignedRole.RoleCode == "SALES_STAFF"));
+        int securityCount = schedule.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SECURITY" || sa.AssignedRole.RoleCode == "SECURITY_GUARD"));
 
         var resultDto = new WorkScheduleDto
         {
@@ -444,9 +445,11 @@ public class ShiftService : IShiftService
             StartTime = schedule.ShiftTemplate.StartTime,
             EndTime = schedule.ShiftTemplate.EndTime,
             WorkDate = schedule.WorkDate,
+            RequiredLeader = 1,
             RequiredCashier = schedule.RequiredCashier,
             RequiredSales = schedule.RequiredSales,
             RequiredSecurity = schedule.RequiredSecurity,
+            AssignedLeaderCount = leaderCount,
             AssignedCashierCount = cashierCount,
             AssignedSalesCount = salesCount,
             AssignedSecurityCount = securityCount,
@@ -834,6 +837,8 @@ public class ShiftService : IShiftService
             .Include(ws => ws.ShiftTemplate)
             .Include(ws => ws.ShiftAssignments)
                 .ThenInclude(sa => sa.AssignedRole)
+            .Include(ws => ws.ShiftAssignments)
+                .ThenInclude(sa => sa.User)
             .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
             .OrderBy(ws => ws.WorkDate)
             .ThenBy(ws => ws.ShiftTemplate.StartTime)
@@ -849,13 +854,27 @@ public class ShiftService : IShiftService
             StartTime = ws.ShiftTemplate.StartTime,
             EndTime = ws.ShiftTemplate.EndTime,
             WorkDate = ws.WorkDate,
+            RequiredLeader = 1,
             RequiredCashier = ws.RequiredCashier,
             RequiredSales = ws.RequiredSales,
             RequiredSecurity = ws.RequiredSecurity,
-            AssignedCashierCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "CASHIER"),
-            AssignedSalesCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SALES"),
-            AssignedSecurityCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SECURITY"),
-            Status = ws.Status
+            AssignedLeaderCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SHIFT_LEADER" || sa.AssignedRole.RoleCode == "LEADER")),
+            AssignedCashierCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole != null && sa.AssignedRole.RoleCode == "CASHIER"),
+            AssignedSalesCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SALES" || sa.AssignedRole.RoleCode == "SALES_STAFF")),
+            AssignedSecurityCount = ws.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SECURITY" || sa.AssignedRole.RoleCode == "SECURITY_GUARD")),
+            Status = ws.Status,
+            AssignedEmployees = ws.ShiftAssignments.Select(sa => new AssignedEmployeeSummaryDto
+            {
+                AssignmentId = sa.Id,
+                UserId = sa.UserId,
+                EmployeeCode = sa.User?.EmployeeCode ?? string.Empty,
+                FullName = sa.User?.FullName ?? string.Empty,
+                AssignedRoleId = sa.AssignedRoleId,
+                RoleCode = sa.AssignedRole?.RoleCode ?? string.Empty,
+                RoleName = sa.AssignedRole?.RoleName ?? string.Empty,
+                AssignmentType = sa.AssignmentType,
+                Status = sa.Status
+            }).ToList()
         }).ToList();
 
         var assignedUserIds = await _context.ShiftAssignments
@@ -1066,11 +1085,14 @@ public class ShiftService : IShiftService
         foreach (var ws in schedules)
         {
             totalAssignments += ws.ShiftAssignments.Count;
-            int cashiers = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "CASHIER");
-            int sales = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SALES");
-            int security = ws.ShiftAssignments.Count(sa => sa.AssignedRole.RoleCode == "SECURITY");
+            int leaders = ws.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SHIFT_LEADER" || sa.AssignedRole.RoleCode == "LEADER"));
+            int cashiers = ws.ShiftAssignments.Count(sa => sa.AssignedRole != null && sa.AssignedRole.RoleCode == "CASHIER");
+            int sales = ws.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SALES" || sa.AssignedRole.RoleCode == "SALES_STAFF"));
+            int security = ws.ShiftAssignments.Count(sa => sa.AssignedRole != null && (sa.AssignedRole.RoleCode == "SECURITY" || sa.AssignedRole.RoleCode == "SECURITY_GUARD"));
 
             var missingRoles = new List<string>();
+            int requiredLeader = 1;
+            if (leaders < requiredLeader) missingRoles.Add($"Thiếu {requiredLeader - leaders} Trưởng ca trực");
             if (cashiers < ws.RequiredCashier) missingRoles.Add($"Thiếu {ws.RequiredCashier - cashiers} Thu ngân");
             if (sales < ws.RequiredSales) missingRoles.Add($"Thiếu {ws.RequiredSales - sales} Nhân viên bán hàng");
             if (security < ws.RequiredSecurity) missingRoles.Add($"Thiếu {ws.RequiredSecurity - security} Bảo vệ");
@@ -1078,7 +1100,7 @@ public class ShiftService : IShiftService
             if (missingRoles.Any())
             {
                 understaffedCount++;
-                issues.Add($"Ngày {ws.WorkDate:dd/MM} ({ws.ShiftTemplate.Name}): {string.Join(", ", missingRoles)} (Chỉ tiêu: {ws.RequiredCashier} TN, {ws.RequiredSales} BH, {ws.RequiredSecurity} BV).");
+                issues.Add($"Ngày {ws.WorkDate:dd/MM} ({ws.ShiftTemplate.Name}): {string.Join(", ", missingRoles)} (Chỉ tiêu: {requiredLeader} Trưởng ca, {ws.RequiredCashier} TN, {ws.RequiredSales} BH, {ws.RequiredSecurity} BV).");
             }
         }
 

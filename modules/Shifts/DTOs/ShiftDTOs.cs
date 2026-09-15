@@ -178,9 +178,26 @@ public class GenerateMonthlyScheduleDto
 public class UpdateScheduleRequirementDto
 {
     public ulong ScheduleId { get; set; }
+    public byte RequiredLeader { get; set; } = 1;
     public byte RequiredCashier { get; set; }
     public byte RequiredSales { get; set; }
     public byte RequiredSecurity { get; set; }
+}
+
+/// <summary>
+/// DTO tóm tắt thông tin nhân sự được phân công vào ca trực.
+/// </summary>
+public class AssignedEmployeeSummaryDto
+{
+    public ulong AssignmentId { get; set; }
+    public ulong UserId { get; set; }
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public byte AssignedRoleId { get; set; }
+    public string RoleCode { get; set; } = string.Empty;
+    public string RoleName { get; set; } = string.Empty;
+    public string AssignmentType { get; set; } = "ASSIGNED";
+    public string Status { get; set; } = "CONFIRMED";
 }
 
 /// <summary>
@@ -196,13 +213,16 @@ public class WorkScheduleDto
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
     public DateOnly WorkDate { get; set; }
+    public byte RequiredLeader { get; set; } = 1;
     public byte RequiredCashier { get; set; }
     public byte RequiredSales { get; set; }
     public byte RequiredSecurity { get; set; }
+    public int AssignedLeaderCount { get; set; }
     public int AssignedCashierCount { get; set; }
     public int AssignedSalesCount { get; set; }
     public int AssignedSecurityCount { get; set; }
     public string Status { get; set; } = "DRAFT";
+    public List<AssignedEmployeeSummaryDto> AssignedEmployees { get; set; } = new List<AssignedEmployeeSummaryDto>();
 }
 
 /// <summary>

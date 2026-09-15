@@ -147,8 +147,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsOvernight).HasColumnName("IsOvernight");
             entity.Property(e => e.BreakDurationMinutes).HasColumnName("BreakDurationMinutes");
             entity.Property(e => e.IsActive).HasColumnName("IsActive");
-            entity.HasIndex(e => e.TemplateCode).IsUnique();
-            entity.Ignore(e => e.Code);
             entity.Ignore(e => e.Description);
             entity.Ignore(e => e.CreatedAt);
             entity.Ignore(e => e.UpdatedAt);

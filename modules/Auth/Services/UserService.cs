@@ -6,6 +6,7 @@ using Modules.Auth.DTOs;
 using Modules.Auth.Interfaces;
 using Shared.Common;
 using Shared.Data;
+using Shared.Interfaces;
 using Shared.Security;
 using Shared.Services;
 

@@ -14,6 +14,11 @@ public class BranchDto
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string? Phone { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public int GeofenceRadiusMeters { get; set; } = 50;
+    public string? KioskAllowedIp { get; set; }
+    public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
@@ -28,6 +33,8 @@ public class BranchDto
     public string StoreName => Name;
     public string BranchName => Name;
     public int KioskCount => TotalKiosks;
+    public string? AllowedIp => KioskAllowedIp;
+    public string? AllowedBrowser => KioskAllowedBrowser;
 }
 
 /// <summary>
@@ -39,6 +46,11 @@ public class CreateBranchDto
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string? Phone { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public int? GeofenceRadiusMeters { get; set; }
+    public string? KioskAllowedIp { get; set; }
+    public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE";
 
     // Aliases
@@ -46,6 +58,8 @@ public class CreateBranchDto
     public string? StoreCode { get => Code; set => Code = value ?? string.Empty; }
     public string? StoreName { get => Name; set => Name = value ?? string.Empty; }
     public string? BranchName { get => Name; set => Name = value ?? string.Empty; }
+    public string? AllowedIp { get => KioskAllowedIp; set => KioskAllowedIp = value; }
+    public string? AllowedBrowser { get => KioskAllowedBrowser; set => KioskAllowedBrowser = value; }
 }
 
 /// <summary>
@@ -56,10 +70,17 @@ public class UpdateBranchDto
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string? Phone { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public int? GeofenceRadiusMeters { get; set; }
+    public string? KioskAllowedIp { get; set; }
+    public string? KioskAllowedBrowser { get; set; }
 
     // Aliases
     public string? StoreName { get => Name; set => Name = value ?? string.Empty; }
     public string? BranchName { get => Name; set => Name = value ?? string.Empty; }
+    public string? AllowedIp { get => KioskAllowedIp; set => KioskAllowedIp = value; }
+    public string? AllowedBrowser { get => KioskAllowedBrowser; set => KioskAllowedBrowser = value; }
 }
 
 /// <summary>
@@ -93,7 +114,7 @@ public class KioskDto
     public DateTime? LastPingAt { get; set; }
     public bool IsOnline => LastPingAt.HasValue && LastPingAt.Value >= DateTime.UtcNow.AddMinutes(-5);
     public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 
     // Backward compatibility aliases
     public int KioskId => (int)Id;

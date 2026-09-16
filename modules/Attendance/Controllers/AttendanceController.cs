@@ -92,4 +92,59 @@ public class AttendanceController : ControllerBase
         var result = await _attendanceService.GetAttendanceHistoryAsync(storeId, targetDate);
         return Ok(result);
     }
+
+    /// <summary>
+    /// [Employee] Lấy lịch làm việc cá nhân theo tuần (Calendar View).
+    /// </summary>
+    /// <param name="weekStart">Ngày bắt đầu tuần (định dạng YYYY-MM-DD)</param>
+    [HttpGet("my-weekly-schedule")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<MyWeeklyScheduleDto>>> GetMyWeeklySchedule([FromQuery] string? weekStart)
+    {
+        var userId = GetCurrentUserId();
+        if (!userId.HasValue) return Unauthorized(ApiResponse<MyWeeklyScheduleDto>.Fail("Không xác định được danh tính người dùng."));
+
+        var startDate = string.IsNullOrEmpty(weekStart) || !DateOnly.TryParse(weekStart, out var parsedDate)
+            ? GetMondayOfWeek(DateOnly.FromDateTime(DateTime.Now))
+            : parsedDate;
+
+        var result = await _attendanceService.GetMyWeeklyScheduleAsync(userId.Value, startDate);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Employee] Lấy lịch sử chấm công cá nhân theo tháng.
+    /// </summary>
+    /// <param name="month">Tháng (1-12, mặc định là tháng hiện tại)</param>
+    /// <param name="year">Năm (mặc định là năm hiện tại)</param>
+    [HttpGet("my-attendance-history")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<MyAttendanceHistoryDto>>> GetMyAttendanceHistory(
+        [FromQuery] int? month,
+        [FromQuery] int? year)
+    {
+        var userId = GetCurrentUserId();
+        if (!userId.HasValue) return Unauthorized(ApiResponse<MyAttendanceHistoryDto>.Fail("Không xác định được danh tính người dùng."));
+
+        var now = DateTime.Now;
+        int targetMonth = month is >= 1 and <= 12 ? month.Value : now.Month;
+        int targetYear = year is > 2000 ? year.Value : now.Year;
+
+        var result = await _attendanceService.GetMyAttendanceHistoryAsync(userId.Value, targetMonth, targetYear);
+        return Ok(result);
+    }
+
+    private ulong? GetCurrentUserId()
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        return ulong.TryParse(empIdClaim, out var userId) ? userId : null;
+    }
+
+    private static DateOnly GetMondayOfWeek(DateOnly date)
+    {
+        int diff = (7 + (date.DayOfWeek - DayOfWeek.Monday)) % 7;
+        return date.AddDays(-1 * diff);
+    }
 }
+

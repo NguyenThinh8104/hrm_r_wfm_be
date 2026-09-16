@@ -12,6 +12,7 @@ public class Branch
 
     [NotMapped]
     public string Code { get => BranchCode; set => BranchCode = value; }
+
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" or "INACTIVE"

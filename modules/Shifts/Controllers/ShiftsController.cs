@@ -96,7 +96,7 @@ public class ShiftsController : ControllerBase
     /// <param name="dto">DTO cấu hình bao gồm BranchId, Year, Month, TemplateIds tùy chọn và định mức nhân sự mặc định</param>
     /// <returns>ApiResponse chứa danh sách các bản ghi WorkScheduleDto thô trong tháng</returns>
     [HttpPost("schedules/generate-monthly")]
-    [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<WorkScheduleDto>>>> GenerateMonthlySchedule([FromBody] GenerateMonthlyScheduleDto dto)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -115,7 +115,7 @@ public class ShiftsController : ControllerBase
     /// <param name="dto">DTO chứa các chỉ tiêu định mức nhu cầu nhân sự mới</param>
     /// <returns>ApiResponse chứa thông tin WorkScheduleDto đã cập nhật định mức</returns>
     [HttpPut("schedules/{scheduleId}/requirements")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<WorkScheduleDto>>> UpdateScheduleRequirement(ulong scheduleId, [FromBody] UpdateScheduleRequirementDto dto)
     {
         dto.ScheduleId = scheduleId;
@@ -154,7 +154,7 @@ public class ShiftsController : ControllerBase
     /// <param name="dto">DTO chứa BranchId và danh sách mảng các phân công ca trực</param>
     /// <returns>ApiResponse chứa danh sách ShiftAssignmentDto vừa phân công thành công</returns>
     [HttpPost("assignments/batch")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<ShiftAssignmentDto>>>> BatchAssignShifts([FromBody] BatchAssignShiftDto dto)
     {
         var result = await _shiftService.BatchAssignShiftsAsync(dto);
@@ -171,7 +171,7 @@ public class ShiftsController : ControllerBase
     /// <param name="month">Tháng tra cứu ma trận (1 - 12)</param>
     /// <returns>ApiResponse chứa đối tượng MonthlyScheduleMatrixDto hiển thị ma trận lịch</returns>
     [HttpGet("schedules/monthly-matrix")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<MonthlyScheduleMatrixDto>>> GetMonthlyRosterMatrix(
         [FromQuery] ulong branchId,
         [FromQuery] int year,
@@ -190,7 +190,7 @@ public class ShiftsController : ControllerBase
     /// <param name="month">Tháng công bố lịch</param>
     /// <returns>ApiResponse trả về boolean kết quả công bố thành công</returns>
     [HttpPost("schedules/publish-monthly")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<bool>>> PublishMonthlySchedule(
         [FromQuery] ulong branchId,
         [FromQuery] int year,
@@ -212,7 +212,7 @@ public class ShiftsController : ControllerBase
     /// [Store Manager] Khởi tạo khung mẫu ca cho 7 ngày trong tuần theo định mức mặc định (UC 2.1).
     /// </summary>
     [HttpPost("schedules/generate-weekly")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<WeeklyScheduleMatrixDto>>> GenerateWeeklySchedule([FromBody] GenerateWeeklyScheduleDto dto)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -227,7 +227,7 @@ public class ShiftsController : ControllerBase
     /// [Store Manager] Lấy ma trận phân bổ ca tuần (7 ngày) kèm chỉ tiêu định mức và danh sách nhân sự (UC 2.1 & UC 2.3).
     /// </summary>
     [HttpGet("schedules/weekly-matrix")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<WeeklyScheduleMatrixDto>>> GetWeeklyScheduleMatrix(
         [FromQuery] ulong branchId,
         [FromQuery] string weekStartDate)
@@ -247,7 +247,7 @@ public class ShiftsController : ControllerBase
     /// Tự động kiểm tra và chặn gán trùng giờ/trùng ngày ở bất kỳ chi nhánh nào.
     /// </summary>
     [HttpPost("assignments/assign-fulltime-batch")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<ShiftAssignmentDto>>>> AssignFullTimeBatch([FromBody] AssignFullTimeBatchDto dto)
     {
         var result = await _shiftService.AssignFullTimeBatchAsync(dto);
@@ -259,7 +259,7 @@ public class ShiftsController : ControllerBase
     /// [Store Manager] Rà soát xung đột và kiểm tra tình trạng đủ/thiếu định mức trước khi công bố lịch tuần (UC 2.3).
     /// </summary>
     [HttpGet("schedules/check-conflicts")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<ScheduleConflictCheckResultDto>>> CheckWeeklyConflicts(
         [FromQuery] ulong branchId,
         [FromQuery] string weekStartDate)
@@ -278,7 +278,7 @@ public class ShiftsController : ControllerBase
     /// [Store Manager] Công bố phát hành lịch làm việc tuần (UC 2.3).
     /// </summary>
     [HttpPost("schedules/publish-weekly")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<bool>>> PublishWeeklySchedule([FromBody] PublishWeeklyScheduleDto dto)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -293,7 +293,7 @@ public class ShiftsController : ControllerBase
     /// [Store Manager] Xóa/Hủy 1 phân công ca làm việc của nhân viên.
     /// </summary>
     [HttpDelete("assignments/{assignmentId}")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteAssignment(ulong assignmentId)
     {
         var result = await _shiftService.DeleteShiftAssignmentAsync(assignmentId);
@@ -305,7 +305,7 @@ public class ShiftsController : ControllerBase
     /// [Store Manager] Tự động xếp lịch ca tuần tối ưu bằng Google OR-Tools Constraint Programming Solver (UC 2.1).
     /// </summary>
     [HttpPost("schedules/auto-schedule")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<AutoScheduleResultDto>>> AutoScheduleWeekly([FromBody] AutoScheduleWeeklyDto dto)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -363,7 +363,7 @@ public class ShiftsController : ControllerBase
     /// <param name="request">DTO gán ca làm việc lẻ</param>
     /// <returns>ApiResponse chứa ShiftAssignmentDto</returns>
     [HttpPost("assign")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<ShiftAssignmentDto>>> AssignShift([FromBody] CreateShiftAssignmentDto request)
     {
         var result = await _shiftService.AssignShiftAsync(request);
@@ -378,7 +378,7 @@ public class ShiftsController : ControllerBase
     /// <param name="weekStartDate">Ngày bắt đầu tuần (YYYY-MM-DD)</param>
     /// <returns>ApiResponse trả về boolean</returns>
     [HttpPost("publish")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<bool>>> PublishSchedule(
         [FromQuery] int storeId,
         [FromQuery] string weekStartDate)
@@ -449,7 +449,7 @@ public class ShiftsController : ControllerBase
     /// <param name="request">DTO kết quả duyệt đổi ca</param>
     /// <returns>ApiResponse trả về boolean</returns>
     [HttpPost("swap-review")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<bool>>> ReviewSwapRequest([FromBody] ReviewSwapRequestDto request)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
@@ -466,10 +466,55 @@ public class ShiftsController : ControllerBase
     /// <param name="storeId">ID cửa hàng</param>
     /// <returns>ApiResponse chứa danh sách ShiftSwapRequestDto</returns>
     [HttpGet("swap-requests/{storeId}")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetSwapRequests(int storeId)
     {
         var result = await _shiftService.GetSwapRequestsByStoreAsync(storeId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Nhân viên lấy danh sách các yêu cầu đổi/chuyển ca của chính mình (đã gửi hoặc được nhờ).
+    /// </summary>
+    [HttpGet("my-swap-requests")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetMySwapRequests()
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        if (!int.TryParse(empIdClaim, out var empId))
+        {
+            return Unauthorized(ApiResponse<List<ShiftSwapRequestDto>>.Fail("Không xác định được danh tính nhân viên."));
+        }
+
+        var result = await _shiftService.GetMySwapRequestsAsync(empId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách đồng nghiệp cùng chi nhánh để nhân viên chọn khi đổi/chuyển ca.
+    /// </summary>
+    [HttpGet("colleagues/{branchId}")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<ColleagueDto>>>> GetColleagues(int branchId)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        int.TryParse(empIdClaim, out var empId);
+
+        var result = await _shiftService.GetColleaguesForSwapAsync(empId, branchId);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách ca làm việc của một đồng nghiệp trong tương lai để chọn đổi.
+    /// </summary>
+    [HttpGet("colleague-shifts/{colleagueEmployeeId}")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<ColleagueShiftDto>>>> GetColleagueShifts(int colleagueEmployeeId)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        int.TryParse(empIdClaim, out var empId);
+
+        var result = await _shiftService.GetColleagueShiftsAsync(empId, colleagueEmployeeId);
         return Ok(result);
     }
 }

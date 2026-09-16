@@ -24,7 +24,7 @@ public class ShiftTemplatesController : ControllerBase
     /// [Operations Admin] Lấy danh sách toàn bộ các khung ca làm việc mẫu (hỗ trợ lọc theo trạng thái status: ACTIVE / INACTIVE).
     /// </summary>
     [HttpGet]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<List<ShiftTemplateDto>>>> GetAllShiftTemplates([FromQuery] string? status = null)
     {
         var result = await _shiftService.GetAllShiftTemplatesAsync(status);
@@ -35,7 +35,7 @@ public class ShiftTemplatesController : ControllerBase
     /// [Operations Admin] Lấy thông tin chi tiết một khung ca mẫu theo ID.
     /// </summary>
     [HttpGet("{id}")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<ShiftTemplateDto>>> GetShiftTemplateById(uint id)
     {
         var result = await _shiftService.GetShiftTemplateByIdAsync(id);

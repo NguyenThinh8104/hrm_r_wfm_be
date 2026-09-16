@@ -1,4 +1,4 @@
-﻿ALTER DATABASE CHARACTER SET utf8mb4;
+ALTER DATABASE CHARACTER SET utf8mb4;
 
 
 CREATE TABLE `branches` (
@@ -215,7 +215,9 @@ CREATE TABLE `attendance_logs` (
 CREATE TABLE `shift_swap_requests` (
     `Id` bigint unsigned NOT NULL AUTO_INCREMENT,
     `RequestingAssignmentId` bigint unsigned NOT NULL,
-    `TargetAssignmentId` bigint unsigned NOT NULL,
+    `TargetUserId` bigint unsigned NOT NULL,
+    `TargetAssignmentId` bigint unsigned NULL,
+    `RequestType` varchar(20) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'SWAP',
     `Reason` longtext CHARACTER SET utf8mb4 NULL,
     `Status` longtext CHARACTER SET utf8mb4 NOT NULL,
     `ReviewedBy` bigint unsigned NULL,
@@ -223,6 +225,7 @@ CREATE TABLE `shift_swap_requests` (
     `CreatedAt` datetime(6) NOT NULL,
     CONSTRAINT `PK_shift_swap_requests` PRIMARY KEY (`Id`),
     CONSTRAINT `FK_shift_swap_requests_shift_assignments_RequestingAssignmentId` FOREIGN KEY (`RequestingAssignmentId`) REFERENCES `shift_assignments` (`Id`) ON DELETE RESTRICT,
+    CONSTRAINT `FK_shift_swap_requests_users_TargetUserId` FOREIGN KEY (`TargetUserId`) REFERENCES `users` (`Id`) ON DELETE RESTRICT,
     CONSTRAINT `FK_shift_swap_requests_shift_assignments_TargetAssignmentId` FOREIGN KEY (`TargetAssignmentId`) REFERENCES `shift_assignments` (`Id`) ON DELETE RESTRICT,
     CONSTRAINT `FK_shift_swap_requests_users_ReviewedBy` FOREIGN KEY (`ReviewedBy`) REFERENCES `users` (`Id`) ON DELETE SET NULL
 ) CHARACTER SET=utf8mb4;

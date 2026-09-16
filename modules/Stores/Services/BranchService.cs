@@ -109,9 +109,15 @@ public class BranchService : IBranchService, IStoreService
             Name = dto.Name.Trim(),
             Address = dto.Address.Trim(),
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
+            GeofenceRadiusMeters = dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0 ? dto.GeofenceRadiusMeters.Value : 50,
             CreatedAt = now,
             UpdatedAt = now
         };
+
+        if (dto.Latitude.HasValue && dto.Longitude.HasValue)
+        {
+            branch.Location = new NetTopologySuite.Geometries.Point(dto.Longitude.Value, dto.Latitude.Value) { SRID = 4326 };
+        }
 
         _context.Branches.Add(branch);
         await _context.SaveChangesAsync();
@@ -120,7 +126,7 @@ public class BranchService : IBranchService, IStoreService
     }
 
     /// <summary>
-    /// Cập nhật thông tin chi nhánh cửa hàng (Tên, địa chỉ).
+    /// Cập nhật thông tin chi nhánh cửa hàng (Tên, địa chỉ, IP Kiosk).
     /// </summary>
     public async Task<ApiResponse<BranchDto>> UpdateBranchAsync(ulong id, UpdateBranchDto dto)
     {
@@ -145,6 +151,14 @@ public class BranchService : IBranchService, IStoreService
 
         branch.Name = dto.Name.Trim();
         branch.Address = dto.Address.Trim();
+        if (dto.Latitude.HasValue && dto.Longitude.HasValue)
+        {
+            branch.Location = new NetTopologySuite.Geometries.Point(dto.Longitude.Value, dto.Latitude.Value) { SRID = 4326 };
+        }
+        if (dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0)
+        {
+            branch.GeofenceRadiusMeters = dto.GeofenceRadiusMeters.Value;
+        }
         branch.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -195,6 +209,32 @@ public class BranchService : IBranchService, IStoreService
             : "Đã kích hoạt lại chi nhánh thành công.";
 
         return ApiResponse<BranchDto>.Ok(MapToBranchDto(branch), message);
+    }
+
+    /// <summary>
+    /// Xóa chi nhánh cửa hàng (Operations Admin).
+    /// </summary>
+    public async Task<ApiResponse<bool>> DeleteBranchAsync(ulong id)
+    {
+        var branch = await _context.Branches
+            .Include(b => b.Kiosks)
+            .Include(b => b.Users)
+            .FirstOrDefaultAsync(b => b.Id == id);
+
+        if (branch == null)
+        {
+            return ApiResponse<bool>.Fail("Không tìm thấy chi nhánh cửa hàng cần xóa.");
+        }
+
+        foreach (var user in branch.Users)
+        {
+            user.HomeBranchId = null;
+        }
+
+        _context.Branches.Remove(branch);
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<bool>.Ok(true, "Đã xóa chi nhánh cửa hàng thành công.");
     }
 
     // ==========================================
@@ -383,6 +423,11 @@ public class BranchService : IBranchService, IStoreService
             Code = b.Code,
             Name = b.Name,
             Address = b.Address,
+            Latitude = b.Latitude,
+            Longitude = b.Longitude,
+            GeofenceRadiusMeters = b.GeofenceRadiusMeters > 0 ? b.GeofenceRadiusMeters : 50,
+            KioskAllowedIp = null,
+            KioskAllowedBrowser = null,
             Status = b.Status,
             CreatedAt = b.CreatedAt,
             UpdatedAt = b.UpdatedAt,
@@ -408,7 +453,7 @@ public class BranchService : IBranchService, IStoreService
             Status = k.Status,
             LastPingAt = k.LastPingAt,
             CreatedAt = k.CreatedAt,
-            UpdatedAt = k.UpdatedAt
+            UpdatedAt = k.UpdatedAt ?? k.CreatedAt
         };
     }
 }

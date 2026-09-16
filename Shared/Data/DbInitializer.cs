@@ -6,7 +6,7 @@ namespace Shared.Data;
 
 public static class DbInitializer
 {
-    public static void Initialize(AppDbContext context, bool reseed = false)
+    public static void Initialize(AppDbContext context, bool reseed = true)
     {
         if (reseed)
         {
@@ -182,7 +182,7 @@ public static class DbInitializer
             context.SaveChanges();
         }
 
-        // 2. Seed & Repair Branches static coordinates
+        // 2. Seed Branches
         if (!context.Branches.Any())
         {
             var branches = new List<Branch>
@@ -194,8 +194,9 @@ public static class DbInitializer
                     Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy",
                     Address = "123 Cầu Giấy, Q. Cầu Giấy, Hà Nội",
                     Status = "ACTIVE",
-                    Location = new NetTopologySuite.Geometries.Point(105.7833, 21.0333) { SRID = 4326 },
-                    GeofenceRadiusMeters = 200,
+                    Latitude = 21.0333,
+                    Longitude = 105.7833,
+                    GeofenceRadiusMeters = 50,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
@@ -206,8 +207,9 @@ public static class DbInitializer
                     Name = "Cửa hàng Tiện lợi Chi nhánh Lê Văn Việt",
                     Address = "456 Lê Văn Việt, TP. Thủ Đức, TP. Hồ Chí Minh",
                     Status = "ACTIVE",
-                    Location = new NetTopologySuite.Geometries.Point(106.7925, 10.8456) { SRID = 4326 },
-                    GeofenceRadiusMeters = 200,
+                    Latitude = 10.8456,
+                    Longitude = 106.7925,
+                    GeofenceRadiusMeters = 50,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },

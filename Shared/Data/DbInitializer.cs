@@ -15,40 +15,75 @@ public static class DbInitializer
 
         context.Database.EnsureCreated();
 
-        // 0. Ensure Missing Spatial / Geofence Columns in MySQL
+        // 0. Ensure Missing Spatial / Geofence Columns in MySQL cleanly without throwing DbCommand ERR
         try
         {
-            context.Database.ExecuteSqlRaw(@"
-                ALTER TABLE `branches` 
-                ADD COLUMN IF NOT EXISTS `Location` POINT NULL,
-                ADD COLUMN IF NOT EXISTS `GeofenceRadiusMeters` INT NOT NULL DEFAULT 50;
-            ");
-        }
-        catch
-        {
-            try
+            var connection = context.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
             {
-                context.Database.ExecuteSqlRaw("ALTER TABLE `branches` ADD COLUMN `Location` POINT NULL;");
+                connection.Open();
             }
-            catch { }
-            try
-            {
-                context.Database.ExecuteSqlRaw("ALTER TABLE `branches` ADD COLUMN `GeofenceRadiusMeters` INT NOT NULL DEFAULT 50;");
-            }
-            catch { }
-        }
 
-        try
-        {
-            context.Database.ExecuteSqlRaw("ALTER TABLE `kiosks` ADD COLUMN IF NOT EXISTS `IpAddress` LONGTEXT NULL;");
+            // Check branches table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'branches';";
+                
+                var branchCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        branchCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!branchCols.Contains("Location"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `Location` POINT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                if (!branchCols.Contains("GeofenceRadiusMeters"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `GeofenceRadiusMeters` INT NOT NULL DEFAULT 50;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
+            // Check kiosks table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kiosks';";
+                
+                var kioskCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        kioskCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!kioskCols.Contains("IpAddress"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `kiosks` ADD COLUMN `IpAddress` LONGTEXT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
         }
         catch
         {
-            try
-            {
-                context.Database.ExecuteSqlRaw("ALTER TABLE `kiosks` ADD COLUMN `IpAddress` LONGTEXT NULL;");
-            }
-            catch { }
+            // Silent fallback
         }
 
         // 1. Seed Roles

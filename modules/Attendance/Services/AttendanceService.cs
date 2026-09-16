@@ -556,12 +556,24 @@ public class AttendanceService : IAttendanceService
 
     /// <summary>
     /// Tra cứu tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý tại trạm Kiosk.
+    /// Bao gồm nhân viên cơ sở gốc (HomeBranchId) và nhân viên đang được điều động hợp lệ đến cửa hàng hôm nay.
     /// </summary>
     public async Task<ApiResponse<List<KioskEmployeeSearchDto>>> SearchStoreEmployeesAsync(int storeId, string? query = null)
     {
+        var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+
+        // Lấy danh sách ID nhân viên đang có lệnh điều động hợp lệ đến cửa hàng này hôm nay
+        var dispatchedUserIds = await _context.TemporaryDispatches
+            .Where(d => d.TargetBranchId == (ulong)storeId 
+                     && d.Status == "APPROVED" 
+                     && d.StartDate <= today 
+                     && today <= d.EndDate)
+            .Select(d => d.UserId)
+            .ToListAsync();
+
         var dbQuery = _context.Users
             .Include(u => u.Role)
-            .Where(u => u.HomeBranchId == (ulong)storeId && u.Status == "ACTIVE");
+            .Where(u => (u.HomeBranchId == (ulong)storeId || dispatchedUserIds.Contains(u.Id)) && u.Status == "ACTIVE");
 
         if (!string.IsNullOrWhiteSpace(query))
         {

@@ -100,4 +100,5 @@ public class EmployeeFilterDto
     public string? EmploymentType { get; set; }
     public string? Status { get; set; }
     public string? Search { get; set; }
+    public bool? ExcludeStoreManager { get; set; }
 }

@@ -206,17 +206,25 @@ public class UserService : IUserService
             .Include(u => u.HomeBranch)
             .AsQueryable();
 
-        // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì chỉ xem nhân viên chi nhánh mình
+        // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì chỉ xem nhân viên chi nhánh mình và loại trừ Cửa hàng trưởng
         var normalizedRole = actorRole.ToUpper();
         if (normalizedRole == "STORE_MANAGER" || normalizedRole == "STOREMANAGER")
         {
             if (!actorBranchId.HasValue)
                 return ApiResponse<List<EmployeeDetailDto>>.Fail("Tài khoản Quản lý chưa được gán chi nhánh.");
             query = query.Where(u => u.HomeBranchId == actorBranchId.Value);
+
+            // Tự động loại trừ Cửa hàng trưởng khỏi danh sách nhân viên vận hành
+            query = query.Where(u => u.Role.RoleCode != "STORE_MANAGER");
         }
         else if (filter.BranchId.HasValue && filter.BranchId.Value > 0)
         {
             query = query.Where(u => u.HomeBranchId == filter.BranchId.Value);
+        }
+
+        if (filter.ExcludeStoreManager == true)
+        {
+            query = query.Where(u => u.Role.RoleCode != "STORE_MANAGER");
         }
 
         if (filter.RoleId.HasValue && filter.RoleId.Value > 0)

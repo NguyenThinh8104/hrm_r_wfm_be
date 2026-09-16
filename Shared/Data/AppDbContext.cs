@@ -45,6 +45,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Name).HasColumnName("Name");
             entity.Property(e => e.Address).HasColumnName("Address");
             entity.Property(e => e.Status).HasColumnName("Status");
+            entity.Property(e => e.GeofenceRadiusMeters).HasColumnName("GeofenceRadiusMeters");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.BranchCode).IsUnique();

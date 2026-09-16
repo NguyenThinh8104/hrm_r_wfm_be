@@ -149,6 +149,12 @@ public class KioskPinCheckOutDto
     public string? PhotoKey { get; set; }
 }
 
+public class UploadPhotoRequestDto
+{
+    public Microsoft.AspNetCore.Http.IFormFile File { get; set; } = null!;
+    public string? Folder { get; set; }
+}
+
 public class UploadPhotoResponseDto
 {
     public string PhotoKey { get; set; } = string.Empty;

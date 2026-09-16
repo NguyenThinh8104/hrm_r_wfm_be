@@ -109,9 +109,15 @@ public class BranchService : IBranchService, IStoreService
             Name = dto.Name.Trim(),
             Address = dto.Address.Trim(),
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
+            GeofenceRadiusMeters = dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0 ? dto.GeofenceRadiusMeters.Value : 50,
             CreatedAt = now,
             UpdatedAt = now
         };
+
+        if (dto.Latitude.HasValue && dto.Longitude.HasValue)
+        {
+            branch.Location = new NetTopologySuite.Geometries.Point(dto.Longitude.Value, dto.Latitude.Value) { SRID = 4326 };
+        }
 
         _context.Branches.Add(branch);
         await _context.SaveChangesAsync();
@@ -145,6 +151,14 @@ public class BranchService : IBranchService, IStoreService
 
         branch.Name = dto.Name.Trim();
         branch.Address = dto.Address.Trim();
+        if (dto.Latitude.HasValue && dto.Longitude.HasValue)
+        {
+            branch.Location = new NetTopologySuite.Geometries.Point(dto.Longitude.Value, dto.Latitude.Value) { SRID = 4326 };
+        }
+        if (dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0)
+        {
+            branch.GeofenceRadiusMeters = dto.GeofenceRadiusMeters.Value;
+        }
         branch.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -409,6 +423,9 @@ public class BranchService : IBranchService, IStoreService
             Code = b.Code,
             Name = b.Name,
             Address = b.Address,
+            Latitude = b.Latitude,
+            Longitude = b.Longitude,
+            GeofenceRadiusMeters = b.GeofenceRadiusMeters > 0 ? b.GeofenceRadiusMeters : 50,
             KioskAllowedIp = null,
             KioskAllowedBrowser = null,
             Status = b.Status,

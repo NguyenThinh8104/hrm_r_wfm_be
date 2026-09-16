@@ -408,7 +408,9 @@ public class ShiftsController : ControllerBase
         [FromQuery] string startDate,
         [FromQuery] string endDate)
     {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
         if (!int.TryParse(empIdClaim, out var empId))
         {
             return Unauthorized(ApiResponse<List<ShiftAssignmentDto>>.Fail("Không xác định được danh tính nhân viên."));
@@ -424,6 +426,25 @@ public class ShiftsController : ControllerBase
     }
 
     /// <summary>
+    /// Lấy danh sách ca làm việc của một nhân viên cụ thể theo ID.
+    /// </summary>
+    [HttpGet("employee/{employeeId}")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<ShiftAssignmentDto>>>> GetEmployeeShifts(
+        int employeeId,
+        [FromQuery] string startDate,
+        [FromQuery] string endDate)
+    {
+        if (!DateOnly.TryParse(startDate, out var sDate) || !DateOnly.TryParse(endDate, out var eDate))
+        {
+            return BadRequest(ApiResponse<List<ShiftAssignmentDto>>.Fail("Định dạng ngày không hợp lệ (YYYY-MM-DD)."));
+        }
+
+        var result = await _shiftService.GetEmployeeShiftsAsync(employeeId, sDate, eDate);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Tạo yêu cầu đổi ca làm việc.
     /// </summary>
     /// <param name="request">DTO tạo yêu cầu đổi ca trực</param>
@@ -432,7 +453,9 @@ public class ShiftsController : ControllerBase
     [Authorize]
     public async Task<ActionResult<ApiResponse<ShiftSwapRequestDto>>> CreateSwapRequest([FromBody] CreateSwapRequestDto request)
     {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
         if (!int.TryParse(empIdClaim, out var empId))
         {
             return Unauthorized(ApiResponse<ShiftSwapRequestDto>.Fail("Không xác định được danh tính nhân viên."));
@@ -449,10 +472,12 @@ public class ShiftsController : ControllerBase
     /// <param name="request">DTO kết quả duyệt đổi ca</param>
     /// <returns>ApiResponse trả về boolean</returns>
     [HttpPost("swap-review")]
-    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<bool>>> ReviewSwapRequest([FromBody] ReviewSwapRequestDto request)
     {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
         int.TryParse(empIdClaim, out var managerEmpId);
 
         var result = await _shiftService.ReviewShiftSwapAsync(managerEmpId, request);
@@ -466,7 +491,7 @@ public class ShiftsController : ControllerBase
     /// <param name="storeId">ID cửa hàng</param>
     /// <returns>ApiResponse chứa danh sách ShiftSwapRequestDto</returns>
     [HttpGet("swap-requests/{storeId}")]
-    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetSwapRequests(int storeId)
     {
         var result = await _shiftService.GetSwapRequestsByStoreAsync(storeId);
@@ -480,7 +505,9 @@ public class ShiftsController : ControllerBase
     [Authorize]
     public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetMySwapRequests()
     {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
         if (!int.TryParse(empIdClaim, out var empId))
         {
             return Unauthorized(ApiResponse<List<ShiftSwapRequestDto>>.Fail("Không xác định được danh tính nhân viên."));
@@ -497,7 +524,9 @@ public class ShiftsController : ControllerBase
     [Authorize]
     public async Task<ActionResult<ApiResponse<List<ColleagueDto>>>> GetColleagues(int branchId)
     {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
         int.TryParse(empIdClaim, out var empId);
 
         var result = await _shiftService.GetColleaguesForSwapAsync(empId, branchId);
@@ -511,7 +540,9 @@ public class ShiftsController : ControllerBase
     [Authorize]
     public async Task<ActionResult<ApiResponse<List<ColleagueShiftDto>>>> GetColleagueShifts(int colleagueEmployeeId)
     {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
         int.TryParse(empIdClaim, out var empId);
 
         var result = await _shiftService.GetColleagueShiftsAsync(empId, colleagueEmployeeId);

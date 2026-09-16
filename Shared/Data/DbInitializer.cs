@@ -80,6 +80,85 @@ public static class DbInitializer
                     alterCmd.ExecuteNonQuery();
                 }
             }
+
+            // Check shift_swap_requests table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT TABLE_NAME, COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('shift_swap_requests', 'ShiftSwapRequests');";
+                
+                var swapCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string tableName = "shift_swap_requests";
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        tableName = reader.GetString(0);
+                        swapCols.Add(reader.GetString(1));
+                    }
+                }
+
+                if (swapCols.Count > 0)
+                {
+                    if (!swapCols.Contains("TargetUserId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `TargetUserId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!swapCols.Contains("RequestType"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `RequestType` VARCHAR(50) NOT NULL DEFAULT 'SWAP';";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!swapCols.Contains("RequesterUserId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `RequesterUserId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!swapCols.Contains("ScheduleId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `ScheduleId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    try
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `TargetAssignmentId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `RequestingAssignmentId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        using var syncCmd = connection.CreateCommand();
+                        syncCmd.CommandText = $@"
+                            UPDATE `{tableName}` s 
+                            JOIN `shift_assignments` sa ON s.RequestingAssignmentId = sa.Id 
+                            SET s.RequesterUserId = sa.UserId, s.ScheduleId = sa.ScheduleId 
+                            WHERE s.RequesterUserId IS NULL;";
+                        syncCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+                }
+            }
         }
         catch
         {

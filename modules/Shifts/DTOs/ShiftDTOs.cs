@@ -316,7 +316,7 @@ public class CreateShiftAssignmentDto
 public class ShiftSwapRequestDto
 {
     public int SwapRequestId { get; set; }
-    public string RequestType { get; set; } = "SWAP"; // "SWAP" or "TRANSFER"
+    public string RequestType { get; set; } = "SWAP"; // "SWAP", "TRANSFER", or "LEAVE"
     public int AssignmentId { get; set; }
     public int RequesterEmployeeId { get; set; }
     public string RequesterName { get; set; } = string.Empty;
@@ -324,7 +324,7 @@ public class ShiftSwapRequestDto
     public string RequesterShiftName { get; set; } = string.Empty;
     public string RequesterWorkDate { get; set; } = string.Empty;
     public string RequesterTimeRange { get; set; } = string.Empty;
-    public int TargetEmployeeId { get; set; }
+    public int? TargetEmployeeId { get; set; }
     public string TargetName { get; set; } = string.Empty;
     public string TargetRoleName { get; set; } = string.Empty;
     public int? TargetAssignmentId { get; set; }
@@ -340,9 +340,9 @@ public class ShiftSwapRequestDto
 
 public class CreateSwapRequestDto
 {
-    public string RequestType { get; set; } = "SWAP"; // "SWAP" or "TRANSFER"
+    public string RequestType { get; set; } = "SWAP"; // "SWAP", "TRANSFER", or "LEAVE"
     public int AssignmentId { get; set; }
-    public int TargetEmployeeId { get; set; }
+    public int? TargetEmployeeId { get; set; }
     public int? TargetAssignmentId { get; set; }
     public string? Reason { get; set; }
 }

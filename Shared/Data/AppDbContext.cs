@@ -211,6 +211,7 @@ public partial class AppDbContext : DbContext
             entity.HasOne(e => e.TargetUser)
                 .WithMany()
                 .HasForeignKey(e => e.TargetUserId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(e => e.TargetAssignment)

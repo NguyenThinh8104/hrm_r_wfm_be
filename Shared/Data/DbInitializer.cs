@@ -80,6 +80,51 @@ public static class DbInitializer
                     alterCmd.ExecuteNonQuery();
                 }
             }
+
+            // Check shift_swap_requests table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT TABLE_NAME, COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('shift_swap_requests', 'ShiftSwapRequests');";
+                
+                var swapCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string tableName = "shift_swap_requests";
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        tableName = reader.GetString(0);
+                        swapCols.Add(reader.GetString(1));
+                    }
+                }
+
+                if (swapCols.Count > 0)
+                {
+                    if (!swapCols.Contains("TargetUserId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `TargetUserId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!swapCols.Contains("RequestType"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `RequestType` VARCHAR(50) NOT NULL DEFAULT 'SWAP';";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    try
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `TargetAssignmentId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+                }
+            }
         }
         catch
         {

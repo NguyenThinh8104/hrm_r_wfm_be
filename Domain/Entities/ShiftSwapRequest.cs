@@ -5,8 +5,8 @@ public class ShiftSwapRequest
     public ulong Id { get; set; }
     public ulong RequestingAssignmentId { get; set; }
     public ShiftAssignment RequestingAssignment { get; set; } = null!;
-    public ulong TargetUserId { get; set; }
-    public User TargetUser { get; set; } = null!;
+    public ulong? TargetUserId { get; set; }
+    public User? TargetUser { get; set; }
     public ulong? TargetAssignmentId { get; set; }
     public ShiftAssignment? TargetAssignment { get; set; }
     public string RequestType { get; set; } = "SWAP"; // "SWAP" or "TRANSFER"

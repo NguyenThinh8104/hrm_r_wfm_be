@@ -165,15 +165,15 @@ public class KioskAttendanceController : ControllerBase
     [HttpPost("upload-photo")]
     [Consumes("multipart/form-data")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<UploadPhotoResponseDto>>> UploadPhoto([FromForm] IFormFile file, [FromForm] string? folder)
+    public async Task<ActionResult<ApiResponse<UploadPhotoResponseDto>>> UploadPhoto([FromForm] UploadPhotoRequestDto request)
     {
-        if (file == null || file.Length == 0)
+        if (request?.File == null || request.File.Length == 0)
         {
             return BadRequest(ApiResponse<UploadPhotoResponseDto>.Fail(AttendanceMessages.UploadPhotoFailed));
         }
 
-        var folderName = string.IsNullOrWhiteSpace(folder) ? "attendance/checkin" : folder.Trim();
-        var photoKey = await _s3StorageService.UploadFileAsync(file, folderName);
+        var folderName = string.IsNullOrWhiteSpace(request.Folder) ? "attendance/checkin" : request.Folder.Trim();
+        var photoKey = await _s3StorageService.UploadFileAsync(request.File, folderName);
         var presignedUrl = _s3StorageService.GetPresignedUrl(photoKey);
 
         return Ok(ApiResponse<UploadPhotoResponseDto>.Ok(new UploadPhotoResponseDto

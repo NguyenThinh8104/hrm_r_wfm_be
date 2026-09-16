@@ -14,6 +14,9 @@ public class BranchDto
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string? Phone { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public int GeofenceRadiusMeters { get; set; } = 50;
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
@@ -43,6 +46,9 @@ public class CreateBranchDto
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string? Phone { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public int? GeofenceRadiusMeters { get; set; }
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE";
@@ -64,6 +70,9 @@ public class UpdateBranchDto
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string? Phone { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public int? GeofenceRadiusMeters { get; set; }
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
 

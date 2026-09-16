@@ -1,4 +1,5 @@
 using Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 using Shared.Security;
 
 namespace Shared.Data;
@@ -13,6 +14,42 @@ public static class DbInitializer
         }
 
         context.Database.EnsureCreated();
+
+        // 0. Ensure Missing Spatial / Geofence Columns in MySQL
+        try
+        {
+            context.Database.ExecuteSqlRaw(@"
+                ALTER TABLE `branches` 
+                ADD COLUMN IF NOT EXISTS `Location` POINT NULL,
+                ADD COLUMN IF NOT EXISTS `GeofenceRadiusMeters` INT NOT NULL DEFAULT 50;
+            ");
+        }
+        catch
+        {
+            try
+            {
+                context.Database.ExecuteSqlRaw("ALTER TABLE `branches` ADD COLUMN `Location` POINT NULL;");
+            }
+            catch { }
+            try
+            {
+                context.Database.ExecuteSqlRaw("ALTER TABLE `branches` ADD COLUMN `GeofenceRadiusMeters` INT NOT NULL DEFAULT 50;");
+            }
+            catch { }
+        }
+
+        try
+        {
+            context.Database.ExecuteSqlRaw("ALTER TABLE `kiosks` ADD COLUMN IF NOT EXISTS `IpAddress` LONGTEXT NULL;");
+        }
+        catch
+        {
+            try
+            {
+                context.Database.ExecuteSqlRaw("ALTER TABLE `kiosks` ADD COLUMN `IpAddress` LONGTEXT NULL;");
+            }
+            catch { }
+        }
 
         // 1. Seed Roles
         if (!context.Roles.Any())

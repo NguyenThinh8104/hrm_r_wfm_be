@@ -116,11 +116,45 @@ public static class DbInitializer
                         alterCmd.ExecuteNonQuery();
                     }
 
+                    if (!swapCols.Contains("RequesterUserId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `RequesterUserId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!swapCols.Contains("ScheduleId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `ScheduleId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
                     try
                     {
                         using var alterCmd = connection.CreateCommand();
                         alterCmd.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `TargetAssignmentId` BIGINT UNSIGNED NULL;";
                         alterCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `RequestingAssignmentId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        using var syncCmd = connection.CreateCommand();
+                        syncCmd.CommandText = $@"
+                            UPDATE `{tableName}` s 
+                            JOIN `shift_assignments` sa ON s.RequestingAssignmentId = sa.Id 
+                            SET s.RequesterUserId = sa.UserId, s.ScheduleId = sa.ScheduleId 
+                            WHERE s.RequesterUserId IS NULL;";
+                        syncCmd.ExecuteNonQuery();
                     }
                     catch { }
                 }

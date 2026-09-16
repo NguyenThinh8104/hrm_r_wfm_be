@@ -206,6 +206,19 @@ public partial class AppDbContext : DbContext
             entity.HasOne(e => e.RequestingAssignment)
                 .WithMany()
                 .HasForeignKey(e => e.RequestingAssignmentId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.RequesterUser)
+                .WithMany()
+                .HasForeignKey(e => e.RequesterUserId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Schedule)
+                .WithMany()
+                .HasForeignKey(e => e.ScheduleId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(e => e.TargetUser)
@@ -223,6 +236,7 @@ public partial class AppDbContext : DbContext
             entity.HasOne(e => e.ReviewedByUser)
                 .WithMany()
                 .HasForeignKey(e => e.ReviewedBy)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 

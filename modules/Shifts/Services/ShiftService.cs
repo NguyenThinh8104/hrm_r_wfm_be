@@ -1725,6 +1725,8 @@ public class ShiftService : IShiftService
         var swap = new ShiftSwapRequest
         {
             RequestingAssignmentId = requestingAssignment.Id,
+            RequesterUserId = (ulong)requesterEmployeeId,
+            ScheduleId = requestingAssignment.ScheduleId,
             TargetUserId = targetUser?.Id,
             TargetAssignmentId = targetAssignment?.Id,
             RequestType = reqType,
@@ -1740,10 +1742,10 @@ public class ShiftService : IShiftService
         {
             SwapRequestId = (int)swap.Id,
             RequestType = swap.RequestType,
-            AssignmentId = (int)swap.RequestingAssignmentId,
+            AssignmentId = (int)requestingAssignment.Id,
             RequesterEmployeeId = requesterEmployeeId,
             RequesterName = requestingAssignment.User.FullName,
-            RequesterRoleName = requestingAssignment.AssignedRole != null ? requestingAssignment.AssignedRole.RoleName : "",
+            RequesterRoleName = requestingAssignment.AssignedRole != null ? requestingAssignment.AssignedRole.RoleName : (requestingAssignment.User.Role != null ? requestingAssignment.User.Role.RoleName : ""),
             RequesterShiftName = requestingAssignment.Schedule.ShiftTemplate?.Name ?? "",
             RequesterWorkDate = requestingAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd"),
             RequesterTimeRange = requestingAssignment.Schedule.ShiftTemplate != null
@@ -1816,7 +1818,14 @@ public class ShiftService : IShiftService
                 // TH1: Xin nghỉ ca -> Phê duyệt gỡ phân công ca để Cửa hàng trưởng xếp lại lịch
                 if (swap.RequestingAssignment != null)
                 {
-                    _context.ShiftAssignments.Remove(swap.RequestingAssignment);
+                    var assignmentToRemove = swap.RequestingAssignment;
+                    // Đảm bảo RequesterUserId và ScheduleId đã được lưu snapshot trước khi ngắt liên kết
+                    swap.RequesterUserId ??= assignmentToRemove.UserId;
+                    swap.ScheduleId ??= assignmentToRemove.ScheduleId;
+                    swap.RequestingAssignmentId = null;
+                    swap.RequestingAssignment = null;
+
+                    _context.ShiftAssignments.Remove(assignmentToRemove);
                 }
             }
             else if (string.Equals(swap.RequestType, "TRANSFER", StringComparison.OrdinalIgnoreCase))
@@ -1891,8 +1900,13 @@ public class ShiftService : IShiftService
     public async Task<ApiResponse<List<ShiftSwapRequestDto>>> GetSwapRequestsByStoreAsync(int storeId)
     {
         var requests = await _context.ShiftSwapRequests
+            .Include(s => s.RequesterUser)
+                .ThenInclude(u => u.Role)
+            .Include(s => s.Schedule)
+                .ThenInclude(sc => sc.ShiftTemplate)
             .Include(s => s.RequestingAssignment)
                 .ThenInclude(sa => sa.User)
+                    .ThenInclude(u => u.Role)
             .Include(s => s.RequestingAssignment)
                 .ThenInclude(sa => sa.AssignedRole)
             .Include(s => s.RequestingAssignment)
@@ -1904,26 +1918,42 @@ public class ShiftService : IShiftService
                 .ThenInclude(sa => sa.Schedule)
                     .ThenInclude(sc => sc.ShiftTemplate)
             .Include(s => s.ReviewedByUser)
-            .Where(s => s.RequestingAssignment.Schedule.BranchId == (ulong)storeId)
+            .Where(s => (s.Schedule != null && s.Schedule.BranchId == (ulong)storeId) 
+                     || (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.BranchId == (ulong)storeId))
             .OrderByDescending(s => s.CreatedAt)
             .Select(s => new ShiftSwapRequestDto
             {
                 SwapRequestId = (int)s.Id,
                 RequestType = s.RequestType,
-                AssignmentId = (int)s.RequestingAssignmentId,
-                RequesterEmployeeId = (int)s.RequestingAssignment.UserId,
-                RequesterName = s.RequestingAssignment.User.FullName,
-                RequesterRoleName = s.RequestingAssignment.AssignedRole != null ? s.RequestingAssignment.AssignedRole.RoleName : "",
-                RequesterShiftName = s.RequestingAssignment.Schedule.ShiftTemplate.Name,
-                RequesterWorkDate = s.RequestingAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd"),
-                RequesterTimeRange = $"{s.RequestingAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.RequestingAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}",
+                AssignmentId = (int)(s.RequestingAssignmentId ?? 0),
+                RequesterEmployeeId = (int)(s.RequesterUserId ?? (s.RequestingAssignment != null ? s.RequestingAssignment.UserId : 0)),
+                RequesterName = s.RequesterUser != null 
+                    ? s.RequesterUser.FullName 
+                    : (s.RequestingAssignment != null ? s.RequestingAssignment.User.FullName : "Nhân viên"),
+                RequesterRoleName = s.RequesterUser != null && s.RequesterUser.Role != null 
+                    ? s.RequesterUser.Role.RoleName 
+                    : (s.RequestingAssignment != null && s.RequestingAssignment.AssignedRole != null 
+                        ? s.RequestingAssignment.AssignedRole.RoleName 
+                        : (s.RequestingAssignment != null && s.RequestingAssignment.User.Role != null ? s.RequestingAssignment.User.Role.RoleName : "")),
+                RequesterShiftName = s.Schedule != null && s.Schedule.ShiftTemplate != null 
+                    ? s.Schedule.ShiftTemplate.Name 
+                    : (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.ShiftTemplate != null 
+                        ? s.RequestingAssignment.Schedule.ShiftTemplate.Name : ""),
+                RequesterWorkDate = s.Schedule != null 
+                    ? s.Schedule.WorkDate.ToString("yyyy-MM-dd") 
+                    : (s.RequestingAssignment != null ? s.RequestingAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd") : ""),
+                RequesterTimeRange = s.Schedule != null && s.Schedule.ShiftTemplate != null
+                    ? $"{s.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                    : (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.ShiftTemplate != null
+                        ? $"{s.RequestingAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.RequestingAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                        : ""),
                 TargetEmployeeId = s.TargetUserId != null ? (int)s.TargetUserId : null,
                 TargetName = s.TargetUser != null ? s.TargetUser.FullName : "Không có (Xin nghỉ ca)",
                 TargetRoleName = s.TargetUser != null && s.TargetUser.Role != null ? s.TargetUser.Role.RoleName : "",
                 TargetAssignmentId = s.TargetAssignmentId != null ? (int)s.TargetAssignmentId : null,
                 TargetShiftName = s.TargetAssignment != null ? s.TargetAssignment.Schedule.ShiftTemplate.Name : null,
                 TargetWorkDate = s.TargetAssignment != null ? s.TargetAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd") : null,
-                TargetTimeRange = s.TargetAssignment != null
+                TargetTimeRange = s.TargetAssignment != null && s.TargetAssignment.Schedule.ShiftTemplate != null
                     ? $"{s.TargetAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.TargetAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
                     : null,
                 Reason = s.Reason,
@@ -1943,8 +1973,13 @@ public class ShiftService : IShiftService
     public async Task<ApiResponse<List<ShiftSwapRequestDto>>> GetMySwapRequestsAsync(int employeeId)
     {
         var requests = await _context.ShiftSwapRequests
+            .Include(s => s.RequesterUser)
+                .ThenInclude(u => u.Role)
+            .Include(s => s.Schedule)
+                .ThenInclude(sc => sc.ShiftTemplate)
             .Include(s => s.RequestingAssignment)
                 .ThenInclude(sa => sa.User)
+                    .ThenInclude(u => u.Role)
             .Include(s => s.RequestingAssignment)
                 .ThenInclude(sa => sa.AssignedRole)
             .Include(s => s.RequestingAssignment)
@@ -1956,26 +1991,43 @@ public class ShiftService : IShiftService
                 .ThenInclude(sa => sa.Schedule)
                     .ThenInclude(sc => sc.ShiftTemplate)
             .Include(s => s.ReviewedByUser)
-            .Where(s => s.RequestingAssignment.UserId == (ulong)employeeId || (s.TargetUserId != null && s.TargetUserId == (ulong)employeeId))
+            .Where(s => (s.RequesterUserId != null && s.RequesterUserId == (ulong)employeeId)
+                     || (s.RequestingAssignment != null && s.RequestingAssignment.UserId == (ulong)employeeId) 
+                     || (s.TargetUserId != null && s.TargetUserId == (ulong)employeeId))
             .OrderByDescending(s => s.CreatedAt)
             .Select(s => new ShiftSwapRequestDto
             {
                 SwapRequestId = (int)s.Id,
                 RequestType = s.RequestType,
-                AssignmentId = (int)s.RequestingAssignmentId,
-                RequesterEmployeeId = (int)s.RequestingAssignment.UserId,
-                RequesterName = s.RequestingAssignment.User.FullName,
-                RequesterRoleName = s.RequestingAssignment.AssignedRole != null ? s.RequestingAssignment.AssignedRole.RoleName : "",
-                RequesterShiftName = s.RequestingAssignment.Schedule.ShiftTemplate.Name,
-                RequesterWorkDate = s.RequestingAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd"),
-                RequesterTimeRange = $"{s.RequestingAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.RequestingAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}",
+                AssignmentId = (int)(s.RequestingAssignmentId ?? 0),
+                RequesterEmployeeId = (int)(s.RequesterUserId ?? (s.RequestingAssignment != null ? s.RequestingAssignment.UserId : 0)),
+                RequesterName = s.RequesterUser != null 
+                    ? s.RequesterUser.FullName 
+                    : (s.RequestingAssignment != null ? s.RequestingAssignment.User.FullName : "Nhân viên"),
+                RequesterRoleName = s.RequesterUser != null && s.RequesterUser.Role != null 
+                    ? s.RequesterUser.Role.RoleName 
+                    : (s.RequestingAssignment != null && s.RequestingAssignment.AssignedRole != null 
+                        ? s.RequestingAssignment.AssignedRole.RoleName 
+                        : (s.RequestingAssignment != null && s.RequestingAssignment.User.Role != null ? s.RequestingAssignment.User.Role.RoleName : "")),
+                RequesterShiftName = s.Schedule != null && s.Schedule.ShiftTemplate != null 
+                    ? s.Schedule.ShiftTemplate.Name 
+                    : (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.ShiftTemplate != null 
+                        ? s.RequestingAssignment.Schedule.ShiftTemplate.Name : ""),
+                RequesterWorkDate = s.Schedule != null 
+                    ? s.Schedule.WorkDate.ToString("yyyy-MM-dd") 
+                    : (s.RequestingAssignment != null ? s.RequestingAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd") : ""),
+                RequesterTimeRange = s.Schedule != null && s.Schedule.ShiftTemplate != null
+                    ? $"{s.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                    : (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.ShiftTemplate != null
+                        ? $"{s.RequestingAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.RequestingAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                        : ""),
                 TargetEmployeeId = s.TargetUserId != null ? (int)s.TargetUserId : null,
                 TargetName = s.TargetUser != null ? s.TargetUser.FullName : "Không có (Xin nghỉ ca)",
                 TargetRoleName = s.TargetUser != null && s.TargetUser.Role != null ? s.TargetUser.Role.RoleName : "",
                 TargetAssignmentId = s.TargetAssignmentId != null ? (int)s.TargetAssignmentId : null,
                 TargetShiftName = s.TargetAssignment != null ? s.TargetAssignment.Schedule.ShiftTemplate.Name : null,
                 TargetWorkDate = s.TargetAssignment != null ? s.TargetAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd") : null,
-                TargetTimeRange = s.TargetAssignment != null
+                TargetTimeRange = s.TargetAssignment != null && s.TargetAssignment.Schedule.ShiftTemplate != null
                     ? $"{s.TargetAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.TargetAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
                     : null,
                 Reason = s.Reason,

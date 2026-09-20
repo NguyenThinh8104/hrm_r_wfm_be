@@ -13,11 +13,11 @@ namespace Modules.Stores.Controllers;
 [Route("api/v1/kiosks")]
 public class KiosksController : ControllerBase
 {
-    private readonly IBranchService _branchService;
+    private readonly IKioskService _kioskService;
 
-    public KiosksController(IBranchService branchService)
+    public KiosksController(IKioskService kioskService)
     {
-        _branchService = branchService;
+        _kioskService = kioskService;
     }
 
     /// <summary>
@@ -27,7 +27,7 @@ public class KiosksController : ControllerBase
     [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
     public async Task<ActionResult<ApiResponse<List<KioskDto>>>> GetAllKiosks()
     {
-        var result = await _branchService.GetAllKiosksAsync();
+        var result = await _kioskService.GetAllKiosksAsync();
         return Ok(result);
     }
 
@@ -38,7 +38,7 @@ public class KiosksController : ControllerBase
     [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<KioskDto>>> GetKioskById(ulong id)
     {
-        var result = await _branchService.GetKioskByIdAsync(id);
+        var result = await _kioskService.GetKioskByIdAsync(id);
         if (!result.Success) return NotFound(result);
         return Ok(result);
     }
@@ -50,7 +50,7 @@ public class KiosksController : ControllerBase
     [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<KioskDto>>> UpdateKiosk(ulong id, [FromBody] UpdateKioskDto dto)
     {
-        var result = await _branchService.UpdateKioskAsync(id, dto);
+        var result = await _kioskService.UpdateKioskAsync(id, dto);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -63,7 +63,7 @@ public class KiosksController : ControllerBase
     [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<KioskDto>>> UpdateKioskStatus(ulong id, [FromBody] UpdateKioskStatusDto dto)
     {
-        var result = await _branchService.UpdateKioskStatusAsync(id, dto);
+        var result = await _kioskService.UpdateKioskStatusAsync(id, dto);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

@@ -59,6 +59,16 @@ public interface IKioskService
     /// <param name="kioskId">Mã ID trạm Kiosk cần xóa</param>
     /// <returns>ApiResponse xác nhận kết quả xóa Kiosk</returns>
     Task<ApiResponse<bool>> DeleteKioskAsync(int kioskId);
+
+    // ==========================================
+    // Kiosk Devices CRUD & Status Management
+    // ==========================================
+    Task<ApiResponse<List<KioskDto>>> GetBranchKiosksAsync(ulong branchId);
+    Task<ApiResponse<KioskDto>> CreateBranchKioskAsync(ulong branchId, CreateKioskDto dto);
+    Task<ApiResponse<KioskDto>> UpdateKioskAsync(ulong kioskId, UpdateKioskDto dto);
+    Task<ApiResponse<KioskDto>> UpdateKioskStatusAsync(ulong kioskId, UpdateKioskStatusDto dto);
+    Task<ApiResponse<List<KioskDto>>> GetAllKiosksAsync();
+    Task<ApiResponse<KioskDto>> GetKioskByIdAsync(ulong kioskId);
 }
 
 

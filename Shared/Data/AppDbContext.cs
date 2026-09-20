@@ -46,6 +46,8 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Address).HasColumnName("Address");
             entity.Property(e => e.Status).HasColumnName("Status");
             entity.Property(e => e.GeofenceRadiusMeters).HasColumnName("GeofenceRadiusMeters");
+            // Phân cấp chi nhánh (BranchTier: 1 = Tier 1, 2 = Tier 2, 3 = Tier 3). Mặc định là Tier 2 (Tiêu chuẩn).
+            entity.Property(e => e.BranchTier).HasColumnName("BranchTier").HasDefaultValue(Domain.Enums.BranchTier.Tier2);
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.BranchCode).IsUnique();

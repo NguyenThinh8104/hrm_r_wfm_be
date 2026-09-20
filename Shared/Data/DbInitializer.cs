@@ -54,6 +54,13 @@ public static class DbInitializer
                     alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `GeofenceRadiusMeters` INT NOT NULL DEFAULT 50;";
                     alterCmd.ExecuteNonQuery();
                 }
+                // Tự động kiểm tra và bổ sung cột BranchTier (mặc định = 2: Tier 2 - Tiêu chuẩn) nếu database chưa có
+                if (!branchCols.Contains("BranchTier"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `BranchTier` INT NOT NULL DEFAULT 2;";
+                    alterCmd.ExecuteNonQuery();
+                }
             }
 
             // Check kiosks table columns

@@ -35,7 +35,7 @@ public class KiosksController : ControllerBase
     /// [Operations Admin] Lấy thông tin chi tiết một trạm Kiosk theo ID.
     /// </summary>
     [HttpGet("{id}")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<KioskDto>>> GetKioskById(ulong id)
     {
         var result = await _kioskService.GetKioskByIdAsync(id);
@@ -47,7 +47,7 @@ public class KiosksController : ControllerBase
     /// [Operations Admin] Cập nhật thông tin cấu hình trạm Kiosk (DeviceName, IpWhitelist, UserAgentPattern).
     /// </summary>
     [HttpPut("{id}")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<KioskDto>>> UpdateKiosk(ulong id, [FromBody] UpdateKioskDto dto)
     {
         var result = await _kioskService.UpdateKioskAsync(id, dto);
@@ -60,7 +60,7 @@ public class KiosksController : ControllerBase
     /// </summary>
     [HttpPatch("{id}/status")]
     [HttpPut("{id}/status")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<KioskDto>>> UpdateKioskStatus(ulong id, [FromBody] UpdateKioskStatusDto dto)
     {
         var result = await _kioskService.UpdateKioskStatusAsync(id, dto);

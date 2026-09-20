@@ -113,6 +113,49 @@ public interface IShiftService
     /// <returns>ApiResponse trả về kết quả boolean xác nhận công bố thành công</returns>
     Task<ApiResponse<bool>> PublishMonthlyScheduleAsync(ulong branchId, int year, int month, ulong publishedByUserId);
 
+    // =========================================================
+    // 3b. Quản Lý Lịch Tuần & Xung Đột & Công Bố Tuần (UC 2.1 & UC 2.3)
+    // =========================================================
+
+    /// <summary>
+    /// Khởi tạo khung mẫu ca cho 7 ngày trong tuần theo định mức mặc định (UC 2.1).
+    /// </summary>
+    Task<ApiResponse<WeeklyScheduleMatrixDto>> GenerateWeeklyScheduleAsync(GenerateWeeklyScheduleDto dto, ulong createdByUserId);
+
+    /// <summary>
+    /// Lấy ma trận lịch phân bổ ca tuần (7 ngày) kèm chỉ tiêu định mức và danh sách nhân viên (UC 2.1 & UC 2.3).
+    /// </summary>
+    Task<ApiResponse<WeeklyScheduleMatrixDto>> GetWeeklyScheduleMatrixAsync(ulong branchId, DateOnly weekStartDate);
+
+    /// <summary>
+    /// Phân bổ nhanh danh sách nhân viên Full-time vào ca trực trong tuần (UC 2.1).
+    /// Tự động chặn trùng giờ/trùng ngày ở bất kỳ chi nhánh nào.
+    /// </summary>
+    Task<ApiResponse<List<ShiftAssignmentDto>>> AssignFullTimeBatchAsync(AssignFullTimeBatchDto dto);
+
+    /// <summary>
+    /// Rà soát xung đột và kiểm tra tình trạng đủ/thiếu định mức trước khi công bố lịch tuần (UC 2.3).
+    /// </summary>
+    Task<ApiResponse<ScheduleConflictCheckResultDto>> CheckWeeklyConflictsAsync(ulong branchId, DateOnly weekStartDate);
+
+    /// <summary>
+    /// Store Manager duyệt và công bố phát hành lịch tuần (UC 2.3).
+    /// Chuyển trạng thái sang PUBLISHED và CONFIRMED.
+    /// </summary>
+    Task<ApiResponse<bool>> PublishWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong publishedByUserId);
+
+    /// <summary>
+    /// Xóa/Hủy 1 phân công ca làm việc của nhân viên.
+    /// </summary>
+    Task<ApiResponse<bool>> DeleteShiftAssignmentAsync(ulong assignmentId);
+
+    /// <summary>
+    /// Tự động giải và xếp lịch ca tuần tối ưu bằng Google OR-Tools Constraint Programming Solver (UC 2.1).
+    /// </summary>
+    Task<ApiResponse<AutoScheduleResultDto>> AutoScheduleWeeklyAsync(AutoScheduleWeeklyDto dto, ulong userId);
+
+
+
     // ==========================================
     // 4. Các Phương Thức Tương Thích Hiện Có
     // ==========================================
@@ -179,4 +222,19 @@ public interface IShiftService
     /// <param name="storeId">ID cửa hàng</param>
     /// <returns>ApiResponse chứa danh sách ShiftSwapRequestDto</returns>
     Task<ApiResponse<List<ShiftSwapRequestDto>>> GetSwapRequestsByStoreAsync(int storeId);
+
+    /// <summary>
+    /// Lấy danh sách các yêu cầu đổi/chuyển ca của chính nhân viên (đã gửi hoặc được nhờ).
+    /// </summary>
+    Task<ApiResponse<List<ShiftSwapRequestDto>>> GetMySwapRequestsAsync(int employeeId);
+
+    /// <summary>
+    /// Lấy danh sách đồng nghiệp cùng chi nhánh đủ điều kiện để đổi/chuyển ca.
+    /// </summary>
+    Task<ApiResponse<List<ColleagueDto>>> GetColleaguesForSwapAsync(int currentEmployeeId, int branchId);
+
+    /// <summary>
+    /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để chọn đổi (loại bỏ các ca mà nhân viên hiện tại đã có lịch).
+    /// </summary>
+    Task<ApiResponse<List<ColleagueShiftDto>>> GetColleagueShiftsAsync(int currentEmployeeId, int colleagueEmployeeId);
 }

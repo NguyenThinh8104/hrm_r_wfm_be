@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Modules.Attendance.DTOs;
 using Modules.Attendance.Interfaces;
 using Shared.Common;
+using Shared.Common.Constants;
+using Shared.Services;
 
 namespace Modules.Attendance.Controllers;
 
@@ -14,10 +17,12 @@ namespace Modules.Attendance.Controllers;
 public class KioskAttendanceController : ControllerBase
 {
     private readonly IAttendanceService _attendanceService;
+    private readonly IS3StorageService _s3StorageService;
 
-    public KioskAttendanceController(IAttendanceService attendanceService)
+    public KioskAttendanceController(IAttendanceService attendanceService, IS3StorageService s3StorageService)
     {
         _attendanceService = attendanceService;
+        _s3StorageService = s3StorageService;
     }
 
     /// <summary>
@@ -111,6 +116,30 @@ public class KioskAttendanceController : ControllerBase
     }
 
     /// <summary>
+    /// [Quy trình V3 điểm danh thuần túy] Check-in với OTP 60s & chụp/upload ảnh S3 tự động.
+    /// </summary>
+    [HttpPost("v3/check-in")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckInV3([FromBody] KioskCheckInV3Dto request)
+    {
+        var result = await _attendanceService.CheckInV3Async(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Quy trình V3 điểm danh thuần túy] Check-out với OTP 60s & chụp/upload ảnh S3 tự động.
+    /// </summary>
+    [HttpPost("v3/check-out")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOutV3([FromBody] KioskCheckOutV3Dto request)
+    {
+        var result = await _attendanceService.CheckOutV3Async(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// [Bước 1 - Kiosk] Tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý khi điểm danh.
     /// </summary>
     /// <param name="storeId">Mã ID cửa hàng</param>
@@ -124,6 +153,62 @@ public class KioskAttendanceController : ControllerBase
     {
         var result = await _attendanceService.SearchStoreEmployeesAsync(storeId, query);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// [API 1 - Storage S3] Tải tệp tin ảnh chân dung từ Kiosk lên S3 theo dạng multipart/form-data và trả về chuỗi photoKey.
+    /// Hỗ trợ phân tách thư mục theo ca: attendance/checkin hoặc attendance/checkout.
+    /// </summary>
+    /// <param name="file">Tệp tin hình ảnh tải lên từ Kiosk dạng multipart/form-data</param>
+    /// <param name="folder">Tên thư mục lưu trữ (mặc định là attendance/checkin)</param>
+    /// <returns>ApiResponse chứa thông tin PhotoKey và PresignedUrl sinh tự động</returns>
+    [HttpPost("upload-photo")]
+    [Consumes("multipart/form-data")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<UploadPhotoResponseDto>>> UploadPhoto([FromForm] UploadPhotoRequestDto request)
+    {
+        if (request?.File == null || request.File.Length == 0)
+        {
+            return BadRequest(ApiResponse<UploadPhotoResponseDto>.Fail(AttendanceMessages.UploadPhotoFailed));
+        }
+
+        var folderName = string.IsNullOrWhiteSpace(request.Folder) ? "attendance/checkin" : request.Folder.Trim();
+        var photoKey = await _s3StorageService.UploadFileAsync(request.File, folderName);
+        var presignedUrl = _s3StorageService.GetPresignedUrl(photoKey);
+
+        return Ok(ApiResponse<UploadPhotoResponseDto>.Ok(new UploadPhotoResponseDto
+        {
+            PhotoKey = photoKey,
+            PresignedUrl = presignedUrl
+        }, AttendanceMessages.UploadPhotoSuccess));
+    }
+
+    /// <summary>
+    /// [API 2 - Storage S3] Nhận mã photoKey từ cơ sở dữ liệu và sinh liên kết đường dẫn tạm thời (Presigned URL) có thời hạn để xem ảnh.
+    /// </summary>
+    /// <param name="key">Mã định danh đối tượng S3 (PhotoKey lưu trong DB)</param>
+    /// <param name="expirationMinutes">Thời gian tồn tại của đường dẫn tạm thời tính bằng phút (mặc định 30 phút)</param>
+    /// <returns>ApiResponse chứa đường dẫn Presigned URL có chữ ký bảo mật</returns>
+    [HttpGet("presigned-url")]
+    [AllowAnonymous]
+    public ActionResult<ApiResponse<PresignedUrlResponseDto>> GetPresignedUrl(
+        [FromQuery] string key,
+        [FromQuery] int expirationMinutes = 30)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return BadRequest(ApiResponse<PresignedUrlResponseDto>.Fail(AttendanceMessages.InvalidS3Key));
+        }
+
+        var presignedUrl = _s3StorageService.GetPresignedUrl(key.Trim(), expirationMinutes);
+        var expiresAt = DateTime.UtcNow.AddMinutes(expirationMinutes);
+
+        return Ok(ApiResponse<PresignedUrlResponseDto>.Ok(new PresignedUrlResponseDto
+        {
+            PhotoKey = key.Trim(),
+            PresignedUrl = presignedUrl,
+            ExpiresAt = expiresAt
+        }, AttendanceMessages.GetPresignedUrlSuccess));
     }
 }
 

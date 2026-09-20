@@ -28,7 +28,7 @@ public class BranchesController : ControllerBase
     /// <param name="search">Tìm kiếm theo mã chi nhánh, tên hoặc địa chỉ.</param>
     /// <param name="tier">Lọc theo phân cấp chi nhánh (1 = Tier 1: Lớn, 2 = Tier 2: Tiêu chuẩn, 3 = Tier 3: Nhỏ).</param>
     [HttpGet]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<List<BranchDto>>>> GetAllBranches(
         [FromQuery] string? status = null, 
         [FromQuery] string? search = null,
@@ -55,7 +55,7 @@ public class BranchesController : ControllerBase
     /// [Operations Admin] Lấy thông tin chi tiết của một chi nhánh theo ID.
     /// </summary>
     [HttpGet("{id}")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<BranchDto>>> GetBranchById(ulong id)
     {
         var result = await _branchService.GetBranchByIdAsync(id);
@@ -121,5 +121,28 @@ public class BranchesController : ControllerBase
         var result = await _branchService.DeleteBranchAsync(id);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// [Operations Admin] Lấy danh sách toàn bộ các trạm Kiosk thuộc một chi nhánh.
+    /// </summary>
+    [HttpGet("{id}/kiosks")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
+    public async Task<ActionResult<ApiResponse<List<KioskDto>>>> GetBranchKiosks(ulong id)
+    {
+        var result = await _branchService.GetBranchKiosksAsync(id);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Operations Admin] Thêm mới một trạm Kiosk tại chi nhánh cửa hàng (Tự sinh kiosk_token và kiosk_code).
+    /// </summary>
+    [HttpPost("{id}/kiosks")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
+    public async Task<ActionResult<ApiResponse<KioskDto>>> CreateBranchKiosk(ulong id, [FromBody] CreateKioskDto dto)
+    {
+        var result = await _branchService.CreateBranchKioskAsync(id, dto);
+        if (!result.Success) return BadRequest(result);
+        return StatusCode(201, result);
     }
 }

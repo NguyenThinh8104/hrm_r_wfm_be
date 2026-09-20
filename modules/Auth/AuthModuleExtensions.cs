@@ -9,6 +9,7 @@ public static class AuthModuleExtensions
     public static IServiceCollection AddAuthModule(this IServiceCollection services)
     {
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IUserService, UserService>();
         return services;
     }
 }

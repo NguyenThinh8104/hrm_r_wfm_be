@@ -20,7 +20,6 @@ public class BranchDto
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public int GeofenceRadiusMeters { get; set; } = 50;
-
     /// <summary>
     /// Phân cấp chi nhánh (1 = Tier1: Cấp 1 - Lớn, 2 = Tier2: Cấp 2 - Tiêu chuẩn, 3 = Tier3: Cấp 3 - Nhỏ).
     /// </summary>
@@ -36,7 +35,6 @@ public class BranchDto
         BranchTier.Tier3 => "Cấp 3 - Nhỏ",
         _ => "Không xác định"
     };
-
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
@@ -77,14 +75,12 @@ public class CreateBranchDto
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public int? GeofenceRadiusMeters { get; set; }
-
     /// <summary>
     /// Phân cấp chi nhánh (Bắt buộc): 1 = Tier 1 (Cấp 1 - Lớn), 2 = Tier 2 (Cấp 2 - Tiêu chuẩn), 3 = Tier 3 (Cấp 3 - Nhỏ).
     /// </summary>
     [Required(ErrorMessage = "Phân cấp chi nhánh (BranchTier) là bắt buộc.")]
     [EnumDataType(typeof(BranchTier), ErrorMessage = "Phân cấp chi nhánh không hợp lệ. Chỉ chấp nhận 1 (Tier1), 2 (Tier2), 3 (Tier3).")]
     public BranchTier BranchTier { get; set; } = BranchTier.Tier2;
-
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE";
@@ -94,7 +90,6 @@ public class CreateBranchDto
     public string? StoreCode { get => Code; set => Code = value ?? string.Empty; }
     public string? StoreName { get => Name; set => Name = value ?? string.Empty; }
     public string? BranchName { get => Name; set => Name = value ?? string.Empty; }
-
     /// <summary>
     /// Alias nhận diện giá trị phân cấp nếu client gửi qua trường "Tier".
     /// </summary>
@@ -117,13 +112,11 @@ public class UpdateBranchDto
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public int? GeofenceRadiusMeters { get; set; }
-
     /// <summary>
     /// Phân cấp chi nhánh mới (Tùy chọn): 1 = Tier 1 (Lớn), 2 = Tier 2 (Tiêu chuẩn), 3 = Tier 3 (Nhỏ).
     /// </summary>
     [EnumDataType(typeof(BranchTier), ErrorMessage = "Phân cấp chi nhánh không hợp lệ. Chỉ chấp nhận 1 (Tier1), 2 (Tier2), 3 (Tier3).")]
     public BranchTier? BranchTier { get; set; }
-
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
 

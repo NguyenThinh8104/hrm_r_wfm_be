@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Domain.Entities;
 
 public class AttendanceLog
@@ -11,6 +13,12 @@ public class AttendanceLog
     public KioskDevice? Kiosk { get; set; }
     public DateTime CheckInTime { get; set; }
     public DateTime? CheckOutTime { get; set; }
+    public string? CheckInPhotoKey { get; set; }
+    public string? CheckOutPhotoKey { get; set; }
+    
+    [NotMapped]
+    public double? ActualWorkMinutes => CheckOutTime.HasValue ? (CheckOutTime.Value - CheckInTime).TotalMinutes : null;
+
     public decimal? OpeningFloatCash { get; set; }
     public bool IsFraudFlagged { get; set; } = false;
     public ulong? FraudFlaggedBy { get; set; }

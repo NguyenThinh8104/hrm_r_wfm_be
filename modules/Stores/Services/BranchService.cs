@@ -252,6 +252,7 @@ public class BranchService : IBranchService, IStoreService
     public async Task<ApiResponse<bool>> DeleteBranchAsync(ulong id)
     {
         var branch = await _context.Branches
+            .Include(b => b.Kiosks)
             .Include(b => b.Users)
             .FirstOrDefaultAsync(b => b.Id == id);
 
@@ -272,11 +273,185 @@ public class BranchService : IBranchService, IStoreService
     }
 
     // ==========================================
+    // 2. Quản lý Trạm Kiosk (Kiosk Management)
+    // ==========================================
+
+    /// <summary>
+    /// Lấy danh sách toàn bộ các trạm Kiosk thuộc một chi nhánh.
+    /// </summary>
+    public async Task<ApiResponse<List<KioskDto>>> GetBranchKiosksAsync(ulong branchId)
+    {
+        var branch = await _context.Branches
+            .Include(b => b.Kiosks)
+            .FirstOrDefaultAsync(b => b.Id == branchId);
+
+        if (branch == null)
+        {
+            return ApiResponse<List<KioskDto>>.Fail("Không tìm thấy chi nhánh cửa hàng.");
+        }
+
+        var kiosks = branch.Kiosks
+            .OrderBy(k => k.KioskCode)
+            .Select(k => MapToKioskDto(k, branch))
+            .ToList();
+
+        return ApiResponse<List<KioskDto>>.Ok(kiosks, "Lấy danh sách Kiosk của chi nhánh thành công.");
+    }
+
+    /// <summary>
+    /// Tạo mới một trạm Kiosk cho chi nhánh (Operations Admin / Store Manager).
+    /// Tự động sinh kiosk_token và kiosk_code nếu không truyền.
+    /// </summary>
+    public async Task<ApiResponse<KioskDto>> CreateBranchKioskAsync(ulong branchId, CreateKioskDto dto)
+    {
+        var branch = await _context.Branches
+            .Include(b => b.Kiosks)
+            .FirstOrDefaultAsync(b => b.Id == branchId);
+
+        if (branch == null)
+        {
+            return ApiResponse<KioskDto>.Fail("Không tìm thấy chi nhánh cửa hàng để tạo Kiosk.");
+        }
+
+        var deviceName = string.IsNullOrWhiteSpace(dto.DeviceName) 
+            ? $"Máy Kiosk {branch.Code} 0{branch.Kiosks.Count + 1}" 
+            : dto.DeviceName.Trim();
+
+        // Tự sinh KioskCode dạng CH01-POS01
+        var kioskIndex = branch.Kiosks.Count + 1;
+        var kioskCode = $"{branch.Code}-POS{kioskIndex:D2}";
+        while (await _context.KioskDevices.AnyAsync(k => k.KioskCode == kioskCode))
+        {
+            kioskIndex++;
+            kioskCode = $"{branch.Code}-POS{kioskIndex:D2}";
+        }
+
+        // Tự động sinh kiosk_token bảo mật nếu không truyền
+        var kioskToken = string.IsNullOrWhiteSpace(dto.KioskToken)
+            ? $"ksk_tok_{Guid.NewGuid():N}"
+            : dto.KioskToken.Trim();
+
+        var now = DateTime.UtcNow;
+        var kiosk = new KioskDevice
+        {
+            BranchId = branchId,
+            KioskCode = kioskCode,
+            DeviceName = deviceName,
+            KioskToken = kioskToken,
+            IpWhitelist = string.IsNullOrWhiteSpace(dto.IpWhitelist) ? null : dto.IpWhitelist.Trim(),
+            UserAgentPattern = string.IsNullOrWhiteSpace(dto.UserAgentPattern) ? null : dto.UserAgentPattern.Trim(),
+            Status = "ACTIVE",
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        _context.KioskDevices.Add(kiosk);
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<KioskDto>.Ok(MapToKioskDto(kiosk, branch), "Tạo mới trạm Kiosk thành công.");
+    }
+
+    /// <summary>
+    /// Cập nhật thông tin và cấu hình trạm Kiosk (DeviceName, IpWhitelist, UserAgentPattern).
+    /// </summary>
+    public async Task<ApiResponse<KioskDto>> UpdateKioskAsync(ulong kioskId, UpdateKioskDto dto)
+    {
+        var kiosk = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .FirstOrDefaultAsync(k => k.Id == kioskId);
+
+        if (kiosk == null)
+        {
+            return ApiResponse<KioskDto>.Fail("Không tìm thấy trạm Kiosk cần cập nhật.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.DeviceName))
+        {
+            kiosk.DeviceName = dto.DeviceName.Trim();
+        }
+
+        kiosk.IpWhitelist = string.IsNullOrWhiteSpace(dto.IpWhitelist) ? null : dto.IpWhitelist.Trim();
+        kiosk.UserAgentPattern = string.IsNullOrWhiteSpace(dto.UserAgentPattern) ? null : dto.UserAgentPattern.Trim();
+        kiosk.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<KioskDto>.Ok(MapToKioskDto(kiosk, kiosk.Branch), "Cập nhật cấu hình Kiosk thành công.");
+    }
+
+    /// <summary>
+    /// Cập nhật trạng thái trạm Kiosk (ACTIVE / BLOCKED / INACTIVE).
+    /// </summary>
+    public async Task<ApiResponse<KioskDto>> UpdateKioskStatusAsync(ulong kioskId, UpdateKioskStatusDto dto)
+    {
+        var kiosk = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .FirstOrDefaultAsync(k => k.Id == kioskId);
+
+        if (kiosk == null)
+        {
+            return ApiResponse<KioskDto>.Fail("Không tìm thấy trạm Kiosk.");
+        }
+
+        var normalizedStatus = (dto.Status ?? string.Empty).Trim().ToUpper();
+        if (normalizedStatus != "ACTIVE" && normalizedStatus != "BLOCKED" && normalizedStatus != "INACTIVE" && normalizedStatus != "LOCKED")
+        {
+            return ApiResponse<KioskDto>.Fail("Trạng thái không hợp lệ. Chỉ chấp nhận 'ACTIVE', 'BLOCKED' hoặc 'INACTIVE'.");
+        }
+
+        if (normalizedStatus == "LOCKED") normalizedStatus = "BLOCKED";
+
+        kiosk.Status = normalizedStatus;
+        kiosk.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        var message = normalizedStatus == "BLOCKED" || normalizedStatus == "INACTIVE"
+            ? "Đã khóa trạm Kiosk. Trạm sẽ bị từ chối chấm công ngay lập tức."
+            : "Đã mở khóa hoạt động cho trạm Kiosk.";
+
+        return ApiResponse<KioskDto>.Ok(MapToKioskDto(kiosk, kiosk.Branch), message);
+    }
+
+    /// <summary>
+    /// Lấy danh sách tất cả các trạm Kiosk toàn hệ thống (Operations Admin).
+    /// </summary>
+    public async Task<ApiResponse<List<KioskDto>>> GetAllKiosksAsync()
+    {
+        var kiosks = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .OrderBy(k => k.Branch.BranchCode)
+            .ThenBy(k => k.KioskCode)
+            .Select(k => MapToKioskDto(k, k.Branch))
+            .ToListAsync();
+
+        return ApiResponse<List<KioskDto>>.Ok(kiosks, "Lấy danh sách Kiosk toàn chuỗi thành công.");
+    }
+
+    /// <summary>
+    /// Lấy thông tin chi tiết một trạm Kiosk theo ID.
+    /// </summary>
+    public async Task<ApiResponse<KioskDto>> GetKioskByIdAsync(ulong kioskId)
+    {
+        var kiosk = await _context.KioskDevices
+            .Include(k => k.Branch)
+            .FirstOrDefaultAsync(k => k.Id == kioskId);
+
+        if (kiosk == null)
+        {
+            return ApiResponse<KioskDto>.Fail("Không tìm thấy trạm Kiosk.");
+        }
+
+        return ApiResponse<KioskDto>.Ok(MapToKioskDto(kiosk, kiosk.Branch), "Lấy thông tin Kiosk thành công.");
+    }
+
+    // ==========================================
     // Mapping Helpers
     // ==========================================
 
     private static BranchDto MapToBranchDto(Branch b)
     {
+        var kiosks = b.Kiosks ?? new List<KioskDevice>();
         return new BranchDto
         {
             Id = b.Id,
@@ -292,9 +467,29 @@ public class BranchService : IBranchService, IStoreService
             Status = b.Status,
             CreatedAt = b.CreatedAt,
             UpdatedAt = b.UpdatedAt,
-            TotalKiosks = 0,
-            ActiveKiosks = 0,
-            Kiosks = new()
+            TotalKiosks = kiosks.Count,
+            ActiveKiosks = kiosks.Count(k => k.Status == "ACTIVE"),
+            Kiosks = kiosks.Select(k => MapToKioskDto(k, b)).ToList()
+        };
+    }
+
+    private static KioskDto MapToKioskDto(KioskDevice k, Branch b)
+    {
+        return new KioskDto
+        {
+            Id = k.Id,
+            BranchId = k.BranchId,
+            BranchCode = b?.Code ?? string.Empty,
+            BranchName = b?.Name ?? string.Empty,
+            DeviceName = k.DeviceName,
+            KioskCode = k.KioskCode,
+            IpWhitelist = k.IpWhitelist,
+            KioskToken = k.KioskToken,
+            UserAgentPattern = k.UserAgentPattern,
+            Status = k.Status,
+            LastPingAt = k.LastPingAt,
+            CreatedAt = k.CreatedAt,
+            UpdatedAt = k.UpdatedAt
         };
     }
 }

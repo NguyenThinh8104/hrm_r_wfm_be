@@ -104,7 +104,6 @@ namespace Shared.Migrations
                         .HasColumnType("int")
                         .HasDefaultValue(2)
                         .HasColumnName("BranchTier");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 

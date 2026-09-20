@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Modules.Auth.DTOs;
 using Modules.Auth.Interfaces;
 using Shared.Common;
+using Shared.Common.Constants;
 
 namespace Modules.Auth.Controllers;
 
@@ -43,7 +44,7 @@ public class AuthController : ControllerBase
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (!int.TryParse(userIdClaim, out var userId))
         {
-            return Unauthorized(ApiResponse<UserSummaryDto>.Fail("Không xác định được danh tính người dùng."));
+            return Unauthorized(ApiResponse<UserSummaryDto>.Fail(AuthMessages.USER_IDENTITY_NOT_FOUND));
         }
 
         var result = await _authService.GetCurrentUserAsync(userId);
@@ -51,6 +52,48 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
-}
+    [HttpGet("store-employees/{storeId}")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<UserSummaryDto>>>> GetStoreEmployees(int storeId)
+    {
+        var result = await _authService.GetStoreEmployeesAsync(storeId);
+        return Ok(result);
+    }
 
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> ForgotPassword([FromBody] ForgotPasswordRequestDto request)
+    {
+        var result = await _authService.ForgotPasswordAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPost("verify-otp")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> VerifyOtp([FromBody] VerifyOtpRequestDto request)
+    {
+        var result = await _authService.VerifyOtpAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> ResetPassword([FromBody] ResetPasswordRequestDto request)
+    {
+        var result = await _authService.ResetPasswordAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPost("google-login")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> GoogleLogin([FromBody] GoogleLoginDTOs request)
+    {
+        var result = await _authService.GoogleLoginAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+}
 

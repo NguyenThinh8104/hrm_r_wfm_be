@@ -76,6 +76,37 @@ public interface IAttendanceService
     /// <param name="query">Từ khóa tìm kiếm theo Mã NV hoặc Tên</param>
     /// <returns>ApiResponse chứa danh sách nhân viên thỏa điều kiện</returns>
     Task<ApiResponse<List<KioskEmployeeSearchDto>>> SearchStoreEmployeesAsync(int storeId, string? query = null);
+
+    /// <summary>
+    /// Lấy quân số theo dõi trực tiếp thời gian thực tại cửa hàng kèm Presigned Temporary URL ảnh S3.
+    /// </summary>
+    Task<ApiResponse<List<LiveRosterDto>>> GetLiveRosterAsync(ulong storeId, DateOnly? date = null);
+
+    /// <summary>
+    /// Store Manager phân xử khiếu nại (Duyệt khôi phục giờ công hoặc Bác bỏ).
+    /// </summary>
+    Task<ApiResponse<bool>> ResolveFraudAsync(ResolveFraudDto request);
+
+    /// <summary>
+    /// Điểm danh Check-in V3 trên Kiosk: Xác thực Kiosk Token, mã OTP 60s và chụp/upload ảnh S3.
+    /// </summary>
+    Task<ApiResponse<AttendanceRecordDto>> CheckInV3Async(KioskCheckInV3Dto request);
+
+    /// <summary>
+    /// Điểm danh Check-out V3 trên Kiosk: Xác thực Kiosk Token, mã OTP 60s, chụp/upload ảnh S3 và tính giờ công.
+    /// </summary>
+    Task<ApiResponse<AttendanceRecordDto>> CheckOutV3Async(KioskCheckOutV3Dto request);
+
+    /// <summary>
+    /// Lấy lịch làm việc cá nhân theo tuần (Calendar View)
+    /// </summary>
+    Task<ApiResponse<MyWeeklyScheduleDto>> GetMyWeeklyScheduleAsync(ulong userId, DateOnly weekStart);
+
+    /// <summary>
+    /// Lấy lịch sử chấm công cá nhân theo tháng
+    /// </summary>
+    Task<ApiResponse<MyAttendanceHistoryDto>> GetMyAttendanceHistoryAsync(ulong userId, int month, int year);
 }
+
 
 

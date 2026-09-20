@@ -453,7 +453,7 @@ public class BranchService : IBranchService, IStoreService
             Status = k.Status,
             LastPingAt = k.LastPingAt,
             CreatedAt = k.CreatedAt,
-            UpdatedAt = k.UpdatedAt ?? k.CreatedAt
+            UpdatedAt = k.UpdatedAt
         };
     }
 }

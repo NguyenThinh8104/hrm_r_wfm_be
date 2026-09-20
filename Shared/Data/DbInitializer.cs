@@ -194,8 +194,7 @@ public static class DbInitializer
                     Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy",
                     Address = "123 Cầu Giấy, Q. Cầu Giấy, Hà Nội",
                     Status = "ACTIVE",
-                    Latitude = 21.0333,
-                    Longitude = 105.7833,
+                    Location = new NetTopologySuite.Geometries.Point(105.52534976666665, 21.0138981) { SRID = 4326 },
                     GeofenceRadiusMeters = 50,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
@@ -221,7 +220,7 @@ public static class DbInitializer
                     Address = "78 Hàng Bài, Q. Hoàn Kiếm, Hà Nội",
                     Status = "ACTIVE",
                     Location = new NetTopologySuite.Geometries.Point(105.8525, 21.0245) { SRID = 4326 },
-                    GeofenceRadiusMeters = 200,
+                    GeofenceRadiusMeters = 50,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 }
@@ -231,29 +230,17 @@ public static class DbInitializer
         }
         else
         {
-            // Reset mutated branch coordinates in DB to static real store coordinates
             var existingBranches = context.Branches.ToList();
-            foreach (var b in existingBranches)
+
+            // Sync Cầu Giấy (CH01) location to current test coordinates & 50m geofence
+            var ch01 = existingBranches.FirstOrDefault(b => b.Id == 1 || b.BranchCode == "CH01");
+            if (ch01 != null)
             {
-                b.GeofenceRadiusMeters = 200;
-                if (b.Id == 1 || b.BranchCode == "CH01")
-                {
-                    b.Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy";
-                    b.Location = new NetTopologySuite.Geometries.Point(105.7833, 21.0333) { SRID = 4326 };
-                }
-                else if (b.Id == 2 || b.BranchCode == "CH02")
-                {
-                    b.Name = "Cửa hàng Tiện lợi Chi nhánh Lê Văn Việt";
-                    b.Location = new NetTopologySuite.Geometries.Point(106.7925, 10.8456) { SRID = 4326 };
-                }
-                else if (b.Id == 3 || b.BranchCode == "CH03")
-                {
-                    b.Name = "Cửa hàng Tiện lợi Chi nhánh Hoàn Kiếm";
-                    b.Location = new NetTopologySuite.Geometries.Point(105.8525, 21.0245) { SRID = 4326 };
-                }
+                ch01.Location = new NetTopologySuite.Geometries.Point(105.52534976666665, 21.0138981) { SRID = 4326 };
+                ch01.GeofenceRadiusMeters = 50;
             }
 
-            // Ensure CH03 exists
+            // Ensure CH03 exists if not present
             if (!existingBranches.Any(b => b.BranchCode == "CH03" || b.Id == 3))
             {
                 context.Branches.Add(new Branch
@@ -264,7 +251,7 @@ public static class DbInitializer
                     Address = "78 Hàng Bài, Q. Hoàn Kiếm, Hà Nội",
                     Status = "ACTIVE",
                     Location = new NetTopologySuite.Geometries.Point(105.8525, 21.0245) { SRID = 4326 },
-                    GeofenceRadiusMeters = 200,
+                    GeofenceRadiusMeters = 50000,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 });

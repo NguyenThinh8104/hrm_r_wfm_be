@@ -95,6 +95,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IpAddress).HasColumnName("IpAddress");
             entity.Property(e => e.LastPingAt).HasColumnName("LastPingAt");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
+            entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.KioskCode).IsUnique();
             entity.HasIndex(e => e.DeviceToken).IsUnique();
             entity.Ignore(e => e.DeviceName);
@@ -104,7 +105,6 @@ public partial class AppDbContext : DbContext
             entity.Ignore(e => e.AllowedBrowser);
             entity.Ignore(e => e.UserAgentPattern);
             entity.Ignore(e => e.LastBrowserUserAgent);
-            entity.Ignore(e => e.UpdatedAt);
 
             entity.HasOne(e => e.Branch)
                 .WithMany(b => b.Kiosks)
@@ -143,9 +143,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsOvernight).HasColumnName("IsOvernight");
             entity.Property(e => e.BreakDurationMinutes).HasColumnName("BreakDurationMinutes");
             entity.Property(e => e.IsActive).HasColumnName("IsActive");
+            entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
+            entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.Ignore(e => e.Description);
-            entity.Ignore(e => e.CreatedAt);
-            entity.Ignore(e => e.UpdatedAt);
             entity.Ignore(e => e.Status);
         });
 

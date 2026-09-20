@@ -1,16 +1,62 @@
+using System.ComponentModel.DataAnnotations.Schema;
+using NetTopologySuite.Geometries;
+
 namespace Domain.Entities;
 
 public class Branch
 {
     public ulong Id { get; set; }
-    public string Code { get; set; } = string.Empty;
-    public string BranchCode { get => Code; set => Code = value; }
+
+    [Column("BranchCode")]
+    public string BranchCode { get; set; } = string.Empty;
+
+    [NotMapped]
+    public string Code { get => BranchCode; set => BranchCode = value; }
+
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string? Phone { get; set; }
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" or "INACTIVE"
+    
+    /// <summary>
+    /// Phân cấp quy mô chi nhánh (Tier 1: Lớn, Tier 2: Tiêu chuẩn, Tier 3: Nhỏ). Mặc định là Tier 2 (Tiêu chuẩn).
+    /// </summary>
+    public Domain.Enums.BranchTier BranchTier { get; set; } = Domain.Enums.BranchTier.Tier2;
+    
+    [Column("Location", TypeName = "POINT")]
+    public Point? Location { get; set; }
+
+    [NotMapped]
+    public double? Latitude
+    {
+        get => Location?.Y;
+        set
+        {
+            if (value.HasValue)
+            {
+                double lng = Location?.X ?? 105.7833;
+                Location = new Point(lng, value.Value) { SRID = 4326 };
+            }
+        }
+    }
+
+    [NotMapped]
+    public double? Longitude
+    {
+        get => Location?.X;
+        set
+        {
+            if (value.HasValue)
+            {
+                double lat = Location?.Y ?? 21.0333;
+                Location = new Point(value.Value, lat) { SRID = 4326 };
+            }
+        }
+    }
+
+    public int GeofenceRadiusMeters { get; set; } = 50;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

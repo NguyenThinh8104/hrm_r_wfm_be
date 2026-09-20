@@ -1,4 +1,5 @@
 using Domain.Entities;
+using Microsoft.EntityFrameworkCore;
 using Shared.Security;
 
 namespace Shared.Data;
@@ -15,6 +16,164 @@ public static class DbInitializer
 
         // Đảm bảo DB được tạo nếu chưa tồn tại (giữ nguyên dữ liệu nếu DB đã có)
         context.Database.EnsureCreated();
+
+        // 0. Ensure Missing Spatial / Geofence Columns in MySQL cleanly without throwing DbCommand ERR
+        try
+        {
+            var connection = context.Database.GetDbConnection();
+            if (connection.State != System.Data.ConnectionState.Open)
+            {
+                connection.Open();
+            }
+
+            // Check branches table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'branches';";
+                
+                var branchCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        branchCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!branchCols.Contains("Location"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `Location` POINT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                if (!branchCols.Contains("GeofenceRadiusMeters"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `GeofenceRadiusMeters` INT NOT NULL DEFAULT 50;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                // Tự động kiểm tra và bổ sung cột BranchTier (mặc định = 2: Tier 2 - Tiêu chuẩn) nếu database chưa có
+                if (!branchCols.Contains("BranchTier"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `BranchTier` INT NOT NULL DEFAULT 2;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
+            // Check kiosks table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'kiosks';";
+                
+                var kioskCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        kioskCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!kioskCols.Contains("IpAddress"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `kiosks` ADD COLUMN `IpAddress` LONGTEXT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
+            // Check shift_swap_requests table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT TABLE_NAME, COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('shift_swap_requests', 'ShiftSwapRequests');";
+                
+                var swapCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                string tableName = "shift_swap_requests";
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        tableName = reader.GetString(0);
+                        swapCols.Add(reader.GetString(1));
+                    }
+                }
+
+                if (swapCols.Count > 0)
+                {
+                    if (!swapCols.Contains("TargetUserId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `TargetUserId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!swapCols.Contains("RequestType"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `RequestType` VARCHAR(50) NOT NULL DEFAULT 'SWAP';";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!swapCols.Contains("RequesterUserId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `RequesterUserId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!swapCols.Contains("ScheduleId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` ADD COLUMN `ScheduleId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    try
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `TargetAssignmentId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE `{tableName}` MODIFY COLUMN `RequestingAssignmentId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        using var syncCmd = connection.CreateCommand();
+                        syncCmd.CommandText = $@"
+                            UPDATE `{tableName}` s 
+                            JOIN `shift_assignments` sa ON s.RequestingAssignmentId = sa.Id 
+                            SET s.RequesterUserId = sa.UserId, s.ScheduleId = sa.ScheduleId 
+                            WHERE s.RequesterUserId IS NULL;";
+                        syncCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch
+        {
+            // Silent fallback
+        }
 
         // 1. Seed Roles
         if (!context.Roles.Any())

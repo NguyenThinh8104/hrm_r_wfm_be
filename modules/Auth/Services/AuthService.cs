@@ -278,35 +278,78 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
             return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ID_TOKEN_REQUIRED);
         }
 
-        GoogleJsonWebSignature.Payload payload;
-        try
+        string? email = null;
+        bool emailVerified = false;
+        var tokenStr = request.IdToken.Trim();
+
+        // 1. Thử xác thực nếu là JWT ID Token (3 phần phân tách bởi dấu '.')
+        if (tokenStr.Count(c => c == '.') == 2)
         {
-            var clientId = _config["Google:ClientId"];
-            var settings = new GoogleJsonWebSignature.ValidationSettings();
-            if (!string.IsNullOrEmpty(clientId))
+            try
             {
-                settings.Audience = new[] { clientId };
+                var clientId = _config["Google:ClientId"];
+                var settings = new GoogleJsonWebSignature.ValidationSettings();
+                if (!string.IsNullOrEmpty(clientId))
+                {
+                    settings.Audience = new[] { clientId };
+                }
+
+                var payload = await GoogleJsonWebSignature.ValidateAsync(tokenStr, settings);
+                if (payload != null && !string.IsNullOrWhiteSpace(payload.Email))
+                {
+                    email = payload.Email;
+                    emailVerified = payload.EmailVerified;
+                }
             }
-
-            payload = await GoogleJsonWebSignature.ValidateAsync(request.IdToken, settings);
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Xác thực qua JWT ID Token không thành công, thử qua Google UserInfo endpoint: {Message}", ex.Message);
+            }
         }
-        catch (Exception ex)
+
+        // 2. Nếu không phải JWT hoặc giải mã JWT thất bại, gọi Google UserInfo API với access_token
+        if (string.IsNullOrWhiteSpace(email))
         {
-            _logger.LogWarning("Xác thực Google ID Token thất bại: {Message}", ex.Message);
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tokenStr);
+                var response = await httpClient.GetAsync("https://www.googleapis.com/oauth2/v3/userinfo");
+                if (response.IsSuccessStatusCode)
+                {
+                    var content = await response.Content.ReadAsStringAsync();
+                    using var doc = System.Text.Json.JsonDocument.Parse(content);
+                    if (doc.RootElement.TryGetProperty("email", out var emailProp))
+                    {
+                        email = emailProp.GetString();
+                    }
+                    if (doc.RootElement.TryGetProperty("email_verified", out var evProp))
+                    {
+                        emailVerified = evProp.GetBoolean();
+                    }
+                    else
+                    {
+                        emailVerified = true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi gọi Google UserInfo API với access_token");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
             return ApiResponse<AuthResponseDto>.Fail(AuthMessages.GOOGLE_TOKEN_INVALID);
         }
 
-        if (payload == null || string.IsNullOrWhiteSpace(payload.Email))
-        {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.GOOGLE_TOKEN_INVALID);
-        }
-
-        if (!payload.EmailVerified)
+        if (!emailVerified)
         {
             return ApiResponse<AuthResponseDto>.Fail(AuthMessages.GOOGLE_EMAIL_UNVERIFIED);
         }
 
-        var normalizedEmail = payload.Email.Trim().ToLowerInvariant();
+        var normalizedEmail = email.Trim().ToLowerInvariant();
         var user = await _context.Users
             .Include(u => u.Role)
             .Include(u => u.HomeBranch)
@@ -314,7 +357,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (user == null)
         {
-            return ApiResponse<AuthResponseDto>.Fail(string.Format(AuthMessages.GOOGLE_ACCOUNT_NOT_FOUND, payload.Email));
+            return ApiResponse<AuthResponseDto>.Fail(string.Format(AuthMessages.GOOGLE_ACCOUNT_NOT_FOUND, email));
         }
 
         if (user.Status != "ACTIVE")
@@ -334,4 +377,167 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
             User = summary
         }, AuthMessages.GOOGLE_LOGIN_SUCCESS);
     }
+
+    public async Task<ApiResponse<bool>> ChangePasswordAsync(int userId, ChangePasswordDto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.CurrentPassword) || string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            return ApiResponse<bool>.Fail("Vui lòng nhập đầy đủ mật khẩu hiện tại và mật khẩu mới.");
+        }
+
+        if (request.NewPassword.Length < 6)
+        {
+            return ApiResponse<bool>.Fail("Mật khẩu mới phải có ít nhất 6 ký tự.");
+        }
+
+        if (request.NewPassword != request.ConfirmPassword)
+        {
+            return ApiResponse<bool>.Fail("Mật khẩu xác nhận không trùng khớp.");
+        }
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == (ulong)userId);
+        if (user == null)
+        {
+            return ApiResponse<bool>.Fail("Không tìm thấy thông tin tài khoản người dùng.");
+        }
+
+        bool isCurrentValid = PasswordHasher.Verify(request.CurrentPassword, user.PasswordHash)
+                           || PasswordHasher.Verify(request.CurrentPassword.Trim(), user.PasswordHash);
+        if (!isCurrentValid)
+        {
+            return ApiResponse<bool>.Fail("Mật khẩu hiện tại không chính xác.");
+        }
+
+        user.PasswordHash = PasswordHasher.Hash(request.NewPassword.Trim());
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Người dùng {UserId} đổi mật khẩu thành công.", userId);
+        return ApiResponse<bool>.Ok(true, "Đổi mật khẩu thành công.");
+    }
+
+    public async Task<ApiResponse<UserSummaryDto>> UpdateProfileAsync(int userId, UpdateProfileDto request)
+    {
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .FirstOrDefaultAsync(u => u.Id == (ulong)userId);
+
+        if (user == null)
+        {
+            return ApiResponse<UserSummaryDto>.Fail("Không tìm thấy thông tin tài khoản người dùng.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.FullName))
+        {
+            user.FullName = request.FullName.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Phone))
+        {
+            user.Phone = request.Phone.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Email))
+        {
+            var emailLower = request.Email.Trim().ToLowerInvariant();
+            var emailExists = await _context.Users.AnyAsync(u => u.Email.ToLower() == emailLower && u.Id != (ulong)userId);
+            if (emailExists)
+            {
+                return ApiResponse<UserSummaryDto>.Fail("Email này đã được sử dụng bởi một tài khoản khác.");
+            }
+            user.Email = emailLower;
+        }
+
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        var summary = MapUserSummary(user);
+        return ApiResponse<UserSummaryDto>.Ok(summary, "Cập nhật thông tin hồ sơ cá nhân thành công.");
+    }
+
+    public async Task<ApiResponse<List<NotificationItemDto>>> GetNotificationsAsync(int userId)
+    {
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == (ulong)userId);
+
+        if (user == null)
+        {
+            return ApiResponse<List<NotificationItemDto>>.Ok(new List<NotificationItemDto>());
+        }
+
+        var list = new List<NotificationItemDto>();
+        var roleCode = user.Role?.RoleCode ?? "";
+        var isManager = roleCode == "STORE_MANAGER" || roleCode == "OPERATIONS_ADMIN" || roleCode == "BUSINESS_OWNER";
+
+        if (isManager && user.HomeBranchId.HasValue)
+        {
+            var pendingSwaps = await _context.ShiftSwapRequests
+                .Include(s => s.RequesterUser)
+                .Include(s => s.Schedule).ThenInclude(sc => sc.ShiftTemplate)
+                .Where(s => s.Schedule != null && s.Schedule.BranchId == user.HomeBranchId.Value && s.Status == "PENDING")
+                .OrderByDescending(s => s.CreatedAt)
+                .Take(5)
+                .ToListAsync();
+
+            foreach (var ps in pendingSwaps)
+            {
+                list.Add(new NotificationItemDto
+                {
+                    Id = $"swap-{ps.Id}",
+                    Title = ps.RequestType == "LEAVE" ? "Đơn xin nghỉ ca mới" : "Đơn xin đổi ca mới",
+                    Message = $"{ps.RequesterUser?.FullName ?? "Nhân viên"} đã gửi đơn yêu cầu cho ca {ps.Schedule?.ShiftTemplate?.Name ?? "ca trực"} ({ps.Schedule?.WorkDate:dd/MM/yyyy}).",
+                    Type = "SHIFT_SWAP",
+                    CreatedAt = ps.CreatedAt,
+                    IsRead = false,
+                    Link = "/employee/shift-requests"
+                });
+            }
+        }
+        else
+        {
+            var mySwaps = await _context.ShiftSwapRequests
+                .Include(s => s.Schedule).ThenInclude(sc => sc.ShiftTemplate)
+                .Include(s => s.ReviewedByUser)
+                .Where(s => (s.RequesterUserId == user.Id || s.TargetUserId == user.Id) && s.Status != "PENDING")
+                .OrderByDescending(s => s.ReviewedAt ?? s.CreatedAt)
+                .Take(5)
+                .ToListAsync();
+
+            foreach (var ms in mySwaps)
+            {
+                var isApproved = ms.Status == "APPROVED";
+                list.Add(new NotificationItemDto
+                {
+                    Id = $"swap-{ms.Id}",
+                    Title = isApproved ? "Đơn đổi ca đã được phê duyệt" : "Đơn đổi ca bị từ chối",
+                    Message = $"Đơn xin điều chỉnh ca {ms.Schedule?.ShiftTemplate?.Name} ({ms.Schedule?.WorkDate:dd/MM/yyyy}) đã được {(isApproved ? "phê duyệt" : "từ chối")}.",
+                    Type = "SHIFT_SWAP",
+                    CreatedAt = ms.ReviewedAt ?? ms.CreatedAt,
+                    IsRead = false,
+                    Link = "/employee/shift-requests"
+                });
+            }
+        }
+
+        // Add a general welcome notification if list is empty
+        if (list.Count == 0)
+        {
+            list.Add(new NotificationItemDto
+            {
+                Id = "sys-welcome",
+                Title = "Chào mừng bạn đến với hệ thống RWFM",
+                Message = "Tất cả thông báo thay đổi lịch phân ca, đổi ca và điều động sẽ hiển thị tại đây.",
+                Type = "INFO",
+                CreatedAt = DateTime.UtcNow,
+                IsRead = false,
+                Link = "/employee/my-calendar"
+            });
+        }
+
+        list = list.OrderByDescending(n => n.CreatedAt).ToList();
+        return ApiResponse<List<NotificationItemDto>>.Ok(list);
+    }
 }
+

@@ -169,4 +169,100 @@ public class EmailService : IEmailService
             return false;
         }
     }
+
+    public async Task<bool> SendShiftChangeNotificationEmailAsync(string recipientEmail, string recipientName, string changeType, string shiftDetails, string effectiveDate, string note, string? status = null)
+    {
+        try
+        {
+            var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
+            var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
+            var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
+            var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
+            var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
+            var loginUrl = _configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/employee/my-calendar";
+
+            using var message = new MailMessage();
+            message.From = new MailAddress(senderEmail, senderName);
+            message.To.Add(new MailAddress(recipientEmail, recipientName));
+            
+            var displayStatus = status ?? "ĐÃ CẬP NHẬT";
+            message.Subject = $"[R-WFM] Thông báo thay đổi lịch làm việc: {changeType} ({displayStatus})";
+            message.IsBodyHtml = true;
+            message.Priority = MailPriority.High;
+
+            var statusColor = displayStatus.Contains("DUYỆT") || displayStatus.Contains("APPROVED") || displayStatus.Contains("THÀNH CÔNG")
+                ? "#10B981"
+                : displayStatus.Contains("TỪ CHỐI") || displayStatus.Contains("REJECTED")
+                    ? "#EF4444"
+                    : "#3B82F6";
+
+            message.Body = $@"
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
+                <div style='text-align: center; padding-bottom: 20px; border-bottom: 2px solid {statusColor};'>
+                    <h2 style='color: #0f172a; margin: 0; font-size: 22px;'>R-WFM RETAIL PLATFORM</h2>
+                    <p style='color: #64748b; font-size: 13px; margin-top: 5px;'>Hệ thống Thông báo Lịch Trình Nhân sự Tự động</p>
+                </div>
+                
+                <div style='margin-top: 24px;'>
+                    <p style='font-size: 15px; color: #1e293b;'>Xin chào <strong>{recipientName}</strong>,</p>
+                    <p style='color: #475569; line-height: 1.6;'>
+                        Hệ thống ghi nhận có cập nhật mới về lịch làm việc / yêu cầu đổi lịch của bạn:
+                    </p>
+                </div>
+
+                <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 20px 0;'>
+                    <div style='display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #cbd5e1; padding-bottom: 10px; margin-bottom: 12px;'>
+                        <span style='font-weight: bold; color: #0f172a; font-size: 15px;'>{changeType}</span>
+                        <span style='background-color: {statusColor}15; color: {statusColor}; border: 1px solid {statusColor}; padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 12px;'>
+                            {displayStatus}
+                        </span>
+                    </div>
+
+                    <table style='width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;'>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: 600; width: 35%;'>Ngày áp dụng:</td>
+                            <td style='padding: 6px 0; color: #0f172a; font-weight: bold;'>{effectiveDate}</td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: 600;'>Chi tiết ca làm việc:</td>
+                            <td style='padding: 6px 0; color: #10B981; font-weight: 600;'>{shiftDetails}</td>
+                        </tr>
+                        {(string.IsNullOrWhiteSpace(note) ? "" : $@"
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: 600;'>Ghi chú / Lý do:</td>
+                            <td style='padding: 6px 0; color: #64748b; font-style: italic;'>{note}</td>
+                        </tr>")}
+                    </table>
+                </div>
+
+                <div style='text-align: center; margin: 26px 0;'>
+                    <a href='{loginUrl}' style='background-color: #10B981; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>Xem Lịch Cá Nhân Trên Hệ Thống</a>
+                </div>
+
+                <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
+                <p style='font-size: 12px; color: #94a3b8; text-align: center; margin: 0;'>
+                    Email này được gửi tự động từ Hệ thống Quản trị R-WFM. Mọi thắc mắc vui lòng liên hệ Quản lý Cửa hàng để được hỗ trợ.
+                </p>
+            </div>";
+
+            using var client = new SmtpClient(smtpServer, smtpPort)
+            {
+                EnableSsl = enableSsl,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(senderEmail, senderPassword),
+                DeliveryMethod = SmtpDeliveryMethod.Network,
+                Timeout = 15000
+            };
+
+            await client.SendMailAsync(message);
+            _logger.LogInformation(">>> [SUCCESS] Đã gửi Email thông báo thay đổi lịch thành công tới: {Email}", recipientEmail);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, ">>> [ERROR] Lỗi khi gửi Email thông báo đổi lịch tới: {Email} | Chi tiết: {Message}", recipientEmail, ex.Message);
+            return false;
+        }
+    }
 }

@@ -95,5 +95,50 @@ public class AuthController : ControllerBase
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<bool>>> ChangePassword([FromBody] ChangePasswordDto request)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(ApiResponse<bool>.Fail(AuthMessages.USER_IDENTITY_NOT_FOUND));
+        }
+
+        var result = await _authService.ChangePasswordAsync(userId, request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPut("profile")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<UserSummaryDto>>> UpdateProfile([FromBody] UpdateProfileDto request)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(ApiResponse<UserSummaryDto>.Fail(AuthMessages.USER_IDENTITY_NOT_FOUND));
+        }
+
+        var result = await _authService.UpdateProfileAsync(userId, request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("notifications")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<List<NotificationItemDto>>>> GetNotifications()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(ApiResponse<List<NotificationItemDto>>.Fail(AuthMessages.USER_IDENTITY_NOT_FOUND));
+        }
+
+        var result = await _authService.GetNotificationsAsync(userId);
+        return Ok(result);
+    }
 }
+
 

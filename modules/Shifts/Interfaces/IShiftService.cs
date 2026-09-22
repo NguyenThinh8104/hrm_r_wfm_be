@@ -154,6 +154,21 @@ public interface IShiftService
     /// </summary>
     Task<ApiResponse<AutoScheduleResultDto>> AutoScheduleWeeklyAsync(AutoScheduleWeeklyDto dto, ulong userId);
 
+    /// <summary>
+    /// Lấy danh sách cơ sở/chi nhánh mà tài khoản được quyền lập lịch ca tuần (Branch Isolation).
+    /// </summary>
+    Task<ApiResponse<AccessibleBranchesDto>> GetAccessibleBranchesAsync(ulong userId, string role, ulong? storeId);
+
+    /// <summary>
+    /// Lấy BranchId của phân công ca trực để kiểm tra phân quyền sở hữu.
+    /// </summary>
+    Task<ulong?> GetBranchIdByAssignmentIdAsync(ulong assignmentId);
+
+    /// <summary>
+    /// Lấy BranchId của khung lịch ca để kiểm tra phân quyền sở hữu.
+    /// </summary>
+    Task<ulong?> GetBranchIdByScheduleIdAsync(ulong scheduleId);
+
 
 
     // ==========================================

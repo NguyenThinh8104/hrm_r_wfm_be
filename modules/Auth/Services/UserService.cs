@@ -17,17 +17,20 @@ public class UserService : IUserService
     private readonly AppDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IEmailService _emailService;
+    private readonly IBranchHeadcountService _headcountService;
     private readonly ILogger<UserService> _logger;
 
     public UserService(
         AppDbContext context, 
         IPasswordHasher passwordHasher,
         IEmailService emailService,
+        IBranchHeadcountService headcountService,
         ILogger<UserService> logger)
     {
         _context = context;
         _passwordHasher = passwordHasher;
         _emailService = emailService;
+        _headcountService = headcountService;
         _logger = logger;
     }
 
@@ -325,7 +328,15 @@ public class UserService : IUserService
         var normalizedPhone = dto.Phone.Trim();
         var normalizedActorRole = actorRole.ToUpper();
 
-        // 1. Kiểm tra vai trò chỉ định
+        // 1. Phân quyền RBAC nghiêm ngặt: Chỉ duy nhất OPERATIONS_ADMIN (hoặc ADMIN hệ thống) mới có quyền tạo nhân sự
+        if (normalizedActorRole != "OPERATIONS_ADMIN" && normalizedActorRole != "OPERATIONSADMIN" && normalizedActorRole != "ADMIN")
+        {
+            return ApiResponse<EmployeeDetailDto>.Fail(
+                "Chỉ duy nhất Quản trị viên vận hành (OPERATIONS_ADMIN) mới có quyền tạo mới hồ sơ nhân sự. " +
+                "Cửa hàng trưởng không được tạo nhân viên trực tiếp; vui lòng gửi file Excel đề xuất mở rộng định biên nếu chi nhánh có nhu cầu bổ sung nhân sự.");
+        }
+
+        // 2. Kiểm tra vai trò chỉ định
         var targetRole = await _context.Roles.FindAsync(dto.RoleId);
         if (targetRole == null)
             return ApiResponse<EmployeeDetailDto>.Fail("Vai trò chỉ định không hợp lệ trong hệ thống.");
@@ -337,26 +348,8 @@ public class UserService : IUserService
             return ApiResponse<EmployeeDetailDto>.Fail($"Hệ thống chỉ cho phép khai báo các vai trò nhân sự cửa hàng: STORE_MANAGER, SHIFT_LEADER, CASHIER, SALES_STAFF, SECURITY_GUARD.");
         }
 
-        // Phân quyền tạo vai trò:
-        // - Cửa hàng trưởng (STORE_MANAGER) chỉ được tạo 4 vai trò vận hành tại cửa hàng
-        if (normalizedActorRole == "STORE_MANAGER" || normalizedActorRole == "STOREMANAGER")
-        {
-            if (targetRole.RoleCode == "OPERATIONS_ADMIN" || targetRole.RoleCode == "BUSINESS_OWNER" || targetRole.RoleCode == "STORE_MANAGER")
-            {
-                return ApiResponse<EmployeeDetailDto>.Fail("Cửa hàng trưởng chỉ được tạo tài khoản nhân viên vận hành tại cửa hàng (Trưởng ca, Thu ngân, Bán hàng, Bảo vệ).");
-            }
-        }
-        // - OPERATIONS_ADMIN và BUSINESS_OWNER có toàn quyền tạo cả 5 vai trò (kể cả Cửa hàng trưởng)
-
-        // 2. Gán và kiểm tra Chi nhánh làm việc (bắt buộc cho tất cả 5 vai trò)
+        // 3. Gán và kiểm tra Chi nhánh làm việc (bắt buộc cho tất cả 5 vai trò)
         ulong branchIdToAssign = dto.HomeBranchId;
-        if (normalizedActorRole == "STORE_MANAGER" || normalizedActorRole == "STOREMANAGER")
-        {
-            if (!actorBranchId.HasValue || actorBranchId.Value == 0)
-                return ApiResponse<EmployeeDetailDto>.Fail("Tài khoản Quản lý chưa được gán chi nhánh công tác.");
-            branchIdToAssign = actorBranchId.Value; // Buộc nhân viên mới vào chi nhánh của Store Manager
-        }
-
         if (branchIdToAssign == 0)
         {
             return ApiResponse<EmployeeDetailDto>.Fail("Vui lòng chọn chi nhánh cửa hàng công tác cho nhân viên.");
@@ -368,7 +361,19 @@ public class UserService : IUserService
             return ApiResponse<EmployeeDetailDto>.Fail("Chi nhánh chỉ định không tồn tại hoặc đã ngừng hoạt động.");
         }
 
-        // 3. Kiểm tra trùng lặp danh tính (Mã NV, Email, SĐT)
+        // 4. Thẩm định định biên nhân sự theo BranchTier & trừ lùi chỉ tiêu từ đơn mở rộng nếu vượt Quota
+        var quotaResult = await _headcountService.ValidateAndConsumeQuotaAsync(
+            branchIdToAssign,
+            dto.ImportRequestId,
+            dto.ExpansionReason,
+            actorId);
+
+        if (!quotaResult.IsSuccess)
+        {
+            return ApiResponse<EmployeeDetailDto>.Fail(quotaResult.ErrorMessage ?? "Không đạt điều kiện định biên nhân sự của chi nhánh.");
+        }
+
+        // 5. Kiểm tra trùng lặp danh tính (Mã NV, Email, SĐT)
         if (await _context.Users.AnyAsync(u => u.EmployeeCode == normalizedCode))
             return ApiResponse<EmployeeDetailDto>.Fail($"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống.");
         if (await _context.Users.AnyAsync(u => u.Email.ToLower() == normalizedEmail))
@@ -396,14 +401,19 @@ public class UserService : IUserService
         _context.Users.Add(newUser);
         await _context.SaveChangesAsync();
 
-        // 4. Ghi vết kiểm toán (Audit Log)
+        // 6. Ghi vết kiểm toán (Audit Log)
         await LogAuditAsync(actorId, "CREATE_EMPLOYEE", "users", newUser.Id, null, new
         {
             newUser.EmployeeCode,
             newUser.FullName,
             Role = targetRole.RoleCode,
             Branch = branch.Name,
-            newUser.EmploymentType
+            newUser.EmploymentType,
+            IsHeadcountOverride = quotaResult.IsOverride,
+            ImportRequestId = quotaResult.ImportRequestId,
+            ExpansionReason = dto.ExpansionReason,
+            BranchQuota = quotaResult.Quota,
+            CurrentHeadcount = quotaResult.CurrentCount
         }, ipAddress);
 
         // 5. Tự động gửi Welcome Email thông báo tài khoản & mật khẩu cho nhân sự

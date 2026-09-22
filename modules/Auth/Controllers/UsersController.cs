@@ -105,10 +105,12 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// UC 1.5: Thêm mới hồ sơ nhân sự (STORE_MANAGER, SHIFT_LEADER, CASHIER, SALES_STAFF, SECURITY_GUARD)
+    /// UC 1.5: Thêm mới hồ sơ nhân sự (Chỉ dành riêng cho OPERATIONS_ADMIN, kiểm tra định biên chi nhánh Tier Quota)
+    /// Hỗ trợ cả 2 route: /api/Users/employees và /api/v1/users/employees
     /// </summary>
     [HttpPost("employees")]
-    [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER,OperationsAdmin,StoreManager,BusinessOwner,Admin,ADMIN")]
+    [HttpPost("/api/v1/users/employees")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
     public async Task<ActionResult<ApiResponse<EmployeeDetailDto>>> CreateEmployee([FromBody] CreateEmployeeDto dto)
     {
         var (actorId, role, branchId, ip) = GetCurrentUserInfo();

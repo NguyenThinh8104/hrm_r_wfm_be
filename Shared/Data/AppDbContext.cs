@@ -31,6 +31,7 @@ public partial class AppDbContext : DbContext
     public DbSet<SecurityHandover> SecurityHandovers { get; set; } = null!;
     public DbSet<MonthlyTimesheet> MonthlyTimesheets { get; set; } = null!;
     public DbSet<SystemAuditLog> SystemAuditLogs { get; set; } = null!;
+    public DbSet<HeadcountImportRequest> HeadcountImportRequests { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -408,6 +409,37 @@ public partial class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.ActorId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // 18. headcount_import_requests
+        modelBuilder.Entity<HeadcountImportRequest>(entity =>
+        {
+            entity.ToTable("headcount_import_requests");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FilePath).HasMaxLength(500);
+            entity.Property(e => e.FileName).HasMaxLength(255);
+            entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("PENDING");
+            entity.Property(e => e.Reason).HasMaxLength(1000);
+            entity.Property(e => e.AdminNotes).HasMaxLength(1000);
+
+            entity.HasIndex(e => e.BranchId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => new { e.BranchId, e.Status });
+
+            entity.HasOne(e => e.Branch)
+                .WithMany(b => b.HeadcountImportRequests)
+                .HasForeignKey(e => e.BranchId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.RequestedByUser)
+                .WithMany(u => u.HeadcountImportRequests)
+                .HasForeignKey(e => e.RequestedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ReviewedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedBy)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

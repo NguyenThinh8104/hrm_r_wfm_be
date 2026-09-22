@@ -53,6 +53,16 @@ public class CreateEmployeeDto
     public string EmploymentType { get; set; } = "FULL_TIME";
     public ulong HomeBranchId { get; set; }
     public string? Password { get; set; }
+
+    /// <summary>
+    /// ID đơn đề xuất mở rộng định biên (bắt buộc khi chi nhánh đã đạt giới hạn định biên chuẩn Tier Quota).
+    /// </summary>
+    public ulong? ImportRequestId { get; set; }
+
+    /// <summary>
+    /// Lý do mở rộng định biên (bắt buộc khi chi nhánh đã đạt giới hạn định biên chuẩn Tier Quota).
+    /// </summary>
+    public string? ExpansionReason { get; set; }
 }
 
 public class UpdateEmployeeDto

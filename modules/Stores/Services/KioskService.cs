@@ -113,7 +113,8 @@ public class KioskService : IKioskService
             Status = "ACTIVE",
             IpAddress = clientIp,
             LastPingAt = now,
-            CreatedAt = now
+            CreatedAt = now,
+            UpdatedAt = now
         };
 
         _context.KioskDevices.Add(kioskDevice);
@@ -160,6 +161,7 @@ public class KioskService : IKioskService
         }
 
         kiosk.LastPingAt = DateTime.UtcNow;
+        kiosk.UpdatedAt = DateTime.UtcNow;
         if (!string.IsNullOrEmpty(clientIp)) kiosk.IpAddress = clientIp;
         await _context.SaveChangesAsync();
 
@@ -217,6 +219,7 @@ public class KioskService : IKioskService
         }
 
         kiosk.Status = "INACTIVE";
+        kiosk.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
         return ApiResponse<bool>.Ok(true, "Đã ngắt kết nối trạm Kiosk thành công.");
@@ -236,6 +239,7 @@ public class KioskService : IKioskService
         if (kiosk != null)
         {
             kiosk.Status = "INACTIVE";
+            kiosk.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
         }
 
@@ -255,6 +259,7 @@ public class KioskService : IKioskService
 
         // Xóa mềm: Chuyển trạng thái thiết bị sang DELETED
         kiosk.Status = "DELETED";
+        kiosk.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
         return ApiResponse<bool>.Ok(true, "Đã xóa trạm Kiosk khỏi danh sách cửa hàng.");

@@ -24,18 +24,25 @@ public interface IAttendanceService
     Task<ApiResponse<List<KioskEmployeeRosterDto>>> GetKioskRosterAsync(int storeId, DateOnly date);
 
     /// <summary>
-    /// Bước 2 quy trình Kiosk: Thực hiện điểm danh đầu ca (Check-in) bằng mã PIN nhân viên.
+    /// Điểm danh Check-in tại quầy Kiosk: Xác thực Kiosk Token, mã OTP 60s, bóc tách UserId từ Redis, so khớp khung giờ ca làm việc.
     /// </summary>
-    /// <param name="request">DTO chứa EmployeeId, StoreId, PinCode, KioskId và tiền lẻ bàn giao (nếu là Thu ngân)</param>
-    /// <returns>ApiResponse chứa bản ghi điểm danh đầu ca (Check-in time, status Present/Late)</returns>
-    Task<ApiResponse<AttendanceRecordDto>> KioskCheckInAsync(KioskPinCheckInDto request);
+    /// <param name="request">DTO chứa KioskDeviceToken và OtpCode 60s</param>
+    /// <returns>ApiResponse chứa bản ghi điểm danh đầu ca (Status PENDING chờ ảnh)</returns>
+    Task<ApiResponse<AttendanceRecordDto>> CheckInAsync(KioskCheckInDto request);
 
     /// <summary>
-    /// Bước 2 quy trình Kiosk: Thực hiện điểm danh kết thúc ca (Check-out) bằng mã PIN nhân viên.
+    /// Điểm danh Check-out tại quầy Kiosk: Xác thực Kiosk Token, mã OTP 60s, bóc tách UserId từ Redis, cập nhật CheckOutTime.
     /// </summary>
-    /// <param name="request">DTO chứa EmployeeId, StoreId, PinCode và KioskId</param>
-    /// <returns>ApiResponse chứa bản ghi điểm danh cập nhật thời gian ra ca</returns>
-    Task<ApiResponse<AttendanceRecordDto>> KioskCheckOutAsync(KioskPinCheckOutDto request);
+    /// <param name="request">DTO chứa KioskDeviceToken và OtpCode 60s</param>
+    /// <returns>ApiResponse chứa bản ghi điểm danh cập nhật thời gian ra ca (Status PENDING chờ ảnh)</returns>
+    Task<ApiResponse<AttendanceRecordDto>> CheckOutAsync(KioskCheckOutDto request);
+
+    /// <summary>
+    /// Upload ảnh chấm công (bắt buộc) lên S3 và cập nhật attendance record → COMPLETED.
+    /// </summary>
+    /// <param name="request">DTO chứa KioskDeviceToken, AttendanceId, ImageBase64, PhotoType</param>
+    /// <returns>ApiResponse chứa photoKey, presignedUrl và status COMPLETED</returns>
+    Task<ApiResponse<UploadAttendancePhotoResponseDto>> UploadAttendancePhotoAsync(UploadAttendancePhotoDto request);
 
     /// <summary>
     /// Trưởng ca / Quản lý báo cáo gian lận điểm danh hoặc vắng mặt của nhân viên.
@@ -52,22 +59,6 @@ public interface IAttendanceService
     /// <param name="date">Ngày tra cứu lịch sử điểm danh</param>
     /// <returns>ApiResponse chứa danh sách bản ghi điểm danh chi tiết trong ngày</returns>
     Task<ApiResponse<List<AttendanceRecordDto>>> GetAttendanceHistoryAsync(int storeId, DateOnly date);
-
-    /// <summary>
-    /// Xử lý nghiệp vụ điểm danh đầu ca (Check-in) tại quầy Kiosk theo các bước quy chuẩn.
-    /// </summary>
-    /// <param name="userId">Mã ID nhân viên trong hệ thống (users.id)</param>
-    /// <param name="pin">Mã PIN cá nhân 6 chữ số của nhân viên</param>
-    /// <returns>ApiResponse chứa bản ghi điểm danh đầu ca (AttendanceLogDto) hoặc thông báo lỗi</returns>
-    Task<ApiResponse<AttendanceLogDto>> CheckInAsync(long userId, string pin);
-
-    /// <summary>
-    /// Xử lý nghiệp vụ điểm danh kết thúc ca (Check-out) tại quầy Kiosk theo 3 bước quy chuẩn.
-    /// </summary>
-    /// <param name="userId">Mã ID nhân viên trong hệ thống (users.id)</param>
-    /// <param name="pin">Mã PIN cá nhân 6 chữ số của nhân viên</param>
-    /// <returns>ApiResponse chứa kết quả điểm danh kết thúc ca (AttendanceCheckOutResultDto) bao gồm tổng số phút làm việc</returns>
-    Task<ApiResponse<AttendanceCheckOutResultDto>> CheckOutAsync(long userId, string pin);
 
     /// <summary>
     /// Tra cứu tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý tại trạm Kiosk.
@@ -88,16 +79,6 @@ public interface IAttendanceService
     Task<ApiResponse<bool>> ResolveFraudAsync(ResolveFraudDto request);
 
     /// <summary>
-    /// Điểm danh Check-in V3 trên Kiosk: Xác thực Kiosk Token, mã OTP 60s và chụp/upload ảnh S3.
-    /// </summary>
-    Task<ApiResponse<AttendanceRecordDto>> CheckInV3Async(KioskCheckInV3Dto request);
-
-    /// <summary>
-    /// Điểm danh Check-out V3 trên Kiosk: Xác thực Kiosk Token, mã OTP 60s, chụp/upload ảnh S3 và tính giờ công.
-    /// </summary>
-    Task<ApiResponse<AttendanceRecordDto>> CheckOutV3Async(KioskCheckOutV3Dto request);
-
-    /// <summary>
     /// Lấy lịch làm việc cá nhân theo tuần (Calendar View)
     /// </summary>
     Task<ApiResponse<MyWeeklyScheduleDto>> GetMyWeeklyScheduleAsync(ulong userId, DateOnly weekStart);
@@ -107,6 +88,3 @@ public interface IAttendanceService
     /// </summary>
     Task<ApiResponse<MyAttendanceHistoryDto>> GetMyAttendanceHistoryAsync(ulong userId, int month, int year);
 }
-
-
-

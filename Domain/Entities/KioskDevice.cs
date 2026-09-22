@@ -44,6 +44,5 @@ public class KioskDevice
     public DateTime? LastPingAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    [NotMapped]
-    public DateTime? UpdatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

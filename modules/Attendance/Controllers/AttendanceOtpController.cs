@@ -119,7 +119,7 @@ public class AttendanceOtpController : ControllerBase
         }
 
         var otpType = string.Equals(request.Type, "CHECK_OUT", StringComparison.OrdinalIgnoreCase) ? "CHECK_OUT" : "CHECK_IN";
-        var otpCode = await _redisOtpService.GenerateAndSaveOtpAsync(userId, otpType, 60);
+        var otpCode = await _redisOtpService.GenerateAttendanceOtpAsync(userId, otpType, 60);
 
         return Ok(ApiResponse<RequestAttendanceOtpResponseDto>.Ok(new RequestAttendanceOtpResponseDto
         {

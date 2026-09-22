@@ -1196,6 +1196,33 @@ public class ShiftService : IShiftService
             return ApiResponse<bool>.Fail("Không thể hủy/xóa phân công ca làm việc đã trôi qua trong quá khứ.");
         }
 
+        // Xử lý các yêu cầu đổi ca liên quan trước khi xóa phân công ca (tránh lỗi khóa ngoại)
+        var relatedSwapRequests = await _context.ShiftSwapRequests
+            .Where(r => r.RequestingAssignmentId == assignmentId || r.TargetAssignmentId == assignmentId)
+            .ToListAsync();
+
+        foreach (var req in relatedSwapRequests)
+        {
+            if (req.RequestingAssignmentId == assignmentId)
+            {
+                req.RequesterUserId ??= assignment.UserId;
+                req.ScheduleId ??= assignment.ScheduleId;
+                req.RequestingAssignmentId = null;
+                if (req.Status == "PENDING")
+                {
+                    req.Status = "CANCELLED";
+                }
+            }
+            if (req.TargetAssignmentId == assignmentId)
+            {
+                req.TargetAssignmentId = null;
+                if (req.Status == "PENDING")
+                {
+                    req.Status = "CANCELLED";
+                }
+            }
+        }
+
         _context.ShiftAssignments.Remove(assignment);
         await _context.SaveChangesAsync();
 
@@ -1286,6 +1313,26 @@ public class ShiftService : IShiftService
 
             if (oldAssignments.Any())
             {
+                var oldAssignmentIds = oldAssignments.Select(sa => sa.Id).ToList();
+                var relatedSwapRequests = await _context.ShiftSwapRequests
+                    .Where(r => (r.RequestingAssignmentId != null && oldAssignmentIds.Contains(r.RequestingAssignmentId.Value))
+                             || (r.TargetAssignmentId != null && oldAssignmentIds.Contains(r.TargetAssignmentId.Value)))
+                    .ToListAsync();
+
+                foreach (var req in relatedSwapRequests)
+                {
+                    if (req.RequestingAssignmentId.HasValue && oldAssignmentIds.Contains(req.RequestingAssignmentId.Value))
+                    {
+                        req.RequestingAssignmentId = null;
+                        if (req.Status == "PENDING") req.Status = "CANCELLED";
+                    }
+                    if (req.TargetAssignmentId.HasValue && oldAssignmentIds.Contains(req.TargetAssignmentId.Value))
+                    {
+                        req.TargetAssignmentId = null;
+                        if (req.Status == "PENDING") req.Status = "CANCELLED";
+                    }
+                }
+
                 _context.ShiftAssignments.RemoveRange(oldAssignments);
                 await _context.SaveChangesAsync();
             }
@@ -1588,9 +1635,10 @@ public class ShiftService : IShiftService
         }
 
         var today = DateOnly.FromDateTime(DateTime.Today);
-        if (requestingAssignment.Schedule.WorkDate < today)
+        var minAllowedDate = today.AddDays(1); // RÀNG BUỘC: Phải báo trước ít nhất 1 ngày (chỉ cho phép từ ngày mai trở đi)
+        if (requestingAssignment.Schedule.WorkDate < minAllowedDate)
         {
-            return ApiResponse<ShiftSwapRequestDto>.Fail("Không thể gửi đơn xin điều chỉnh/nghỉ cho ca làm việc đã trôi qua trong quá khứ.");
+            return ApiResponse<ShiftSwapRequestDto>.Fail("Đơn xin đổi/nghỉ ca phải được gửi trước ngày làm việc ít nhất 1 ngày. Không thể tạo đơn cho ca trực hôm nay hoặc trong quá khứ.");
         }
 
         // Kiểm tra xem ca này đã có đơn chờ duyệt chưa
@@ -1638,14 +1686,14 @@ public class ShiftService : IShiftService
 
             // Kiểm tra trùng ca trong cùng ngày của đồng nghiệp
             var targetHasScheduleConflict = await _context.ShiftAssignments
-                .AnyAsync(sa => sa.UserId == targetUser.Id && sa.ScheduleId == requestingAssignment.ScheduleId);
+                .AnyAsync(sa => sa.UserId == targetUser.Id && sa.ScheduleId == requestingAssignment.ScheduleId && sa.Status != "CANCELLED");
             if (targetHasScheduleConflict)
             {
                 return ApiResponse<ShiftSwapRequestDto>.Fail("Đồng nghiệp đã có phân công trong cùng khung ca trực này.");
             }
 
             var targetHasSameDayShift = await _context.ShiftAssignments
-                .AnyAsync(sa => sa.UserId == targetUser.Id && sa.Schedule.WorkDate == requestingAssignment.Schedule.WorkDate);
+                .AnyAsync(sa => sa.UserId == targetUser.Id && sa.Schedule.WorkDate == requestingAssignment.Schedule.WorkDate && sa.Status != "CANCELLED");
             if (targetHasSameDayShift)
             {
                 return ApiResponse<ShiftSwapRequestDto>.Fail($"Đồng nghiệp '{targetUser.FullName}' đã có lịch trực ca khác trong ngày {requestingAssignment.Schedule.WorkDate:dd/MM/yyyy}, không thể tiếp nhận ca này.");
@@ -1703,28 +1751,69 @@ public class ShiftService : IShiftService
                 return ApiResponse<ShiftSwapRequestDto>.Fail("Hai ca trực xin đổi không thể là cùng một ca.");
             }
 
-            if (targetAssignment.Schedule.WorkDate < today)
+            // RÀNG BUỘC: Ca đồng nghiệp cũng phải trước ít nhất 1 ngày
+            if (targetAssignment.Schedule.WorkDate < minAllowedDate)
             {
-                return ApiResponse<ShiftSwapRequestDto>.Fail("Không thể đổi ca trực của đồng nghiệp đã trôi qua trong quá khứ.");
+                return ApiResponse<ShiftSwapRequestDto>.Fail("Ca trực của đồng nghiệp được chọn phải diễn ra sau ngày hôm nay ít nhất 1 ngày.");
             }
 
-            // Kiểm tra xung đột ca
-            var requesterConflict = await _context.ShiftAssignments
-                .AnyAsync(sa => sa.UserId == (ulong)requesterEmployeeId 
-                             && sa.Id != requestingAssignment.Id 
-                             && sa.Schedule.WorkDate == targetAssignment.Schedule.WorkDate);
-            if (requesterConflict)
-            {
-                return ApiResponse<ShiftSwapRequestDto>.Fail($"Bạn đã có ca trực khác ngày {targetAssignment.Schedule.WorkDate:dd/MM/yyyy}, không thể tiếp nhận ca của đồng nghiệp.");
-            }
+            bool isSameDaySwap = requestingAssignment.Schedule.WorkDate == targetAssignment.Schedule.WorkDate;
 
-            var targetConflict = await _context.ShiftAssignments
-                .AnyAsync(sa => sa.UserId == targetUser.Id 
-                             && sa.Id != targetAssignment.Id 
-                             && sa.Schedule.WorkDate == requestingAssignment.Schedule.WorkDate);
-            if (targetConflict)
+            if (isSameDaySwap)
             {
-                return ApiResponse<ShiftSwapRequestDto>.Fail($"Đồng nghiệp '{targetUser.FullName}' đã có ca trực khác ngày {requestingAssignment.Schedule.WorkDate:dd/MM/yyyy}, không thể nhận ca xin đổi.");
+                // 1. Chặn nếu cùng một khung ca (ScheduleId)
+                if (requestingAssignment.ScheduleId == targetAssignment.ScheduleId)
+                {
+                    return ApiResponse<ShiftSwapRequestDto>.Fail("Hai nhân viên đang cùng trực chung một khung ca, không thể tráo đổi cho nhau.");
+                }
+
+                // 2. Đổi cùng ngày: Bỏ qua kiểm tra trùng ngày của 2 ca đang đổi.
+                // Chỉ kiểm tra xem requester có ca THỨ 3 nào khác trong ngày không
+                var requesterHasOtherShift = await _context.ShiftAssignments
+                    .AnyAsync(sa => sa.UserId == (ulong)requesterEmployeeId 
+                                 && sa.Id != requestingAssignment.Id 
+                                 && sa.Id != targetAssignment.Id 
+                                 && sa.Status != "CANCELLED"
+                                 && sa.Schedule.WorkDate == requestingAssignment.Schedule.WorkDate);
+                if (requesterHasOtherShift)
+                {
+                    return ApiResponse<ShiftSwapRequestDto>.Fail($"Bạn đã có ca trực khác chưa hoàn tất trong ngày {requestingAssignment.Schedule.WorkDate:dd/MM/yyyy}.");
+                }
+
+                // Chỉ kiểm tra xem đồng nghiệp có ca THỨ 3 nào khác trong ngày không
+                var targetHasOtherShift = await _context.ShiftAssignments
+                    .AnyAsync(sa => sa.UserId == targetUser.Id 
+                                 && sa.Id != requestingAssignment.Id 
+                                 && sa.Id != targetAssignment.Id 
+                                 && sa.Status != "CANCELLED"
+                                 && sa.Schedule.WorkDate == targetAssignment.Schedule.WorkDate);
+                if (targetHasOtherShift)
+                {
+                    return ApiResponse<ShiftSwapRequestDto>.Fail($"Đồng nghiệp '{targetUser.FullName}' đã có ca trực khác chưa hoàn tất trong ngày {targetAssignment.Schedule.WorkDate:dd/MM/yyyy}.");
+                }
+            }
+            else
+            {
+                // Đổi ca khác ngày: Kiểm tra xung đột ngày chéo giữa 2 bên
+                var requesterConflict = await _context.ShiftAssignments
+                    .AnyAsync(sa => sa.UserId == (ulong)requesterEmployeeId 
+                                 && sa.Id != requestingAssignment.Id 
+                                 && sa.Status != "CANCELLED"
+                                 && sa.Schedule.WorkDate == targetAssignment.Schedule.WorkDate);
+                if (requesterConflict)
+                {
+                    return ApiResponse<ShiftSwapRequestDto>.Fail($"Bạn đã có ca trực khác ngày {targetAssignment.Schedule.WorkDate:dd/MM/yyyy}, không thể tiếp nhận ca của đồng nghiệp.");
+                }
+
+                var targetConflict = await _context.ShiftAssignments
+                    .AnyAsync(sa => sa.UserId == targetUser.Id 
+                                 && sa.Id != targetAssignment.Id 
+                                 && sa.Status != "CANCELLED"
+                                 && sa.Schedule.WorkDate == requestingAssignment.Schedule.WorkDate);
+                if (targetConflict)
+                {
+                    return ApiResponse<ShiftSwapRequestDto>.Fail($"Đồng nghiệp '{targetUser.FullName}' đã có ca trực khác ngày {requestingAssignment.Schedule.WorkDate:dd/MM/yyyy}, không thể nhận ca xin đổi.");
+                }
             }
         }
 
@@ -1874,17 +1963,12 @@ public class ShiftService : IShiftService
         {
             if (string.Equals(swap.RequestType, "LEAVE", StringComparison.OrdinalIgnoreCase))
             {
-                // TH1: Xin nghỉ ca -> Phê duyệt gỡ phân công ca để Cửa hàng trưởng xếp lại lịch
+                // TH1: Xin nghỉ ca -> Phê duyệt đổi trạng thái ca thành CANCELLED (giữ lại bản ghi, không xóa hẳn)
                 if (swap.RequestingAssignment != null)
                 {
-                    var assignmentToRemove = swap.RequestingAssignment;
-                    // Đảm bảo RequesterUserId và ScheduleId đã được lưu snapshot trước khi ngắt liên kết
-                    swap.RequesterUserId ??= assignmentToRemove.UserId;
-                    swap.ScheduleId ??= assignmentToRemove.ScheduleId;
-                    swap.RequestingAssignmentId = null;
-                    swap.RequestingAssignment = null;
-
-                    _context.ShiftAssignments.Remove(assignmentToRemove);
+                    swap.RequesterUserId ??= swap.RequestingAssignment.UserId;
+                    swap.ScheduleId ??= swap.RequestingAssignment.ScheduleId;
+                    swap.RequestingAssignment.Status = "CANCELLED";
                 }
             }
             else if (string.Equals(swap.RequestType, "TRANSFER", StringComparison.OrdinalIgnoreCase))
@@ -1895,6 +1979,7 @@ public class ShiftService : IShiftService
                     var isTargetAlreadyAssigned = await _context.ShiftAssignments
                         .AnyAsync(sa => sa.Id != swap.RequestingAssignmentId 
                                      && sa.UserId == swap.TargetUserId.Value 
+                                     && sa.Status != "CANCELLED"
                                      && sa.Schedule.WorkDate == swap.RequestingAssignment.Schedule.WorkDate);
                     if (isTargetAlreadyAssigned)
                     {
@@ -1910,22 +1995,58 @@ public class ShiftService : IShiftService
                 // TH2b: Đổi ca 2 chiều -> Hoán đổi UserId giữa 2 ca trực
                 if (swap.RequestingAssignment != null && swap.TargetAssignment != null)
                 {
-                    var requesterConflict = await _context.ShiftAssignments
-                        .AnyAsync(sa => sa.Id != swap.RequestingAssignmentId 
-                                     && sa.UserId == swap.RequestingAssignment.UserId 
-                                     && sa.Schedule.WorkDate == swap.TargetAssignment.Schedule.WorkDate);
-                    if (requesterConflict)
-                    {
-                        return ApiResponse<bool>.Fail("Không thể phê duyệt: Nhân viên xin đổi đã có ca trực khác trong ngày của ca được đổi.");
-                    }
+                    bool isSameDaySwap = swap.RequestingAssignment.Schedule.WorkDate == swap.TargetAssignment.Schedule.WorkDate;
 
-                    var targetConflict = await _context.ShiftAssignments
-                        .AnyAsync(sa => sa.Id != swap.TargetAssignmentId 
-                                     && sa.UserId == swap.TargetAssignment.UserId 
-                                     && sa.Schedule.WorkDate == swap.RequestingAssignment.Schedule.WorkDate);
-                    if (targetConflict)
+                    if (isSameDaySwap)
                     {
-                        return ApiResponse<bool>.Fail("Không thể phê duyệt: Đồng nghiệp đã có ca trực khác trong ngày của ca xin đổi.");
+                        if (swap.RequestingAssignment.ScheduleId == swap.TargetAssignment.ScheduleId)
+                        {
+                            return ApiResponse<bool>.Fail("Không thể phê duyệt: Hai nhân viên đang trực chung một khung ca.");
+                        }
+
+                        var requesterHasOtherShift = await _context.ShiftAssignments
+                            .AnyAsync(sa => sa.UserId == swap.RequestingAssignment.UserId 
+                                         && sa.Id != swap.RequestingAssignmentId 
+                                         && sa.Id != swap.TargetAssignmentId 
+                                         && sa.Status != "CANCELLED"
+                                         && sa.Schedule.WorkDate == swap.RequestingAssignment.Schedule.WorkDate);
+                        if (requesterHasOtherShift)
+                        {
+                            return ApiResponse<bool>.Fail("Không thể phê duyệt: Nhân viên xin đổi đã có ca trực khác chưa hoàn tất trong ngày.");
+                        }
+
+                        var targetHasOtherShift = await _context.ShiftAssignments
+                            .AnyAsync(sa => sa.UserId == swap.TargetAssignment.UserId 
+                                         && sa.Id != swap.RequestingAssignmentId 
+                                         && sa.Id != swap.TargetAssignmentId 
+                                         && sa.Status != "CANCELLED"
+                                         && sa.Schedule.WorkDate == swap.TargetAssignment.Schedule.WorkDate);
+                        if (targetHasOtherShift)
+                        {
+                            return ApiResponse<bool>.Fail("Không thể phê duyệt: Đồng nghiệp đã có ca trực khác chưa hoàn tất trong ngày.");
+                        }
+                    }
+                    else
+                    {
+                        var requesterConflict = await _context.ShiftAssignments
+                            .AnyAsync(sa => sa.Id != swap.RequestingAssignmentId 
+                                         && sa.UserId == swap.RequestingAssignment.UserId 
+                                         && sa.Status != "CANCELLED"
+                                         && sa.Schedule.WorkDate == swap.TargetAssignment.Schedule.WorkDate);
+                        if (requesterConflict)
+                        {
+                            return ApiResponse<bool>.Fail("Không thể phê duyệt: Nhân viên xin đổi đã có ca trực khác trong ngày của ca được đổi.");
+                        }
+
+                        var targetConflict = await _context.ShiftAssignments
+                            .AnyAsync(sa => sa.Id != swap.TargetAssignmentId 
+                                         && sa.UserId == swap.TargetAssignment.UserId 
+                                         && sa.Status != "CANCELLED"
+                                         && sa.Schedule.WorkDate == swap.RequestingAssignment.Schedule.WorkDate);
+                        if (targetConflict)
+                        {
+                            return ApiResponse<bool>.Fail("Không thể phê duyệt: Đồng nghiệp đã có ca trực khác trong ngày của ca xin đổi.");
+                        }
                     }
 
                     var tempUserId = swap.RequestingAssignment.UserId;
@@ -2188,39 +2309,95 @@ public class ShiftService : IShiftService
     }
 
     /// <summary>
-    /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để nhân viên chọn đổi (loại bỏ các ca mà nhân viên hiện tại đã có lịch).
+    /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để nhân viên chọn đổi.
+    /// Hỗ trợ kiểm tra báo trước 1 ngày và xử lý đổi ca cùng ngày.
     /// </summary>
-    public async Task<ApiResponse<List<ColleagueShiftDto>>> GetColleagueShiftsAsync(int currentEmployeeId, int colleagueEmployeeId)
+    public async Task<ApiResponse<List<ColleagueShiftDto>>> GetColleagueShiftsAsync(int currentEmployeeId, int colleagueEmployeeId, int? requestingAssignmentId = null)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var minAllowedDate = today.AddDays(1); // RÀNG BUỘC: Chỉ hiển thị các ca diễn ra từ ngày mai trở đi
 
-        // Lấy danh sách các ScheduleId mà nhân viên hiện tại ĐÃ có lịch trực
-        var myScheduleIds = await _context.ShiftAssignments
-            .Where(sa => sa.UserId == (ulong)currentEmployeeId)
-            .Select(sa => sa.ScheduleId)
+        DateOnly? requestingWorkDate = null;
+        ulong? requestingScheduleId = null;
+
+        if (requestingAssignmentId.HasValue && requestingAssignmentId.Value > 0)
+        {
+            var reqAssignment = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule)
+                .FirstOrDefaultAsync(sa => sa.Id == (ulong)requestingAssignmentId.Value && sa.UserId == (ulong)currentEmployeeId);
+
+            if (reqAssignment != null)
+            {
+                requestingWorkDate = reqAssignment.Schedule.WorkDate;
+                requestingScheduleId = reqAssignment.ScheduleId;
+            }
+        }
+
+        // Lấy danh sách ca trực hiện có của nhân viên yêu cầu từ ngày mai trở đi
+        var myActiveAssignments = await _context.ShiftAssignments
+            .Include(sa => sa.Schedule)
+            .Where(sa => sa.UserId == (ulong)currentEmployeeId 
+                      && sa.Status != "CANCELLED"
+                      && sa.Schedule.WorkDate >= minAllowedDate)
             .ToListAsync();
 
-        var shifts = await _context.ShiftAssignments
+        // Danh sách các ngày nhân viên đã có lịch bận (loại trừ ca đang đem ra đổi)
+        var myBusyDates = myActiveAssignments
+            .Where(sa => !requestingAssignmentId.HasValue || sa.Id != (ulong)requestingAssignmentId.Value)
+            .Select(sa => sa.Schedule.WorkDate)
+            .ToHashSet();
+
+        // Danh sách khung ca nhân viên hiện tại đang trực
+        var myActiveScheduleIds = myActiveAssignments
+            .Select(sa => sa.ScheduleId)
+            .ToHashSet();
+
+        // Lấy danh sách ca khả dụng của đồng nghiệp
+        var colleagueShifts = await _context.ShiftAssignments
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.Branch)
             .Where(sa => sa.UserId == (ulong)colleagueEmployeeId 
-                      && sa.Schedule.WorkDate >= today
-                      && !myScheduleIds.Contains(sa.ScheduleId))
+                      && sa.Status != "CANCELLED"
+                      && sa.Schedule.WorkDate >= minAllowedDate)
             .OrderBy(sa => sa.Schedule.WorkDate)
             .ThenBy(sa => sa.Schedule.ShiftTemplate.StartTime)
-            .Select(sa => new ColleagueShiftDto
-            {
-                AssignmentId = (int)sa.Id,
-                ScheduleId = (int)sa.ScheduleId,
-                ShiftName = sa.Schedule.ShiftTemplate.Name,
-                WorkDate = sa.Schedule.WorkDate.ToString("yyyy-MM-dd"),
-                TimeRange = $"{sa.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {sa.Schedule.ShiftTemplate.EndTime:hh\\:mm}",
-                BranchName = sa.Schedule.Branch.Name
-            })
             .ToListAsync();
 
-        return ApiResponse<List<ColleagueShiftDto>>.Ok(shifts);
+        // Lọc ca:
+        // 1. Loại bỏ ca cùng ScheduleId với ca của chính nhân viên (không trực chung 1 ca)
+        // 2. Nếu ca đồng nghiệp ở CÙNG NGÀY với ca xin đổi (requestingWorkDate): Cho phép hiển thị!
+        // 3. Nếu ca đồng nghiệp ở KHÁC NGÀY: Nhân viên không được bận ca nào trong ngày đó.
+        var availableShifts = colleagueShifts.Where(sa =>
+        {
+            // Trùng khung giờ trực chung
+            if (myActiveScheduleIds.Contains(sa.ScheduleId))
+            {
+                return false;
+            }
+
+            // Nếu là ca cùng ngày với ca đem ra đổi
+            if (requestingWorkDate.HasValue && sa.Schedule.WorkDate == requestingWorkDate.Value)
+            {
+                // Cho phép đổi cùng ngày miễn là nhân viên không có ca thứ 3 bận trong ngày đó
+                return !myBusyDates.Contains(sa.Schedule.WorkDate);
+            }
+
+            // Khác ngày: Nhân viên không được có ca trực trong ngày đó
+            return !myBusyDates.Contains(sa.Schedule.WorkDate);
+        })
+        .Select(sa => new ColleagueShiftDto
+        {
+            AssignmentId = (int)sa.Id,
+            ScheduleId = (int)sa.ScheduleId,
+            ShiftName = sa.Schedule.ShiftTemplate.Name,
+            WorkDate = sa.Schedule.WorkDate.ToString("yyyy-MM-dd"),
+            TimeRange = $"{sa.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {sa.Schedule.ShiftTemplate.EndTime:hh\\:mm}",
+            BranchName = sa.Schedule.Branch.Name
+        })
+        .ToList();
+
+        return ApiResponse<List<ColleagueShiftDto>>.Ok(availableShifts);
     }
 }

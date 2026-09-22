@@ -76,7 +76,7 @@ public class DispatchController : ControllerBase
     }
 
     /// <summary>
-    /// [Business Owner & Ops Admin] Giám sát ma trận điều chuyển và tổng số giờ công chi viện toàn mạng lưới (UC 4.4).
+    /// [Business Owner & Ops Admin] Giám sát ma trận điều chuyển và tổng số giờ công chi viện toàn mạng lưới .
     /// </summary>
     [HttpGet("network-metrics")]
     [Authorize(Roles = "BUSINESS_OWNER,OPERATIONS_ADMIN,BusinessOwner,OperationsAdmin")]

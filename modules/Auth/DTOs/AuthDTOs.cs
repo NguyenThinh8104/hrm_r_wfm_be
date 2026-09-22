@@ -55,3 +55,29 @@ public class UserSummaryDto
     public string? PositionName { get; set; }
 }
 
+public class ChangePasswordDto
+{
+    public string CurrentPassword { get; set; } = string.Empty;
+    public string NewPassword { get; set; } = string.Empty;
+    public string ConfirmPassword { get; set; } = string.Empty;
+}
+
+public class UpdateProfileDto
+{
+    public string FullName { get; set; } = string.Empty;
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
+}
+
+public class NotificationItemDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public string Type { get; set; } = "INFO"; // INFO, SHIFT_SWAP, DISPATCH, SCHEDULE
+    public DateTime CreatedAt { get; set; }
+    public bool IsRead { get; set; }
+    public string? Link { get; set; }
+}
+
+

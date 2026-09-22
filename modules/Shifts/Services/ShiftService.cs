@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Domain.Entities;
 using Modules.Shifts.DTOs;
 using Modules.Shifts.Interfaces;
 using Shared.Common;
 using Shared.Data;
+using Shared.Interfaces;
 
 namespace Modules.Shifts.Services;
 
@@ -13,10 +15,14 @@ namespace Modules.Shifts.Services;
 public class ShiftService : IShiftService
 {
     private readonly AppDbContext _context;
+    private readonly IEmailService _emailService;
+    private readonly ILogger<ShiftService> _logger;
 
-    public ShiftService(AppDbContext context)
+    public ShiftService(AppDbContext context, IEmailService emailService, ILogger<ShiftService> logger)
     {
         _context = context;
+        _emailService = emailService;
+        _logger = logger;
     }
 
     // ==========================================
@@ -1771,6 +1777,32 @@ public class ShiftService : IShiftService
                 ? "Đã gửi đơn xin chuyển ca (nhờ làm thay), chờ Cửa hàng trưởng phê duyệt."
                 : "Đã gửi đơn xin đổi ca với đồng nghiệp, chờ Cửa hàng trưởng phê duyệt.";
 
+        // Gửi thông báo email nếu là yêu cầu đổi ca / chuyển ca cho đồng nghiệp
+        if (targetUser != null && !string.IsNullOrWhiteSpace(targetUser.Email))
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var reqShiftInfo = $"{requestingAssignment.Schedule.ShiftTemplate?.Name} ({requestingAssignment.Schedule.WorkDate:dd/MM/yyyy} {requestingAssignment.Schedule.ShiftTemplate?.StartTime:hh\\:mm}-{requestingAssignment.Schedule.ShiftTemplate?.EndTime:hh\\:mm})";
+                    var actionText = reqType == "TRANSFER" ? "Yêu cầu nhờ nhận ca làm việc" : "Yêu cầu đổi ca làm việc";
+                    await _emailService.SendShiftChangeNotificationEmailAsync(
+                        targetUser.Email,
+                        targetUser.FullName,
+                        $"{actionText} từ {requestingAssignment.User.FullName}",
+                        $"Ca của đồng nghiệp: {reqShiftInfo}" + (targetAssignment?.Schedule != null ? $" | Ca dự kiến của bạn: {targetAssignment.Schedule.ShiftTemplate?.Name} ({targetAssignment.Schedule.WorkDate:dd/MM/yyyy})" : ""),
+                        requestingAssignment.Schedule.WorkDate.ToString("dd/MM/yyyy"),
+                        request.Reason ?? "Không có ghi chú thêm",
+                        "CHỜ QUẢN LÝ DUYỆT"
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi gửi email cho nhân viên nhận đổi ca");
+                }
+            });
+        }
+
         return ApiResponse<ShiftSwapRequestDto>.Ok(resultDto, successMsg);
     }
 
@@ -1780,11 +1812,20 @@ public class ShiftService : IShiftService
     public async Task<ApiResponse<bool>> ReviewShiftSwapAsync(int managerEmployeeId, ReviewSwapRequestDto request)
     {
         var swap = await _context.ShiftSwapRequests
+            .Include(s => s.RequesterUser)
             .Include(s => s.RequestingAssignment)
                 .ThenInclude(sa => sa.Schedule)
+                    .ThenInclude(ws => ws.ShiftTemplate)
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.User)
             .Include(s => s.TargetAssignment)
                 .ThenInclude(sa => sa.Schedule)
+                    .ThenInclude(ws => ws.ShiftTemplate)
+            .Include(s => s.TargetAssignment)
+                .ThenInclude(sa => sa.User)
             .Include(s => s.TargetUser)
+            .Include(s => s.Schedule)
+                .ThenInclude(ws => ws.ShiftTemplate)
             .FirstOrDefaultAsync(s => s.Id == (ulong)request.SwapRequestId);
 
         if (swap == null)
@@ -1806,6 +1847,24 @@ public class ShiftService : IShiftService
         {
             return ApiResponse<bool>.Fail("Không thể phê duyệt đơn điều chỉnh cho ca làm việc đã trôi qua trong quá khứ.");
         }
+
+        // Lưu thông tin người làm đơn & đối tác trước khi thay đổi quan hệ DB
+        var requesterUser = swap.RequesterUser ?? swap.RequestingAssignment?.User;
+        if (requesterUser == null && swap.RequesterUserId.HasValue)
+        {
+            requesterUser = await _context.Users.FindAsync(swap.RequesterUserId.Value);
+        }
+
+        var targetUser = swap.TargetUser ?? swap.TargetAssignment?.User;
+        if (targetUser == null && swap.TargetUserId.HasValue)
+        {
+            targetUser = await _context.Users.FindAsync(swap.TargetUserId.Value);
+        }
+
+        var requesterShiftTemplate = swap.RequestingAssignment?.Schedule?.ShiftTemplate ?? swap.Schedule?.ShiftTemplate;
+        var requesterWorkDate = swap.RequestingAssignment?.Schedule?.WorkDate ?? swap.Schedule?.WorkDate ?? today;
+        var targetShiftTemplate = swap.TargetAssignment?.Schedule?.ShiftTemplate;
+        var targetWorkDate = swap.TargetAssignment?.Schedule?.WorkDate ?? today;
 
         swap.Status = request.IsApproved ? "APPROVED" : "REJECTED";
         swap.ReviewedBy = (ulong)managerEmployeeId;
@@ -1886,6 +1945,63 @@ public class ShiftService : IShiftService
         {
             return ApiResponse<bool>.Fail("Không thể phê duyệt: Phát sinh xung đột phân công ca trực trong hệ thống.");
         }
+
+        // Gửi email thông báo kết quả duyệt lịch cho các bên liên quan
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var reqShiftInfo = $"{requesterShiftTemplate?.Name} ({requesterWorkDate:dd/MM/yyyy} {requesterShiftTemplate?.StartTime:hh\\:mm}-{requesterShiftTemplate?.EndTime:hh\\:mm})";
+                var statusText = request.IsApproved ? "ĐÃ ĐƯỢC PHÊ DUYỆT" : "ĐÃ BỊ TỪ CHỐI";
+
+                // 1. Gửi email cho người làm đơn
+                if (requesterUser != null && !string.IsNullOrWhiteSpace(requesterUser.Email))
+                {
+                    var changeTitle = swap.RequestType switch
+                    {
+                        "LEAVE" => "Đơn xin nghỉ ca trực",
+                        "TRANSFER" => "Đơn xin chuyển ca trực (nhờ làm thay)",
+                        _ => "Đơn xin đổi ca trực với đồng nghiệp"
+                    };
+
+                    await _emailService.SendShiftChangeNotificationEmailAsync(
+                        requesterUser.Email,
+                        requesterUser.FullName,
+                        changeTitle,
+                        reqShiftInfo,
+                        requesterWorkDate.ToString("dd/MM/yyyy"),
+                        swap.Reason ?? "Không có ghi chú thêm",
+                        statusText
+                    );
+                }
+
+                // 2. Gửi email cho đồng nghiệp tiếp nhận (nếu có)
+                if (targetUser != null && !string.IsNullOrWhiteSpace(targetUser.Email))
+                {
+                    var targetTitle = swap.RequestType == "TRANSFER"
+                        ? "Phân công nhận ca thay từ đồng nghiệp"
+                        : "Kết quả đổi ca trực với đồng nghiệp";
+
+                    var targetDetails = swap.RequestType == "TRANSFER"
+                        ? $"Bạn nhận ca: {reqShiftInfo}"
+                        : $"Ca mới của bạn: {reqShiftInfo} (Đổi ca của bạn: {targetShiftTemplate?.Name} {targetWorkDate:dd/MM/yyyy})";
+
+                    await _emailService.SendShiftChangeNotificationEmailAsync(
+                        targetUser.Email,
+                        targetUser.FullName,
+                        targetTitle,
+                        targetDetails,
+                        requesterWorkDate.ToString("dd/MM/yyyy"),
+                        swap.Reason ?? "Không có ghi chú thêm",
+                        statusText
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi gửi email thông báo kết quả phê duyệt đổi ca");
+            }
+        });
 
         var message = request.IsApproved
             ? "Đã phê duyệt đơn và cập nhật lịch làm việc thành công."

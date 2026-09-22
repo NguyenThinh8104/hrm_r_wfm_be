@@ -75,5 +75,60 @@ public class RedisOtpService : IRedisOtpService
     {
         return $"attendance:otp:{userId}:{otpType.ToUpper()}";
     }
+
+    /// <summary>
+    /// Sinh OTP mới, Redis key = "attendance:otp:{otpCode}", value = "{userId}:{otpType}", TTL configurable.
+    /// </summary>
+    public async Task<string> GenerateAttendanceOtpAsync(ulong userId, string otpType, int ttlSeconds = 60)
+    {
+        string otpCode;
+        string cacheKey;
+
+        // Sinh OTP 6 số, đảm bảo key unique trong Redis
+        do
+        {
+            otpCode = _random.Next(100000, 999999).ToString();
+            cacheKey = GetAttendanceCacheKey(otpCode);
+        }
+        while (await _cache.GetStringAsync(cacheKey) != null);
+
+        var value = $"{userId}:{otpType.ToUpper()}";
+        var options = new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(ttlSeconds)
+        };
+
+        await _cache.SetStringAsync(cacheKey, value, options);
+        return otpCode;
+    }
+
+    /// <summary>
+    /// Lookup OTP code → trả về (userId, otpType) nếu hợp lệ, consume (xóa key) sau khi tìm thấy.
+    /// </summary>
+    public async Task<(ulong UserId, string OtpType)?> VerifyAndConsumeAttendanceOtpAsync(string otpCode)
+    {
+        if (string.IsNullOrWhiteSpace(otpCode)) return null;
+
+        var cacheKey = GetAttendanceCacheKey(otpCode.Trim());
+        var storedValue = await _cache.GetStringAsync(cacheKey);
+
+        if (string.IsNullOrEmpty(storedValue)) return null;
+
+        // Parse value format: "{userId}:{otpType}"
+        var parts = storedValue.Split(':');
+        if (parts.Length != 2 || !ulong.TryParse(parts[0], out var userId))
+        {
+            return null;
+        }
+
+        // Consume — xóa key ngay lập tức để không thể tái sử dụng
+        await _cache.RemoveAsync(cacheKey);
+        return (userId, parts[1]);
+    }
+
+    private static string GetAttendanceCacheKey(string otpCode)
+    {
+        return $"attendance:otp:{otpCode}";
+    }
 }
 

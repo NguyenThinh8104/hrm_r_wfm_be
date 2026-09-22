@@ -60,5 +60,6 @@ public class MyAttendanceDayDto
     public DateTime? CheckOutTime { get; set; }
     public double? ActualWorkMinutes { get; set; }
     public string Status { get; set; } = "ABSENT"; // PRESENT | LATE | ABSENT | INCOMPLETE | NOT_YET
+    public bool IsLate { get; set; }
     public bool IsDispatched { get; set; }
 }

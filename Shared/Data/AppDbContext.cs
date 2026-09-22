@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Domain.Entities;
+using Domain.Enums;
 
 namespace Shared.Data;
 
@@ -282,6 +283,11 @@ public partial class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.AssignmentId).IsUnique();
             entity.HasIndex(e => new { e.CheckInTime, e.BranchId });
+
+            entity.Property(e => e.Status)
+                .HasConversion<byte>()
+                .HasColumnType("tinyint unsigned")
+                .HasDefaultValue(AttendanceLogStatus.PENDING);
 
             entity.HasOne(e => e.Assignment)
                 .WithOne(sa => sa.AttendanceLog)

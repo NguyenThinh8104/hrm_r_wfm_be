@@ -60,81 +60,47 @@ public class KioskAttendanceController : ControllerBase
     }
 
     /// <summary>
-    /// [Bước 2 - Kiosk] Đánh dấu thời điểm bắt đầu ca trực (Check-in) qua mã PIN.
+    /// Điểm danh Vào ca (Check-in) tại trạm Kiosk qua mã OTP 60s & Kiosk DeviceToken.
     /// </summary>
-    /// <param name="request">DTO chứa EmployeeId, StoreId, PinCode, KioskId và số tiền lẻ đầu ca (nếu là Thu ngân)</param>
-    /// <returns>Bản ghi điểm danh ghi nhận thời gian vào ca và trạng thái Present/Late</returns>
+    /// <param name="request">DTO chứa KioskDeviceToken và OtpCode 60s</param>
+    /// <returns>Bản ghi điểm danh ghi nhận thời gian vào ca (Status = PENDING chờ chụp ảnh)</returns>
     [HttpPost("check-in")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckIn([FromBody] KioskPinCheckInDto request)
-    {
-        var result = await _attendanceService.KioskCheckInAsync(request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// [Bước 2 - Kiosk] Đánh dấu thời điểm kết thúc ca trực (Check-out) qua mã PIN.
-    /// </summary>
-    /// <param name="request">DTO chứa EmployeeId, StoreId, PinCode và KioskId</param>
-    /// <returns>Bản ghi điểm danh hoàn tất cập nhật thời gian ra ca</returns>
-    [HttpPost("check-out")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOut([FromBody] KioskPinCheckOutDto request)
-    {
-        var result = await _attendanceService.KioskCheckOutAsync(request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// [Quy trình mới] Điểm danh Check-in đầu ca tại quầy Kiosk (Sử dụng IKioskContext & TimeProvider).
-    /// </summary>
-    /// <param name="request">DTO chứa UserId và Mã PIN 6 chữ số</param>
-    /// <returns>ApiResponse chứa thông tin bản ghi Check-in thành công</returns>
-    [HttpPost("v2/check-in")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AttendanceLogDto>>> CheckInV2([FromBody] CheckInRequestDto request)
-    {
-        var result = await _attendanceService.CheckInAsync(request.UserId, request.Pin);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// [Quy trình mới] Điểm danh Check-out kết thúc ca theo 3 bước nghiệp vụ (Sử dụng IKioskContext & TimeProvider).
-    /// </summary>
-    /// <param name="request">DTO chứa UserId và Mã PIN 6 chữ số</param>
-    /// <returns>ApiResponse chứa kết quả Check-out và tổng số phút làm việc</returns>
-    [HttpPost("v2/check-out")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AttendanceCheckOutResultDto>>> CheckOutV2([FromBody] CheckOutRequestDto request)
-    {
-        var result = await _attendanceService.CheckOutAsync(request.UserId, request.Pin);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// [Quy trình V3 điểm danh thuần túy] Check-in với OTP 60s & chụp/upload ảnh S3 tự động.
-    /// </summary>
     [HttpPost("v3/check-in")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckInV3([FromBody] KioskCheckInV3Dto request)
+    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckIn([FromBody] KioskCheckInDto request)
     {
-        var result = await _attendanceService.CheckInV3Async(request);
+        var result = await _attendanceService.CheckInAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
 
     /// <summary>
-    /// [Quy trình V3 điểm danh thuần túy] Check-out với OTP 60s & chụp/upload ảnh S3 tự động.
+    /// Điểm danh Ra ca (Check-out) tại trạm Kiosk qua mã OTP 60s & Kiosk DeviceToken.
     /// </summary>
+    /// <param name="request">DTO chứa KioskDeviceToken và OtpCode 60s</param>
+    /// <returns>Bản ghi điểm danh cập nhật thời gian ra ca (Status = PENDING chờ chụp ảnh)</returns>
+    [HttpPost("check-out")]
     [HttpPost("v3/check-out")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOutV3([FromBody] KioskCheckOutV3Dto request)
+    public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOut([FromBody] KioskCheckOutDto request)
     {
-        var result = await _attendanceService.CheckOutV3Async(request);
+        var result = await _attendanceService.CheckOutAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Upload ảnh chấm công (bắt buộc) lên S3 và cập nhật attendance record → COMPLETED.
+    /// </summary>
+    /// <param name="request">DTO chứa KioskDeviceToken, AttendanceId, ImageBase64, PhotoType</param>
+    /// <returns>ApiResponse chứa photoKey, presignedUrl và status COMPLETED</returns>
+    [HttpPost("upload-attendance-photo")]
+    [HttpPost("v3/upload-attendance-photo")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<UploadAttendancePhotoResponseDto>>> UploadAttendancePhoto(
+        [FromBody] UploadAttendancePhotoDto request)
+    {
+        var result = await _attendanceService.UploadAttendancePhotoAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

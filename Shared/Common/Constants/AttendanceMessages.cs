@@ -36,6 +36,18 @@ public static class AttendanceMessages
     public const string NoShiftTodayForOtp = "Bạn không có ca làm việc được xếp lịch hôm nay tại bất kỳ chi nhánh nào. Vui lòng liên hệ Quản lý!";
     public const string BranchLocationNotConfigured = "Cửa hàng {0} chưa được cấu hình tọa độ vị trí GPS thực tế.";
     public const string OtpGeneratedSuccess = "Đã cấp mã OTP {0} 60 giây thành công.";
+    public const string InvalidAttendanceOtp = "Mã OTP chấm công không chính xác, đã được sử dụng hoặc hết hạn.";
+    public const string OtpTypeMismatch = "Loại mã OTP không khớp với thao tác yêu cầu ({0}).";
+    public const string UploadAttendancePhotoV3Success = "Tải ảnh chấm công lên hệ thống thành công. Bản ghi đã hoàn tất.";
+    public const string UploadAttendancePhotoV3Failed = "Không thể tải ảnh chấm công lên hệ thống. Vui lòng thử lại.";
+    public const string AttendanceLogNotOwnedByKiosk = "Bản ghi chấm công không thuộc trạm Kiosk này.";
+    public const string AttendanceLogAlreadyCompleted = "Bản ghi chấm công đã được hoàn tất trước đó.";
+    public const string InvalidPhotoType = "Loại ảnh chấm công không hợp lệ. Chỉ chấp nhận CHECK_IN hoặc CHECK_OUT.";
+    public const string ShiftAlreadyEnded = "Ca làm việc {0} đã kết thúc lúc {1}. Không thể điểm danh vào ca đã qua.";
+    public const string TooEarlyForShift = "Chưa đến giờ điểm danh ca {0} ({1}). Chỉ được điểm danh sớm tối đa 30 phút (từ {2}).";
+    public const string NoActiveShiftInTimeframe = "Hiện tại không có ca làm việc nào phù hợp trong khung giờ này. Vui lòng kiểm tra lại lịch phân công!";
+    public const string CheckInLateSuccess = "Điểm danh VÀO CA MUỘN (LATE) lúc {0}! Giờ bắt đầu ca là {1}.";
 }
+
 
 

@@ -538,14 +538,14 @@ public class ShiftsController : ControllerBase
     /// </summary>
     [HttpGet("colleague-shifts/{colleagueEmployeeId}")]
     [Authorize]
-    public async Task<ActionResult<ApiResponse<List<ColleagueShiftDto>>>> GetColleagueShifts(int colleagueEmployeeId)
+    public async Task<ActionResult<ApiResponse<List<ColleagueShiftDto>>>> GetColleagueShifts(int colleagueEmployeeId, [FromQuery] int? requestingAssignmentId = null)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value 
             ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
             ?? User.FindFirst("sub")?.Value;
         int.TryParse(empIdClaim, out var empId);
 
-        var result = await _shiftService.GetColleagueShiftsAsync(empId, colleagueEmployeeId);
+        var result = await _shiftService.GetColleagueShiftsAsync(empId, colleagueEmployeeId, requestingAssignmentId);
         return Ok(result);
     }
 }

@@ -415,5 +415,42 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(e => e.ActorId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        // 18. shift_swap_requests
+        modelBuilder.Entity<ShiftSwapRequest>(entity =>
+        {
+            entity.ToTable("shift_swap_requests");
+            entity.HasKey(e => e.Id);
+
+            entity.HasOne(e => e.RequestingAssignment)
+                .WithMany()
+                .HasForeignKey(e => e.RequestingAssignmentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.TargetAssignment)
+                .WithMany()
+                .HasForeignKey(e => e.TargetAssignmentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.RequesterUser)
+                .WithMany()
+                .HasForeignKey(e => e.RequesterUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.TargetUser)
+                .WithMany()
+                .HasForeignKey(e => e.TargetUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ReviewedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedBy)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.Schedule)
+                .WithMany()
+                .HasForeignKey(e => e.ScheduleId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
     }
 }

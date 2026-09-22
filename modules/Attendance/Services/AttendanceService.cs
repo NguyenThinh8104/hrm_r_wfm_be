@@ -72,7 +72,7 @@ public class AttendanceService : IAttendanceService
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
             .Include(sa => sa.AttendanceLog)
-            .FirstOrDefaultAsync(sa => sa.UserId == user.Id && sa.Schedule.BranchId == (ulong)request.StoreId && sa.Schedule.WorkDate == today);
+            .FirstOrDefaultAsync(sa => sa.UserId == user.Id && sa.Schedule.BranchId == (ulong)request.StoreId && sa.Schedule.WorkDate == today && sa.Status != "CANCELLED");
 
         var log = assignment?.AttendanceLog;
 
@@ -104,7 +104,7 @@ public class AttendanceService : IAttendanceService
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
             .Include(sa => sa.AttendanceLog)
-            .Where(sa => sa.Schedule.BranchId == (ulong)storeId && sa.Schedule.WorkDate == date)
+            .Where(sa => sa.Schedule.BranchId == (ulong)storeId && sa.Schedule.WorkDate == date && sa.Status != "CANCELLED")
             .OrderBy(sa => sa.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
 
@@ -804,7 +804,11 @@ public class AttendanceService : IAttendanceService
                 bool isDispatched = dispatches.Any(d => d.StartDate <= date && d.EndDate >= date);
 
                 string attendanceStatus = "NOT_YET";
-                if (a.AttendanceLog != null)
+                if (string.Equals(a.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+                {
+                    attendanceStatus = "CANCELLED";
+                }
+                else if (a.AttendanceLog != null)
                 {
                     attendanceStatus = a.AttendanceLog.CheckOutTime.HasValue ? "COMPLETED" : "CHECKED_IN";
                 }
@@ -826,7 +830,8 @@ public class AttendanceService : IAttendanceService
                     IsDispatched = isDispatched,
                     CheckInTime = a.AttendanceLog?.CheckInTime,
                     CheckOutTime = a.AttendanceLog?.CheckOutTime,
-                    AttendanceStatus = attendanceStatus
+                    AttendanceStatus = attendanceStatus,
+                    AssignmentStatus = a.Status
                 });
             }
 
@@ -872,7 +877,11 @@ public class AttendanceService : IAttendanceService
             double? actualMinutes = null;
 
             bool isLate = false;
-            if (a.AttendanceLog != null)
+            if (string.Equals(a.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
+            {
+                status = "CANCELLED";
+            }
+            else if (a.AttendanceLog != null)
             {
                 var template = a.Schedule.ShiftTemplate;
                 var shiftStartDt = template != null ? date.ToDateTime(template.StartTime) : a.AttendanceLog.CheckInTime;
@@ -914,9 +923,9 @@ public class AttendanceService : IAttendanceService
             });
         }
 
-        int totalAssigned = assignments.Count;
-        int totalWorked = assignments.Count(a => a.AttendanceLog != null);
-        int totalAbsent = assignments.Count(a => a.AttendanceLog == null && a.Schedule.WorkDate < today);
+        int totalAssigned = assignments.Count(a => a.Status != "CANCELLED");
+        int totalWorked = assignments.Count(a => a.AttendanceLog != null && a.Status != "CANCELLED");
+        int totalAbsent = assignments.Count(a => a.AttendanceLog == null && a.Schedule.WorkDate < today && a.Status != "CANCELLED");
 
         var result = new MyAttendanceHistoryDto
         {

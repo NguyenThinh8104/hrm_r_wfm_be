@@ -31,7 +31,8 @@ public class MyShiftSlotDto
     public bool IsDispatched { get; set; }
     public DateTime? CheckInTime { get; set; }
     public DateTime? CheckOutTime { get; set; }
-    public string AttendanceStatus { get; set; } = "NOT_YET"; // NOT_YET | CHECKED_IN | COMPLETED | ABSENT
+    public string AttendanceStatus { get; set; } = "NOT_YET"; // NOT_YET | CHECKED_IN | COMPLETED | ABSENT | CANCELLED
+    public string AssignmentStatus { get; set; } = "CONFIRMED"; // CONFIRMED | CANCELLED
 }
 
 // --- API 2: Lịch sử chấm công tháng (Attendance History) ---

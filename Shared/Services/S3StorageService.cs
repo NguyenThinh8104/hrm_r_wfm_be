@@ -102,6 +102,24 @@ public class S3StorageService : IS3StorageService
         if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
         var fileName = $"{folderName}/{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}{ext}";
 
+        // Lưu trữ một bản sao cục bộ vào thư mục uploads/ để luôn mở/tải về được ngay cả khi không có AWS S3
+        try
+        {
+            var localRelPath = fileName.Replace('/', Path.DirectorySeparatorChar);
+            var localFullPath = Path.Combine(Directory.GetCurrentDirectory(), "uploads", localRelPath);
+            var localDir = Path.GetDirectoryName(localFullPath);
+            if (!string.IsNullOrEmpty(localDir))
+            {
+                Directory.CreateDirectory(localDir);
+            }
+            using var localStream = new FileStream(localFullPath, FileMode.Create);
+            await file.CopyToAsync(localStream);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể lưu bản sao cục bộ cho file {FileName}", fileName);
+        }
+
         if (_s3Client != null)
         {
             try
@@ -112,7 +130,7 @@ public class S3StorageService : IS3StorageService
                     BucketName = _bucketName,
                     Key = fileName,
                     InputStream = stream,
-                    ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "image/jpeg" : file.ContentType
+                    ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType
                 };
 
                 await _s3Client.PutObjectAsync(putRequest);
@@ -124,7 +142,7 @@ public class S3StorageService : IS3StorageService
         }
         else
         {
-            _logger.LogInformation("Fallback mode: Generated mock S3 key: {FileName}", fileName);
+            _logger.LogInformation("Fallback mode: File saved locally and mock key generated: {FileName}", fileName);
         }
 
         return fileName;

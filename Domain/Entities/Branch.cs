@@ -68,4 +68,5 @@ public class Branch
     public ICollection<User> Users { get; set; } = new List<User>();
     public ICollection<KioskDevice> Kiosks { get; set; } = new List<KioskDevice>();
     public ICollection<WorkSchedule> WorkSchedules { get; set; } = new List<WorkSchedule>();
+    public ICollection<HeadcountImportRequest> HeadcountImportRequests { get; set; } = new List<HeadcountImportRequest>();
 }

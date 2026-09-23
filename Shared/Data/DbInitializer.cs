@@ -61,6 +61,42 @@ public static class DbInitializer
                     alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `BranchTier` INT NOT NULL DEFAULT 2;";
                     alterCmd.ExecuteNonQuery();
                 }
+
+                // Tự động kiểm tra và bổ sung cột StaffCount nếu database chưa có
+                if (!branchCols.Contains("StaffCount"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `StaffCount` INT NOT NULL DEFAULT 0;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                // Tự động kiểm tra và bổ sung cột TierId nếu database chưa có
+                if (!branchCols.Contains("TierId"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `TierId` INT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
+            // Check branch_tiers table
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS `branch_tiers` (
+                        `Id` INT NOT NULL AUTO_INCREMENT,
+                        `TierName` VARCHAR(100) NOT NULL,
+                        `Description` LONGTEXT NULL,
+                        `MinStaffCount` INT NULL,
+                        `MaxStaffCount` INT NULL,
+                        `OtherConditions` LONGTEXT NULL,
+                        `Conditions` LONGTEXT NULL,
+                        `Benefits` LONGTEXT NULL,
+                        `CreatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                        `UpdatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                        PRIMARY KEY (`Id`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+                command.ExecuteNonQuery();
             }
 
             // Check kiosks table columns

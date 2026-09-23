@@ -19,4 +19,5 @@ public class User
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<ShiftAssignment> ShiftAssignments { get; set; } = new List<ShiftAssignment>();
+    public ICollection<HeadcountImportRequest> HeadcountImportRequests { get; set; } = new List<HeadcountImportRequest>();
 }

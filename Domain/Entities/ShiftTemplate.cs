@@ -17,10 +17,7 @@ public class ShiftTemplate
     public uint BreakDurationMinutes { get; set; } = 0;
     public bool IsActive { get; set; } = true;
 
-    [NotMapped]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-    [NotMapped]
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     [NotMapped]

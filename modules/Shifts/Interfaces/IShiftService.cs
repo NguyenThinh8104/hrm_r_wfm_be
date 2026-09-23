@@ -154,6 +154,21 @@ public interface IShiftService
     /// </summary>
     Task<ApiResponse<AutoScheduleResultDto>> AutoScheduleWeeklyAsync(AutoScheduleWeeklyDto dto, ulong userId);
 
+    /// <summary>
+    /// Lấy danh sách cơ sở/chi nhánh mà tài khoản được quyền lập lịch ca tuần (Branch Isolation).
+    /// </summary>
+    Task<ApiResponse<AccessibleBranchesDto>> GetAccessibleBranchesAsync(ulong userId, string role, ulong? storeId);
+
+    /// <summary>
+    /// Lấy BranchId của phân công ca trực để kiểm tra phân quyền sở hữu.
+    /// </summary>
+    Task<ulong?> GetBranchIdByAssignmentIdAsync(ulong assignmentId);
+
+    /// <summary>
+    /// Lấy BranchId của khung lịch ca để kiểm tra phân quyền sở hữu.
+    /// </summary>
+    Task<ulong?> GetBranchIdByScheduleIdAsync(ulong scheduleId);
+
 
 
     // ==========================================
@@ -234,7 +249,7 @@ public interface IShiftService
     Task<ApiResponse<List<ColleagueDto>>> GetColleaguesForSwapAsync(int currentEmployeeId, int branchId);
 
     /// <summary>
-    /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để chọn đổi (loại bỏ các ca mà nhân viên hiện tại đã có lịch).
+    /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để chọn đổi (loại bỏ các ca mà nhân viên hiện tại đã có lịch, hỗ trợ đổi cùng ngày).
     /// </summary>
-    Task<ApiResponse<List<ColleagueShiftDto>>> GetColleagueShiftsAsync(int currentEmployeeId, int colleagueEmployeeId);
+    Task<ApiResponse<List<ColleagueShiftDto>>> GetColleagueShiftsAsync(int currentEmployeeId, int colleagueEmployeeId, int? requestingAssignmentId = null);
 }

@@ -456,3 +456,52 @@ public class AutoScheduleResultDto
     public WeeklyScheduleMatrixDto? Matrix { get; set; }
 }
 
+// ==========================================
+// 6. Phân Quyền Cơ Sở Lập Lịch Ca Tuần (Branch Isolation)
+// ==========================================
+
+/// <summary>
+/// DTO thông tin cơ sở chi nhánh được phép truy cập lập lịch.
+/// </summary>
+public class AccessibleBranchItemDto
+{
+    public ulong Id { get; set; }
+    public string BranchCode { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public string Status { get; set; } = "ACTIVE";
+    public int Tier { get; set; } = 1;
+}
+
+/// <summary>
+/// DTO kết quả kiểm tra danh sách cơ sở tài khoản được phép quản lý lập lịch.
+/// </summary>
+public class AccessibleBranchesDto
+{
+    /// <summary>
+    /// True nếu là Quản trị viên hệ thống (Operations Admin / Business Owner), có quyền xem và lập lịch mọi chi nhánh.
+    /// </summary>
+    public bool IsGlobalManager { get; set; }
+
+    /// <summary>
+    /// Chi nhánh được gán cho Cửa hàng trưởng (nếu là STORE_MANAGER/SHIFT_LEADER).
+    /// </summary>
+    public ulong? AssignedBranchId { get; set; }
+
+    /// <summary>
+    /// Tên chi nhánh được gán.
+    /// </summary>
+    public string? AssignedBranchName { get; set; }
+
+    /// <summary>
+    /// Mã chi nhánh được gán.
+    /// </summary>
+    public string? AssignedBranchCode { get; set; }
+
+    /// <summary>
+    /// Danh sách các chi nhánh mà người dùng này có quyền lập lịch / xem lịch.
+    /// </summary>
+    public List<AccessibleBranchItemDto> Branches { get; set; } = new List<AccessibleBranchItemDto>();
+}
+
+

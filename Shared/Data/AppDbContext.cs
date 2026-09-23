@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Domain.Entities;
+using Domain.Enums;
 
 namespace Shared.Data;
 
@@ -31,6 +32,7 @@ public partial class AppDbContext : DbContext
     public DbSet<SecurityHandover> SecurityHandovers { get; set; } = null!;
     public DbSet<MonthlyTimesheet> MonthlyTimesheets { get; set; } = null!;
     public DbSet<SystemAuditLog> SystemAuditLogs { get; set; } = null!;
+    public DbSet<HeadcountImportRequest> HeadcountImportRequests { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -97,6 +99,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IpAddress).HasColumnName("IpAddress");
             entity.Property(e => e.LastPingAt).HasColumnName("LastPingAt");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
+            entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.KioskCode).IsUnique();
             entity.HasIndex(e => e.DeviceToken).IsUnique();
             entity.Ignore(e => e.DeviceName);
@@ -106,7 +109,6 @@ public partial class AppDbContext : DbContext
             entity.Ignore(e => e.AllowedBrowser);
             entity.Ignore(e => e.UserAgentPattern);
             entity.Ignore(e => e.LastBrowserUserAgent);
-            entity.Ignore(e => e.UpdatedAt);
 
             entity.HasOne(e => e.Branch)
                 .WithMany(b => b.Kiosks)
@@ -145,9 +147,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsOvernight).HasColumnName("IsOvernight");
             entity.Property(e => e.BreakDurationMinutes).HasColumnName("BreakDurationMinutes");
             entity.Property(e => e.IsActive).HasColumnName("IsActive");
+            entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
+            entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.Ignore(e => e.Description);
-            entity.Ignore(e => e.CreatedAt);
-            entity.Ignore(e => e.UpdatedAt);
             entity.Ignore(e => e.Status);
         });
 
@@ -283,6 +285,11 @@ public partial class AppDbContext : DbContext
             entity.HasIndex(e => e.AssignmentId).IsUnique();
             entity.HasIndex(e => new { e.CheckInTime, e.BranchId });
 
+            entity.Property(e => e.Status)
+                .HasConversion<byte>()
+                .HasColumnType("tinyint unsigned")
+                .HasDefaultValue(AttendanceLogStatus.PENDING);
+
             entity.HasOne(e => e.Assignment)
                 .WithOne(sa => sa.AttendanceLog)
                 .HasForeignKey<AttendanceLog>(e => e.AssignmentId)
@@ -408,6 +415,74 @@ public partial class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.ActorId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // 18. shift_swap_requests
+        modelBuilder.Entity<ShiftSwapRequest>(entity =>
+        {
+            entity.ToTable("shift_swap_requests");
+            entity.HasKey(e => e.Id);
+
+            entity.HasOne(e => e.RequestingAssignment)
+                .WithMany()
+                .HasForeignKey(e => e.RequestingAssignmentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.TargetAssignment)
+                .WithMany()
+                .HasForeignKey(e => e.TargetAssignmentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.RequesterUser)
+                .WithMany()
+                .HasForeignKey(e => e.RequesterUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.TargetUser)
+                .WithMany()
+                .HasForeignKey(e => e.TargetUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ReviewedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedBy)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.Schedule)
+                .WithMany()
+                .HasForeignKey(e => e.ScheduleId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // 19. headcount_import_requests
+        modelBuilder.Entity<HeadcountImportRequest>(entity =>
+        {
+            entity.ToTable("headcount_import_requests");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FilePath).HasMaxLength(500);
+            entity.Property(e => e.FileName).HasMaxLength(255);
+            entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("PENDING");
+            entity.Property(e => e.Reason).HasMaxLength(1000);
+            entity.Property(e => e.AdminNotes).HasMaxLength(1000);
+
+            entity.HasIndex(e => e.BranchId);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => new { e.BranchId, e.Status });
+
+            entity.HasOne(e => e.Branch)
+                .WithMany(b => b.HeadcountImportRequests)
+                .HasForeignKey(e => e.BranchId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.RequestedByUser)
+                .WithMany(u => u.HeadcountImportRequests)
+                .HasForeignKey(e => e.RequestedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ReviewedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedBy)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

@@ -123,10 +123,99 @@ public class HeadcountRequestsController : ControllerBase
     }
 
     /// <summary>
-    /// [Admin / Store Manager] Tải xuống hoặc mở file đính kèm của đơn đề xuất mở rộng định biên.
+    /// [Admin / Store Manager] Lấy link xem trực tiếp (inline view URL) của tệp tin đính kèm.
+    /// </summary>
+    [HttpGet("{id}/view-url")]
+    public async Task<ActionResult<ApiResponse<string>>> GetAttachedFileViewUrl(ulong id)
+    {
+        var result = await _headcountService.GetRequestByIdAsync(id);
+        if (!result.Success || result.Data == null)
+        {
+            return NotFound(ApiResponse<string>.Fail("Không tìm thấy đơn đề xuất."));
+        }
+
+        var req = result.Data;
+        var (_, role, userBranchId) = GetCurrentUserInfo();
+        var normalizedRole = role.ToUpper();
+
+        if ((normalizedRole == "STORE_MANAGER" || normalizedRole == "STOREMANAGER")
+            && userBranchId.HasValue && userBranchId.Value != req.BranchId)
+        {
+            return StatusCode(403, ApiResponse<string>.Fail("Bạn không có quyền xem tài liệu của chi nhánh khác."));
+        }
+
+        var ext = Path.GetExtension(req.FileName).ToLowerInvariant();
+        var mime = ext == ".pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+        var viewUrl = _s3StorageService.GetPresignedViewUrl(req.FilePath, mime)
+                   ?? $"/api/v1/headcount-requests/{req.Id}/view";
+
+        return Ok(ApiResponse<string>.Ok(viewUrl, "Lấy link xem tệp tin thành công."));
+    }
+
+    /// <summary>
+    /// [Admin / Store Manager] Xem trực tiếp tệp tin (inline preview) trên trình duyệt (đặc biệt cho PDF).
+    /// </summary>
+    [HttpGet("{id}/view")]
+    [HttpGet("{id}/file")]
+    [HttpHead("{id}/view")]
+    [HttpHead("{id}/file")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ViewAttachedFile(ulong id)
+    {
+        var result = await _headcountService.GetRequestByIdAsync(id);
+        if (!result.Success || result.Data == null)
+        {
+            return NotFound("Không tìm thấy đơn đề xuất.");
+        }
+
+        var req = result.Data;
+        var (userId, role, userBranchId) = GetCurrentUserInfo();
+        var normalizedRole = role.ToUpper();
+
+        // RBAC: Nếu người dùng đã đăng nhập và là Store Manager thì chỉ được xem đơn thuộc chi nhánh mình
+        if (userId > 0 && (normalizedRole == "STORE_MANAGER" || normalizedRole == "STOREMANAGER")
+            && userBranchId.HasValue && userBranchId.Value != req.BranchId)
+        {
+            return StatusCode(403, "Bạn không có quyền xem tài liệu của chi nhánh khác.");
+        }
+
+        var fileName = string.IsNullOrWhiteSpace(req.FileName) ? $"De_Xuat_Dinh_Bien_{req.Id}" : req.FileName;
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        var mimeType = ext switch
+        {
+            ".pdf" => "application/pdf",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xls" => "application/vnd.ms-excel",
+            ".csv" => "text/csv; charset=utf-8",
+            _ => "application/octet-stream"
+        };
+
+        var fileResult = await _s3StorageService.GetFileStreamAsync(req.FilePath);
+        if (fileResult != null && fileResult.Value.Stream != null)
+        {
+            Response.Headers["Content-Disposition"] = $"inline; filename=\"{Uri.EscapeDataString(fileName)}\"";
+            return File(fileResult.Value.Stream, mimeType);
+        }
+
+        // Fallback: nếu là file PDF và không tìm thấy file vật lý
+        if (ext == ".pdf")
+        {
+            return NotFound("Không tìm thấy nội dung tệp tin PDF.");
+        }
+
+        // Fallback: Nếu là file Excel .xlsx, tạo workbook chuẩn bằng ClosedXML để không bao giờ bị corrupt khi mở
+        var generatedBytes = GenerateFallbackExcelBytes(req);
+        Response.Headers["Content-Disposition"] = $"inline; filename=\"{Uri.EscapeDataString(fileName)}\"";
+        return File(generatedBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    /// <summary>
+    /// [Admin / Store Manager] Tải xuống tệp tin đính kèm của đơn đề xuất mở rộng định biên.
+    /// Khắc phục triệt để lỗi file .xlsx bị hỏng khi mở bằng cách trả về stream chuẩn và fallback OpenXML.
     /// </summary>
     [HttpGet("{id}/download")]
-    [HttpGet("{id}/file")]
+    [HttpHead("{id}/download")]
     [AllowAnonymous]
     public async Task<IActionResult> DownloadAttachedFile(ulong id)
     {
@@ -137,51 +226,86 @@ public class HeadcountRequestsController : ControllerBase
         }
 
         var req = result.Data;
+        var (userId, role, userBranchId) = GetCurrentUserInfo();
+        var normalizedRole = role.ToUpper();
+
+        if (userId > 0 && (normalizedRole == "STORE_MANAGER" || normalizedRole == "STOREMANAGER")
+            && userBranchId.HasValue && userBranchId.Value != req.BranchId)
+        {
+            return StatusCode(403, "Bạn không có quyền tải tài liệu của chi nhánh khác.");
+        }
+
         var fileName = string.IsNullOrWhiteSpace(req.FileName) ? $"De_Xuat_Dinh_Bien_{req.Id}.xlsx" : req.FileName;
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
         var mimeType = ext switch
         {
+            ".pdf" => "application/pdf",
             ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ".xls" => "application/vnd.ms-excel",
             ".csv" => "text/csv; charset=utf-8",
             _ => "application/octet-stream"
         };
 
-        // 1. Tìm trên local storage trong uploads/
-        if (!string.IsNullOrWhiteSpace(req.FilePath))
+        // 1. Thử đọc file stream trực tiếp từ hệ thống lưu trữ (Local hoặc S3)
+        var fileResult = await _s3StorageService.GetFileStreamAsync(req.FilePath);
+        if (fileResult != null && fileResult.Value.Stream != null)
         {
-            var localRelPath = req.FilePath.Replace('/', Path.DirectorySeparatorChar);
-            var possiblePaths = new[]
-            {
-                Path.Combine(Directory.GetCurrentDirectory(), "uploads", localRelPath),
-                Path.Combine(Directory.GetCurrentDirectory(), "API", "uploads", localRelPath),
-                Path.Combine(AppContext.BaseDirectory, "uploads", localRelPath),
-                Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "uploads", localRelPath)
-            };
+            return File(fileResult.Value.Stream, mimeType, fileName);
+        }
 
-            foreach (var p in possiblePaths)
+        // 2. Nếu S3 đã cấu hình và khả dụng, chuyển hướng tới Presigned URL có chữ ký số
+        if (_s3StorageService.IsS3Configured)
+        {
+            var presignedUrl = _s3StorageService.GetPresignedUrl(req.FilePath, 60);
+            if (!string.IsNullOrWhiteSpace(presignedUrl) && !presignedUrl.StartsWith("/api"))
             {
-                if (System.IO.File.Exists(p))
-                {
-                    var fileBytes = await System.IO.File.ReadAllBytesAsync(p);
-                    return File(fileBytes, mimeType, fileName);
-                }
+                return Redirect(presignedUrl);
             }
         }
 
-        // 2. Nếu S3 đã cấu hình, sinh Presigned URL và chuyển hướng tải
-        var presignedUrl = _s3StorageService.GetPresignedUrl(req.FilePath, 60);
-        if (!string.IsNullOrWhiteSpace(presignedUrl) && !presignedUrl.Contains("temp_token"))
+        // 3. Fallback: Nếu không tìm thấy file vật lý, dùng ClosedXML tạo file Excel .xlsx chuẩn xác 100%
+        if (ext == ".pdf")
         {
-            return Redirect(presignedUrl);
+            return NotFound("Không tìm thấy tệp tin PDF đính kèm.");
         }
 
-        // 3. Fallback: Nếu không tìm thấy file vật lý, tự động tạo nội dung file mẫu chuẩn trả về
-        var csvHeader = "STT,Mã Vị Trí,Chức Danh Đề Xuất,Số Lượng,Hình Thức Hợp Đồng,Ca Làm Việc Dự Kiến,Lý Do Chi Tiết\n";
-        var csvRow = $"1,DX-01,Nhân Sự Mở Rộng,{req.TotalRequested},FULL_TIME,Toàn thời gian,\"{req.Reason}\"\n";
-        var generatedBytes = System.Text.Encoding.UTF8.GetPreamble()
-            .Concat(System.Text.Encoding.UTF8.GetBytes(csvHeader + csvRow)).ToArray();
-        return File(generatedBytes, "text/csv; charset=utf-8", Path.ChangeExtension(fileName, ".csv"));
+        var fallbackBytes = GenerateFallbackExcelBytes(req);
+        var targetFileName = ext == ".xlsx" ? fileName : Path.ChangeExtension(fileName, ".xlsx");
+        return File(fallbackBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", targetFileName);
+    }
+
+    private static byte[] GenerateFallbackExcelBytes(HeadcountImportRequestDto req)
+    {
+        using var workbook = new ClosedXML.Excel.XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("De_Xuat_Dinh_Bien");
+
+        worksheet.Cell(1, 1).Value = "STT";
+        worksheet.Cell(1, 2).Value = "Mã Đơn";
+        worksheet.Cell(1, 3).Value = "Mã Chi Nhánh";
+        worksheet.Cell(1, 4).Value = "Tên Chi Nhánh";
+        worksheet.Cell(1, 5).Value = "Số Lượng Đề Xuất";
+        worksheet.Cell(1, 6).Value = "Người Đề Xuất";
+        worksheet.Cell(1, 7).Value = "Trạng Thái";
+        worksheet.Cell(1, 8).Value = "Lý Do Chi Tiết";
+
+        worksheet.Cell(2, 1).Value = 1;
+        worksheet.Cell(2, 2).Value = $"DX-{req.Id:D4}";
+        worksheet.Cell(2, 3).Value = req.BranchCode;
+        worksheet.Cell(2, 4).Value = req.BranchName;
+        worksheet.Cell(2, 5).Value = req.TotalRequested;
+        worksheet.Cell(2, 6).Value = req.RequesterName;
+        worksheet.Cell(2, 7).Value = req.Status;
+        worksheet.Cell(2, 8).Value = req.Reason;
+
+        var header = worksheet.Range(1, 1, 1, 8);
+        header.Style.Font.Bold = true;
+        header.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#1E3A8A");
+        header.Style.Font.FontColor = ClosedXML.Excel.XLColor.White;
+        worksheet.Columns().AdjustToContents();
+
+        using var ms = new MemoryStream();
+        workbook.SaveAs(ms);
+        return ms.ToArray();
     }
 
     /// <summary>

@@ -18,6 +18,11 @@ public class S3StorageService : IS3StorageService
     private readonly IAmazonS3? _s3Client;
 
     /// <summary>
+    /// Cho biết AWS S3 đã được cấu hình với thông tin xác thực hợp lệ hay chưa.
+    /// </summary>
+    public bool IsS3Configured { get; }
+
+    /// <summary>
     /// Khởi tạo S3StorageService và cấu hình AmazonS3Client từ IConfiguration.
     /// </summary>
     public S3StorageService(IConfiguration configuration, ILogger<S3StorageService> logger)
@@ -30,14 +35,32 @@ public class S3StorageService : IS3StorageService
         var secretKey = _configuration["AWS:SecretAccessKey"];
         var regionName = _configuration["AWS:Region"] ?? "us-east-1";
 
-        if (!string.IsNullOrEmpty(accessKey) && !string.IsNullOrEmpty(secretKey))
+        var isKeyValid = !string.IsNullOrWhiteSpace(accessKey)
+                      && !accessKey.Contains("YOUR_AWS", StringComparison.OrdinalIgnoreCase)
+                      && !string.IsNullOrWhiteSpace(secretKey)
+                      && !secretKey.Contains("YOUR_AWS", StringComparison.OrdinalIgnoreCase);
+
+        if (isKeyValid)
         {
-            var region = RegionEndpoint.GetBySystemName(regionName);
-            _s3Client = new AmazonS3Client(accessKey, secretKey, region);
+            try
+            {
+                var region = RegionEndpoint.GetBySystemName(regionName);
+                _s3Client = new AmazonS3Client(accessKey, secretKey, region);
+                IsS3Configured = true;
+                _logger.LogInformation("AWS S3 đã được kết nối thành công tới bucket {BucketName}.", _bucketName);
+            }
+            catch (Exception ex)
+            {
+                _s3Client = null;
+                IsS3Configured = false;
+                _logger.LogWarning(ex, "Khởi tạo AmazonS3Client thất bại. Chuyển sang chế độ Local Storage Fallback.");
+            }
         }
         else
         {
-            _logger.LogWarning("AWS Credentials not fully configured. S3StorageService will run in fallback mode.");
+            _s3Client = null;
+            IsS3Configured = false;
+            _logger.LogInformation("AWS Credentials chưa được cấu hình hoặc là placeholder. S3StorageService sẽ hoạt động ở chế độ Local Storage Fallback.");
         }
     }
 
@@ -58,9 +81,13 @@ public class S3StorageService : IS3StorageService
         }
 
         byte[] bytes = Convert.FromBase64String(cleanBase64);
-        var fileName = $"{folderName}/{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}.jpg";
+        var cleanFolder = string.IsNullOrWhiteSpace(folderName) ? "attendance" : folderName.Trim().Trim('/');
+        var fileName = $"{cleanFolder}/{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}.jpg";
 
-        if (_s3Client != null)
+        // Lưu bản sao cục bộ
+        SaveLocalBytes(bytes, fileName);
+
+        if (IsS3Configured && _s3Client != null)
         {
             try
             {
@@ -80,16 +107,12 @@ public class S3StorageService : IS3StorageService
                 _logger.LogError(ex, "Lỗi khi tải ảnh Base64 lên AWS S3 bucket {BucketName}. Sử dụng fallback key: {FileName}", _bucketName, fileName);
             }
         }
-        else
-        {
-            _logger.LogInformation("Fallback mode: Generated mock S3 key: {FileName}", fileName);
-        }
 
         return fileName;
     }
 
     /// <summary>
-    /// Tải tệp tin IFormFile trực tiếp từ HTTP Request multipart/form-data lên AWS S3.
+    /// Tải tệp tin IFormFile trực tiếp từ HTTP Request multipart/form-data lên AWS S3 hoặc Local Storage.
     /// </summary>
     public async Task<string> UploadFileAsync(IFormFile file, string folderName)
     {
@@ -99,28 +122,14 @@ public class S3StorageService : IS3StorageService
         }
 
         var ext = Path.GetExtension(file.FileName);
-        if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
-        var fileName = $"{folderName}/{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}{ext}";
+        if (string.IsNullOrWhiteSpace(ext)) ext = ".dat";
+        var cleanFolder = string.IsNullOrWhiteSpace(folderName) ? "files" : folderName.Trim().Trim('/');
+        var fileName = $"{cleanFolder}/{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}{ext.ToLowerInvariant()}";
 
-        // Lưu trữ một bản sao cục bộ vào thư mục uploads/ để luôn mở/tải về được ngay cả khi không có AWS S3
-        try
-        {
-            var localRelPath = fileName.Replace('/', Path.DirectorySeparatorChar);
-            var localFullPath = Path.Combine(Directory.GetCurrentDirectory(), "uploads", localRelPath);
-            var localDir = Path.GetDirectoryName(localFullPath);
-            if (!string.IsNullOrEmpty(localDir))
-            {
-                Directory.CreateDirectory(localDir);
-            }
-            using var localStream = new FileStream(localFullPath, FileMode.Create);
-            await file.CopyToAsync(localStream);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Không thể lưu bản sao cục bộ cho file {FileName}", fileName);
-        }
+        // Lưu bản sao cục bộ vào uploads/
+        await SaveLocalFileAsync(file, fileName);
 
-        if (_s3Client != null)
+        if (IsS3Configured && _s3Client != null)
         {
             try
             {
@@ -140,22 +149,96 @@ public class S3StorageService : IS3StorageService
                 _logger.LogError(ex, "Lỗi khi tải tệp tin lên AWS S3 bucket {BucketName}. Sử dụng fallback key: {FileName}", _bucketName, fileName);
             }
         }
-        else
+
+        return fileName;
+    }
+
+    /// <summary>
+    /// Tải tệp tin PDF lên AWS S3 với kiểm tra định dạng .pdf, MIME type và magic bytes (%PDF).
+    /// </summary>
+    public async Task<string> UploadPdfAsync(IFormFile file, string folderName)
+    {
+        if (file == null || file.Length == 0)
         {
-            _logger.LogInformation("Fallback mode: File saved locally and mock key generated: {FileName}", fileName);
+            throw new ArgumentException("Tệp tin PDF không được để trống.", nameof(file));
+        }
+
+        // 1. Kiểm tra dung lượng tối đa (20MB)
+        const long maxSizeBytes = 20 * 1024 * 1024;
+        if (file.Length > maxSizeBytes)
+        {
+            throw new ArgumentException("Dung lượng tệp tin PDF vượt quá giới hạn cho phép (tối đa 20MB).", nameof(file));
+        }
+
+        // 2. Kiểm tra phần mở rộng file
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (ext != ".pdf")
+        {
+            throw new ArgumentException("Định dạng tệp không hợp lệ. Hệ thống chỉ chấp nhận tệp có phần mở rộng .pdf.", nameof(file));
+        }
+
+        // 3. Kiểm tra Content-Type
+        if (!string.Equals(file.ContentType, "application/pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Content-Type của tệp tin không hợp lệ. Bắt buộc phải là 'application/pdf'.", nameof(file));
+        }
+
+        // 4. Kiểm tra magic bytes ký số tệp PDF (%PDF = 0x25, 0x50, 0x44, 0x46)
+        using (var stream = file.OpenReadStream())
+        {
+            if (stream.Length < 4)
+            {
+                throw new ArgumentException("Tệp tin bị hỏng hoặc kích thước quá nhỏ để là tệp PDF hợp lệ.", nameof(file));
+            }
+
+            var header = new byte[4];
+            var bytesRead = await stream.ReadAsync(header, 0, 4);
+            if (bytesRead < 4 || header[0] != 0x25 || header[1] != 0x50 || header[2] != 0x44 || header[3] != 0x46)
+            {
+                throw new ArgumentException("Nội dung tệp tin không phải định dạng PDF hợp lệ (chữ ký tệp %PDF không khớp).", nameof(file));
+            }
+        }
+
+        // 5. Sinh tên tệp duy nhất bảo vệ chống path traversal
+        var cleanFolder = string.IsNullOrWhiteSpace(folderName) ? "documents" : folderName.Trim().Trim('/');
+        var fileName = $"{cleanFolder}/{DateTime.UtcNow:yyyy/MM/dd}/{Guid.NewGuid()}.pdf";
+
+        // 6. Lưu trữ bản sao cục bộ
+        await SaveLocalFileAsync(file, fileName);
+
+        // 7. Tải lên S3 nếu S3 sẵn sàng
+        if (IsS3Configured && _s3Client != null)
+        {
+            try
+            {
+                using var stream = file.OpenReadStream();
+                var putRequest = new PutObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = fileName,
+                    InputStream = stream,
+                    ContentType = "application/pdf"
+                };
+
+                await _s3Client.PutObjectAsync(putRequest);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi tải PDF lên AWS S3 bucket {BucketName}. Sử dụng fallback key: {FileName}", _bucketName, fileName);
+            }
         }
 
         return fileName;
     }
 
     /// <summary>
-    /// Tạo liên kết Presigned URL có thời hạn phục vụ truy cập xem ảnh chân dung trực tiếp.
+    /// Tạo liên kết Presigned URL có thời hạn phục vụ truy cập xem ảnh chân dung / file trực tiếp.
     /// </summary>
     public string? GetPresignedUrl(string? s3ObjectKey, int expirationMinutes = 30)
     {
         if (string.IsNullOrWhiteSpace(s3ObjectKey)) return null;
 
-        if (_s3Client != null)
+        if (IsS3Configured && _s3Client != null)
         {
             try
             {
@@ -173,7 +256,151 @@ public class S3StorageService : IS3StorageService
             }
         }
 
-        // Fallback cho môi trường phát triển nếu S3 client không kết nối trực tiếp
-        return $"https://{_bucketName}.s3.amazonaws.com/{s3ObjectKey}?temp_token={Guid.NewGuid()}&expires={DateTimeOffset.UtcNow.AddMinutes(expirationMinutes).ToUnixTimeSeconds()}";
+        // Khi chạy local fallback, trả về URL tải về qua API nội bộ thay vì URL AWS lỗi
+        return $"/api/v1/files/download?key={Uri.EscapeDataString(s3ObjectKey)}";
+    }
+
+    /// <summary>
+    /// Tạo liên kết Presigned URL có thời hạn phục vụ truy cập xem trực tiếp (inline) file (PDF/ảnh) trên trình duyệt.
+    /// </summary>
+    public string? GetPresignedViewUrl(string? s3ObjectKey, string contentType = "application/pdf", int expirationMinutes = 30)
+    {
+        if (string.IsNullOrWhiteSpace(s3ObjectKey)) return null;
+
+        if (IsS3Configured && _s3Client != null)
+        {
+            try
+            {
+                var request = new GetPreSignedUrlRequest
+                {
+                    BucketName = _bucketName,
+                    Key = s3ObjectKey,
+                    Expires = DateTime.UtcNow.AddMinutes(expirationMinutes),
+                    ResponseHeaderOverrides = new ResponseHeaderOverrides
+                    {
+                        ContentType = contentType,
+                        ContentDisposition = "inline"
+                    }
+                };
+                return _s3Client.GetPreSignedURL(request);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi sinh Presigned View URL từ S3 cho key {Key}", s3ObjectKey);
+            }
+        }
+
+        // Local fallback: trả về URL API xem trực tiếp
+        return $"/api/v1/files/view?key={Uri.EscapeDataString(s3ObjectKey)}";
+    }
+
+    /// <summary>
+    /// Đọc Stream tệp tin từ AWS S3 (nếu đã cấu hình) hoặc từ local storage fallback uploads/.
+    /// </summary>
+    public async Task<(Stream? Stream, string ContentType, string FileName)?> GetFileStreamAsync(string s3ObjectKey)
+    {
+        if (string.IsNullOrWhiteSpace(s3ObjectKey)) return null;
+
+        var ext = Path.GetExtension(s3ObjectKey).ToLowerInvariant();
+        var mimeType = ext switch
+        {
+            ".pdf" => "application/pdf",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xls" => "application/vnd.ms-excel",
+            ".csv" => "text/csv; charset=utf-8",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            _ => "application/octet-stream"
+        };
+        var downloadFileName = Path.GetFileName(s3ObjectKey);
+
+        // 1. Kiểm tra local storage
+        var localRelPath = s3ObjectKey.Replace('/', Path.DirectorySeparatorChar);
+        var possibleDirs = new[]
+        {
+            Path.Combine(Directory.GetCurrentDirectory(), "uploads"),
+            Path.Combine(Directory.GetCurrentDirectory(), "API", "uploads"),
+            Path.Combine(AppContext.BaseDirectory, "uploads"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "uploads")
+        };
+
+        foreach (var dir in possibleDirs)
+        {
+            var p = Path.Combine(dir, localRelPath);
+            if (File.Exists(p))
+            {
+                var memoryStream = new MemoryStream();
+                using (var fileStream = new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    await fileStream.CopyToAsync(memoryStream);
+                }
+                memoryStream.Position = 0;
+                return (memoryStream, mimeType, downloadFileName);
+            }
+        }
+
+        // 2. Nếu S3 khả dụng, tải từ S3
+        if (IsS3Configured && _s3Client != null)
+        {
+            try
+            {
+                var getRequest = new GetObjectRequest
+                {
+                    BucketName = _bucketName,
+                    Key = s3ObjectKey
+                };
+                var response = await _s3Client.GetObjectAsync(getRequest);
+                var memoryStream = new MemoryStream();
+                await response.ResponseStream.CopyToAsync(memoryStream);
+                memoryStream.Position = 0;
+                var contentType = string.IsNullOrWhiteSpace(response.Headers.ContentType) ? mimeType : response.Headers.ContentType;
+                return (memoryStream, contentType, downloadFileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Không thể tải tệp tin từ S3 cho key {Key}", s3ObjectKey);
+            }
+        }
+
+        return null;
+    }
+
+    private void SaveLocalBytes(byte[] bytes, string relativePath)
+    {
+        try
+        {
+            var localRelPath = relativePath.Replace('/', Path.DirectorySeparatorChar);
+            var localFullPath = Path.Combine(Directory.GetCurrentDirectory(), "uploads", localRelPath);
+            var localDir = Path.GetDirectoryName(localFullPath);
+            if (!string.IsNullOrEmpty(localDir))
+            {
+                Directory.CreateDirectory(localDir);
+            }
+            File.WriteAllBytes(localFullPath, bytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể lưu bản sao cục bộ cho file {Path}", relativePath);
+        }
+    }
+
+    private async Task SaveLocalFileAsync(IFormFile file, string relativePath)
+    {
+        try
+        {
+            var localRelPath = relativePath.Replace('/', Path.DirectorySeparatorChar);
+            var localFullPath = Path.Combine(Directory.GetCurrentDirectory(), "uploads", localRelPath);
+            var localDir = Path.GetDirectoryName(localFullPath);
+            if (!string.IsNullOrEmpty(localDir))
+            {
+                Directory.CreateDirectory(localDir);
+            }
+            using var localStream = new FileStream(localFullPath, FileMode.Create);
+            await file.CopyToAsync(localStream);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Không thể lưu bản sao cục bộ cho file {Path}", relativePath);
+        }
     }
 }

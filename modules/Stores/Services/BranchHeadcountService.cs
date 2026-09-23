@@ -234,9 +234,9 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
         }
 
         var ext = Path.GetExtension(dto.File.FileName).ToLowerInvariant();
-        if (ext != ".xlsx" && ext != ".xls" && ext != ".csv")
+        if (ext != ".xlsx" && ext != ".xls" && ext != ".csv" && ext != ".pdf")
         {
-            return ApiResponse<HeadcountImportRequestDto>.Fail("Định dạng tệp tin không hợp lệ. Hệ thống chỉ chấp nhận file Excel định dạng .xlsx, .xls hoặc .csv.");
+            return ApiResponse<HeadcountImportRequestDto>.Fail("Định dạng tệp tin không hợp lệ. Hệ thống chấp nhận file Excel (.xlsx, .xls, .csv) hoặc tài liệu PDF (.pdf).");
         }
 
         // Ràng buộc chi nhánh: Nếu tài khoản là Store Manager thì bắt buộc upload cho chi nhánh mình quản lý
@@ -260,11 +260,22 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
         string uploadedFilePath;
         try
         {
-            uploadedFilePath = await _s3StorageService.UploadFileAsync(dto.File, "headcount-requests");
+            if (ext == ".pdf")
+            {
+                uploadedFilePath = await _s3StorageService.UploadPdfAsync(dto.File, "headcount-requests");
+            }
+            else
+            {
+                uploadedFilePath = await _s3StorageService.UploadFileAsync(dto.File, "headcount-requests");
+            }
+        }
+        catch (ArgumentException aex)
+        {
+            return ApiResponse<HeadcountImportRequestDto>.Fail(aex.Message);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Lỗi khi lưu trữ file Excel đề xuất định biên");
+            _logger.LogError(ex, "Lỗi khi lưu trữ file đề xuất định biên");
             return ApiResponse<HeadcountImportRequestDto>.Fail("Lỗi hệ thống khi tải lên tệp tin. Vui lòng thử lại sau.");
         }
 
@@ -311,7 +322,8 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             return ApiResponse<HeadcountImportRequestDto>.Fail("Không tìm thấy đơn đề xuất mở rộng định biên.");
         }
 
-        if (request.Status != HeadcountConstants.StatusPending)
+        // Cho phép thẩm định đơn PENDING hoặc tái thẩm định/phê duyệt lại đơn từng bị REJECTED trước đó
+        if (request.Status != HeadcountConstants.StatusPending && request.Status != HeadcountConstants.StatusRejected)
         {
             return ApiResponse<HeadcountImportRequestDto>.Fail($"Đơn này đã được xử lý trước đó (Trạng thái hiện tại: {request.Status}).");
         }
@@ -327,6 +339,9 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             }
 
             request.Status = HeadcountConstants.StatusRejected;
+            request.ApprovedQuantity = 0;
+            request.AdditionalQuantity = 0;
+            request.ExpiresAt = null;
             request.AdminNotes = dto.AdminNotes.Trim();
             request.ReviewedBy = adminId;
             request.ReviewedAt = DateTime.UtcNow;
@@ -339,7 +354,7 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
                 "Đã từ chối đơn đề xuất mở rộng định biên.");
         }
 
-        // Trường hợp 2: Phê duyệt (Hỗ trợ Duyệt một phần Partial Approval)
+        // Trường hợp 2: Phê duyệt (Hỗ trợ Duyệt một phần Partial Approval hoặc Duyệt toàn bộ)
         int approvedQuantity = (dto.ApprovedQuantity.HasValue && dto.ApprovedQuantity.Value > 0)
             ? dto.ApprovedQuantity.Value
             : request.TotalRequested;
@@ -348,10 +363,21 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             ? dto.ExpirationDays.Value
             : HeadcountConstants.DefaultExpirationDays;
 
+        // Ưu tiên thời điểm hết hạn cụ thể từ frontend gửi lên nếu hợp lệ
+        DateTime targetExpiry;
+        if (dto.ExpiresAt.HasValue && dto.ExpiresAt.Value > DateTime.UtcNow)
+        {
+            targetExpiry = dto.ExpiresAt.Value;
+        }
+        else
+        {
+            targetExpiry = DateTime.UtcNow.AddDays(expirationDays);
+        }
+
         request.Status = HeadcountConstants.StatusApproved;
         request.ApprovedQuantity = approvedQuantity;
         request.AdditionalQuantity = approvedQuantity; // Khởi tạo số lượng khả dụng
-        request.ExpiresAt = DateTime.UtcNow.AddDays(expirationDays);
+        request.ExpiresAt = targetExpiry;
         request.AdminNotes = dto.AdminNotes?.Trim();
         request.ReviewedBy = adminId;
         request.ReviewedAt = DateTime.UtcNow;
@@ -360,8 +386,8 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
         await _context.SaveChangesAsync();
 
         var message = approvedQuantity < request.TotalRequested
-            ? $"Đã phê duyệt một phần đơn mở rộng định biên: Cho phép tăng +{approvedQuantity}/{request.TotalRequested} nhân sự (Hạn dùng: {expirationDays} ngày)."
-            : $"Đã phê duyệt toàn bộ đơn mở rộng định biên: Cho phép tăng +{approvedQuantity} nhân sự (Hạn dùng: {expirationDays} ngày).";
+            ? $"Đã phê duyệt một phần đơn mở rộng định biên: Cho phép tăng +{approvedQuantity}/{request.TotalRequested} nhân sự (Hạn dùng đến {targetExpiry:dd/MM/yyyy})."
+            : $"Đã phê duyệt toàn bộ đơn mở rộng định biên: Cho phép tăng +{approvedQuantity} nhân sự (Hạn dùng đến {targetExpiry:dd/MM/yyyy}).";
 
         return ApiResponse<HeadcountImportRequestDto>.Ok(
             MapToDto(request, request.Branch, request.RequestedByUser, admin),
@@ -457,12 +483,18 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             MapToDto(request, request.Branch, request.RequestedByUser, request.ReviewedByUser));
     }
 
-    private static HeadcountImportRequestDto MapToDto(
+    private HeadcountImportRequestDto MapToDto(
         HeadcountImportRequest entity,
         Branch branch,
         User requester,
         User? reviewer)
     {
+        var ext = Path.GetExtension(entity.FilePath).ToLowerInvariant();
+        var mime = ext == ".pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        var viewUrl = _s3StorageService.GetPresignedViewUrl(entity.FilePath, mime)
+                   ?? $"/api/v1/headcount-requests/{entity.Id}/view";
+        var downloadUrl = $"/api/v1/headcount-requests/{entity.Id}/download";
+
         return new HeadcountImportRequestDto
         {
             Id = entity.Id,
@@ -474,6 +506,8 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             RequesterEmployeeCode = requester?.EmployeeCode ?? string.Empty,
             FilePath = entity.FilePath,
             FileName = entity.FileName,
+            ViewUrl = viewUrl,
+            DownloadUrl = downloadUrl,
             Status = entity.Status,
             TotalRequested = entity.TotalRequested,
             ApprovedQuantity = entity.ApprovedQuantity,

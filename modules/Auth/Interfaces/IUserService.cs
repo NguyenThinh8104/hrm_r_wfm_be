@@ -17,6 +17,10 @@ public interface IUserService
     Task<ApiResponse<EmployeeDetailDto>> CreateEmployeeAsync(CreateEmployeeDto dto, ulong actorId, string actorRole, ulong? actorBranchId, string? ipAddress);
     Task<ApiResponse<EmployeeDetailDto>> UpdateEmployeeAsync(ulong userId, UpdateEmployeeDto dto, ulong actorId, string actorRole, ulong? actorBranchId, string? ipAddress);
 
+    // UC 1.5 - Bổ sung: Import nhân sự hàng loạt bằng file Excel
+    Task<ApiResponse<BulkImportResultDto>> BulkImportEmployeesAsync(BulkImportEmployeeRequestDto dto, ulong actorId, string actorRole, string? ipAddress);
+    Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync();
+
     // Danh mục Roles & Chi nhánh
     Task<ApiResponse<List<RoleDto>>> GetRolesAsync();
     Task<ApiResponse<List<BranchSimpleDto>>> GetBranchesAsync();

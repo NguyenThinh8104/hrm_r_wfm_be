@@ -132,6 +132,34 @@ public class UsersController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// UC 1.5: Tải file mẫu Excel chuẩn để phục vụ import nhân sự hàng loạt (kèm danh mục mã chi nhánh & vai trò).
+    /// </summary>
+    [HttpGet("employees/import-template")]
+    [HttpGet("/api/v1/users/employees/import-template")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
+    public async Task<IActionResult> DownloadEmployeeImportTemplate()
+    {
+        var (fileBytes, contentType, fileName) = await _userService.GenerateEmployeeImportTemplateAsync();
+        return File(fileBytes, contentType, fileName);
+    }
+
+    /// <summary>
+    /// UC 1.5: Thêm nhân sự hàng loạt bằng tệp tin Excel (.xlsx / .xls / .csv).
+    /// Kiểm tra chặt chẽ định biên theo từng chi nhánh, kiểm tra trùng lặp danh tính và trả về báo cáo chi tiết.
+    /// </summary>
+    [HttpPost("employees/import")]
+    [HttpPost("/api/v1/users/employees/import")]
+    [Consumes("multipart/form-data")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<BulkImportResultDto>>> BulkImportEmployees([FromForm] BulkImportEmployeeRequestDto dto)
+    {
+        var (actorId, role, _, ip) = GetCurrentUserInfo();
+        var result = await _userService.BulkImportEmployeesAsync(dto, actorId, role, ip);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
     #endregion
 
     #region Metadata & Dropdowns

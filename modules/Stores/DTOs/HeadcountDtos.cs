@@ -89,11 +89,23 @@ public class HeadcountImportRequestDto
     public string RequesterEmployeeCode { get; set; } = string.Empty;
     public string FilePath { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
+    /// <summary>
+    /// Đường dẫn xem trực tiếp (inline preview) tệp tin trên trình duyệt (đặc biệt cho PDF).
+    /// </summary>
+    public string ViewUrl { get; set; } = string.Empty;
+    /// <summary>
+    /// Đường dẫn tải tệp tin về máy tính.
+    /// </summary>
+    public string DownloadUrl { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public int TotalRequested { get; set; }
     public int ApprovedQuantity { get; set; }
     public int TotalApproved { get; set; }
     public int AdditionalQuantity { get; set; }
+    /// <summary>
+    /// Số lượng còn lại chưa duyệt (Số xin trừ đi số đã duyệt).
+    /// </summary>
+    public int RemainingQuantity => Math.Max(0, TotalRequested - ApprovedQuantity);
     public string Reason { get; set; } = string.Empty;
     public string? AdminNotes { get; set; }
     public ulong? ReviewedBy { get; set; }
@@ -106,7 +118,7 @@ public class HeadcountImportRequestDto
 }
 
 /// <summary>
-/// DTO tải lên file Excel xin mở rộng định biên từ Store Manager.
+/// DTO tải lên file đề xuất mở rộng định biên (hỗ trợ .xlsx, .xls, .csv hoặc .pdf) từ Store Manager.
 /// </summary>
 public class UploadHeadcountRequestDto
 {
@@ -130,18 +142,66 @@ public class UploadHeadcountRequestDto
     [StringLength(1000, ErrorMessage = "Lý do không được vượt quá 1000 ký tự.")]
     public string Reason { get; set; } = string.Empty;
 
-    [Required(ErrorMessage = "Vui lòng đính kèm file Excel (.xlsx / .xls / .csv).")]
+    [Required(ErrorMessage = "Vui lòng đính kèm file đề xuất (.xlsx / .xls / .csv / .pdf).")]
     public IFormFile File { get; set; } = null!;
 }
 
 /// <summary>
 /// DTO thẩm định và phê duyệt đơn mở rộng định biên từ Operations Admin.
-/// Hỗ trợ phê duyệt một phần (Partial Approval) hoặc từ chối (Reject).
+/// Hỗ trợ phê duyệt toàn bộ, phê duyệt một phần (Partial Approval) hoặc từ chối (Reject).
+/// Tương thích đa dạng payload từ Frontend (IsApproved bool, Status string "APPROVED"/"REJECTED", Decision, Action, ExpiresAt).
 /// </summary>
 public class ReviewHeadcountRequestDto
 {
-    [Required(ErrorMessage = "Vui lòng xác định hành động (Phê duyệt hoặc Từ chối).")]
-    public bool IsApproved { get; set; }
+    private bool? _isApproved;
+
+    /// <summary>
+    /// Trạng thái phê duyệt (true = Phê duyệt, false = Từ chối).
+    /// Tự động đồng bộ với Status / Decision / Action nếu frontend gửi chuỗi "APPROVED"/"REJECTED".
+    /// </summary>
+    public bool IsApproved
+    {
+        get
+        {
+            if (_isApproved.HasValue) return _isApproved.Value;
+
+            if (!string.IsNullOrWhiteSpace(Status))
+            {
+                var s = Status.Trim().ToUpperInvariant();
+                return s == "APPROVED" || s == "APPROVE" || s == "ACCEPT" || s == "ACCEPTED";
+            }
+
+            if (!string.IsNullOrWhiteSpace(Decision))
+            {
+                var d = Decision.Trim().ToUpperInvariant();
+                return d == "APPROVED" || d == "APPROVE" || d == "ACCEPT" || d == "ACCEPTED";
+            }
+
+            if (!string.IsNullOrWhiteSpace(Action))
+            {
+                var a = Action.Trim().ToUpperInvariant();
+                return a == "APPROVE" || a == "APPROVED" || a == "ACCEPT" || a == "ACCEPTED";
+            }
+
+            return false;
+        }
+        set => _isApproved = value;
+    }
+
+    /// <summary>
+    /// Trạng thái gửi từ frontend: "APPROVED" hoặc "REJECTED".
+    /// </summary>
+    public string? Status { get; set; }
+
+    /// <summary>
+    /// Quyết định từ frontend: "APPROVED" hoặc "REJECTED".
+    /// </summary>
+    public string? Decision { get; set; }
+
+    /// <summary>
+    /// Hành động từ frontend: "APPROVE" hoặc "REJECT".
+    /// </summary>
+    public string? Action { get; set; }
 
     /// <summary>
     /// Số lượng nhân sự phê duyệt thực tế (hỗ trợ duyệt một phần Partial Approval).
@@ -153,13 +213,33 @@ public class ReviewHeadcountRequestDto
     /// <summary>
     /// Số ngày hiệu lực của đơn (mặc định 30 ngày nếu không chỉ định).
     /// </summary>
-    [Range(1, 180, ErrorMessage = "Thời hạn hiệu lực phải từ 1 đến 180 ngày.")]
+    [Range(1, 365, ErrorMessage = "Thời hạn hiệu lực phải từ 1 đến 365 ngày.")]
     public int? ExpirationDays { get; set; }
+
+    /// <summary>
+    /// Thời điểm hết hạn hiệu lực do frontend gửi trực tiếp (ISO string).
+    /// </summary>
+    public DateTime? ExpiresAt { get; set; }
 
     /// <summary>
     /// Ghi chú thẩm định từ Admin hoặc lý do từ chối (bắt buộc khi từ chối).
     /// </summary>
     public string? AdminNotes { get; set; }
+
+    /// <summary>
+    /// Alias ghi chú từ frontend
+    /// </summary>
+    public string? Notes
+    {
+        get => AdminNotes;
+        set { if (!string.IsNullOrWhiteSpace(value) && string.IsNullOrWhiteSpace(AdminNotes)) AdminNotes = value; }
+    }
+
+    public string? Note
+    {
+        get => AdminNotes;
+        set { if (!string.IsNullOrWhiteSpace(value) && string.IsNullOrWhiteSpace(AdminNotes)) AdminNotes = value; }
+    }
 }
 
 /// <summary>

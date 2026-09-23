@@ -33,6 +33,7 @@ public partial class AppDbContext : DbContext
     public DbSet<MonthlyTimesheet> MonthlyTimesheets { get; set; } = null!;
     public DbSet<SystemAuditLog> SystemAuditLogs { get; set; } = null!;
     public DbSet<HeadcountImportRequest> HeadcountImportRequests { get; set; } = null!;
+    public DbSet<BranchTierEntity> BranchTiers { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,10 +51,33 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.GeofenceRadiusMeters).HasColumnName("GeofenceRadiusMeters");
             // Phân cấp chi nhánh (BranchTier: 1 = Tier 1, 2 = Tier 2, 3 = Tier 3). Mặc định là Tier 2 (Tiêu chuẩn).
             entity.Property(e => e.BranchTier).HasColumnName("BranchTier").HasDefaultValue(Domain.Enums.BranchTier.Tier2);
+            entity.Property(e => e.StaffCount).HasColumnName("StaffCount").HasDefaultValue(0);
+            entity.Property(e => e.TierId).HasColumnName("TierId");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.BranchCode).IsUnique();
             entity.Property(e => e.Location).HasColumnType("POINT");
+
+            entity.HasOne(e => e.Tier)
+                .WithMany(t => t.Branches)
+                .HasForeignKey(e => e.TierId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // 1b. branch_tiers
+        modelBuilder.Entity<BranchTierEntity>(entity =>
+        {
+            entity.ToTable("branch_tiers");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TierName).HasColumnName("TierName").IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Description).HasColumnName("Description");
+            entity.Property(e => e.MinStaffCount).HasColumnName("MinStaffCount");
+            entity.Property(e => e.MaxStaffCount).HasColumnName("MaxStaffCount");
+            entity.Property(e => e.OtherConditions).HasColumnName("OtherConditions");
+            entity.Property(e => e.Conditions).HasColumnName("Conditions");
+            entity.Property(e => e.Benefits).HasColumnName("Benefits");
+            entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
+            entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
         });
 
 

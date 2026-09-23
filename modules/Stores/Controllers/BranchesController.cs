@@ -12,6 +12,7 @@ namespace Modules.Stores.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/branches")]
+[Route("api/branches")]
 public class BranchesController : ControllerBase
 {
     private readonly IBranchService _branchService;
@@ -144,5 +145,20 @@ public class BranchesController : ControllerBase
         var result = await _branchService.CreateBranchKioskAsync(id, dto);
         if (!result.Success) return BadRequest(result);
         return StatusCode(201, result);
+    }
+
+    /// <summary>
+    /// [Operations Admin] Cập nhật số lượng nhân sự của chi nhánh và tự động xác định lại tier tương ứng.
+    /// </summary>
+    [HttpPut("{id}/staff-count")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<BranchDto>>> UpdateBranchStaffCount(ulong id, [FromBody] UpdateBranchStaffCountDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ApiResponse<BranchDto>.Fail("Dữ liệu không hợp lệ."));
+
+        var result = await _branchService.UpdateBranchStaffCountAsync(id, dto.StaffCount);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
     }
 }

@@ -30,6 +30,23 @@ public class Branch
     /// Phân cấp quy mô chi nhánh (Tier 1: Lớn, Tier 2: Tiêu chuẩn, Tier 3: Nhỏ). Mặc định là Tier 2 (Tiêu chuẩn).
     /// </summary>
     public Domain.Enums.BranchTier BranchTier { get; set; } = Domain.Enums.BranchTier.Tier2;
+
+    /// <summary>
+    /// Số lượng nhân sự hiện tại của chi nhánh.
+    /// </summary>
+    public int StaffCount { get; set; } = 0;
+
+    /// <summary>
+    /// Khóa ngoại liên kết tới bảng branch_tiers.
+    /// </summary>
+    public int? TierId { get; set; }
+
+    /// <summary>
+    /// Đối tượng Tier liên kết.
+    /// </summary>
+    [ForeignKey("TierId")]
+    public BranchTierEntity? Tier { get; set; }
+
     [Column("Location", TypeName = "POINT")]
     public Point? Location { get; set; }
 

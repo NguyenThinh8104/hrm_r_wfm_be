@@ -1396,9 +1396,118 @@ public class ShiftService : IShiftService
 
 
 
+    /// <summary>
+    /// Lấy danh sách cơ sở/chi nhánh mà tài khoản được quyền lập lịch ca tuần (Branch Isolation).
+    /// </summary>
+    public async Task<ApiResponse<AccessibleBranchesDto>> GetAccessibleBranchesAsync(ulong userId, string role, ulong? storeId)
+    {
+        var normalizedRole = (role ?? string.Empty).Trim().ToUpperInvariant();
+        bool isGlobal = normalizedRole == "OPERATIONS_ADMIN" || 
+                        normalizedRole == "BUSINESS_OWNER" || 
+                        normalizedRole == "OPERATIONSADMIN" || 
+                        normalizedRole == "BUSINESSOWNER" || 
+                        normalizedRole == "ADMIN";
+
+        // Query active branches
+        var allActiveBranches = await _context.Branches
+            .Where(b => b.Status == "ACTIVE")
+            .OrderBy(b => b.Id)
+            .ToListAsync();
+
+        if (isGlobal)
+        {
+            var branches = allActiveBranches.Select(b => new AccessibleBranchItemDto
+            {
+                Id = b.Id,
+                BranchCode = b.BranchCode,
+                Name = b.Name,
+                Address = b.Address,
+                Status = b.Status,
+                Tier = (int)b.BranchTier
+            }).ToList();
+
+            return ApiResponse<AccessibleBranchesDto>.Ok(new AccessibleBranchesDto
+            {
+                IsGlobalManager = true,
+                AssignedBranchId = null,
+                AssignedBranchName = null,
+                AssignedBranchCode = null,
+                Branches = branches
+            });
+        }
+
+        // Store Manager or Shift Leader:
+        // First, if storeId was null or 0, fallback to user in DB
+        ulong? assignedId = storeId;
+        if (!assignedId.HasValue || assignedId.Value == 0)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            assignedId = user?.HomeBranchId;
+        }
+
+        if (!assignedId.HasValue || assignedId.Value == 0)
+        {
+            return ApiResponse<AccessibleBranchesDto>.Fail("Tài khoản quản lý chưa được phân công cơ sở chi nhánh cụ thể. Vui lòng liên hệ Quản trị viên.");
+        }
+
+        var assignedBranch = allActiveBranches.FirstOrDefault(b => b.Id == assignedId.Value)
+            ?? await _context.Branches.FirstOrDefaultAsync(b => b.Id == assignedId.Value);
+
+        if (assignedBranch == null)
+        {
+            return ApiResponse<AccessibleBranchesDto>.Fail($"Cơ sở chi nhánh được phân công (ID: {assignedId}) không tồn tại trong hệ thống.");
+        }
+
+        var singleBranchList = new List<AccessibleBranchItemDto>
+        {
+            new AccessibleBranchItemDto
+            {
+                Id = assignedBranch.Id,
+                BranchCode = assignedBranch.BranchCode,
+                Name = assignedBranch.Name,
+                Address = assignedBranch.Address,
+                Status = assignedBranch.Status,
+                Tier = (int)assignedBranch.BranchTier
+            }
+        };
+
+        return ApiResponse<AccessibleBranchesDto>.Ok(new AccessibleBranchesDto
+        {
+            IsGlobalManager = false,
+            AssignedBranchId = assignedBranch.Id,
+            AssignedBranchName = assignedBranch.Name,
+            AssignedBranchCode = assignedBranch.BranchCode,
+            Branches = singleBranchList
+        });
+    }
+
+    /// <summary>
+    /// Lấy BranchId của phân công ca trực để kiểm tra phân quyền sở hữu.
+    /// </summary>
+    public async Task<ulong?> GetBranchIdByAssignmentIdAsync(ulong assignmentId)
+    {
+        return await _context.ShiftAssignments
+            .Where(sa => sa.Id == assignmentId)
+            .Select(sa => (ulong?)sa.Schedule.BranchId)
+            .FirstOrDefaultAsync();
+    }
+
+    /// <summary>
+    /// Lấy BranchId của khung lịch ca để kiểm tra phân quyền sở hữu.
+    /// </summary>
+    public async Task<ulong?> GetBranchIdByScheduleIdAsync(ulong scheduleId)
+    {
+        return await _context.WorkSchedules
+            .Where(ws => ws.Id == scheduleId)
+            .Select(ws => (ulong?)ws.BranchId)
+            .FirstOrDefaultAsync();
+    }
+
     // ==========================================
     // 4. Các Phương Thức Tương Thích Hiện Có
     // ==========================================
+
+
 
     /// <summary>
     /// Lấy danh sách mẫu ca làm việc active cho client.

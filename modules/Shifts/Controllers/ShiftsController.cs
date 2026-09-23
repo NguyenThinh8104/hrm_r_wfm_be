@@ -22,11 +22,12 @@ public class ShiftsController : ControllerBase
     }
 
     /// <summary>
-    /// Kiểm tra phân quyền truy cập cơ sở chi nhánh theo vai trò người dùng (Branch Isolation).
+    /// Kiểm tra phân quyền và tự động ánh xạ cơ sở chi nhánh theo vai trò người dùng (Branch Isolation).
     /// - Quản trị viên (OPERATIONS_ADMIN, BUSINESS_OWNER, ADMIN) có toàn quyền trên tất cả các chi nhánh.
-    /// - Cửa hàng trưởng (STORE_MANAGER, SHIFT_LEADER) chỉ được thao tác trên đúng cơ sở được phân công (HomeBranchId).
+    /// - Cửa hàng trưởng (STORE_MANAGER, SHIFT_LEADER): Tự động lấy BranchId từ AccessToken JWT (StoreId)
+    ///   làm cơ sở thao tác, đảm bảo luôn tạo và quản lý lịch đúng cho cơ sở của mình.
     /// </summary>
-    private async Task<(bool isAllowed, string? errorMessage, ActionResult? forbiddenResult)> CheckBranchAccessAsync(ulong targetBranchId)
+    private async Task<(bool isAllowed, string? errorMessage, ActionResult? forbiddenResult, ulong effectiveBranchId)> CheckBranchAccessAsync(ulong targetBranchId)
     {
         var role = (User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty).Trim().ToUpperInvariant();
         bool isGlobal = role == "OPERATIONS_ADMIN" || 
@@ -37,10 +38,10 @@ public class ShiftsController : ControllerBase
 
         if (isGlobal)
         {
-            return (true, null, null);
+            return (true, null, null, targetBranchId > 0 ? targetBranchId : 1);
         }
 
-        // Với Store Manager hoặc Shift Leader: kiểm tra HomeBranchId từ Token hoặc DB
+        // Với Store Manager hoặc Shift Leader: Gốc/ngọn lấy BranchId trực tiếp từ Token JWT
         var storeIdClaim = User.FindFirst("StoreId")?.Value;
         ulong? userBranchId = null;
         if (!string.IsNullOrEmpty(storeIdClaim) && ulong.TryParse(storeIdClaim, out var bid) && bid > 0)
@@ -62,16 +63,11 @@ public class ShiftsController : ControllerBase
         if (!userBranchId.HasValue || userBranchId.Value == 0)
         {
             var msg = "Tài khoản quản lý của bạn chưa được phân công cơ sở chi nhánh cụ thể. Vui lòng liên hệ Quản trị viên.";
-            return (false, msg, StatusCode(403, ApiResponse<object>.Fail(msg)));
+            return (false, msg, StatusCode(403, ApiResponse<object>.Fail(msg)), 0);
         }
 
-        if (userBranchId.Value != targetBranchId)
-        {
-            var msg = $"Bạn không có quyền quản lý lịch ca của chi nhánh #{targetBranchId}. Bạn chỉ được phân quyền quản lý tại chi nhánh #{userBranchId.Value}.";
-            return (false, msg, StatusCode(403, ApiResponse<object>.Fail(msg)));
-        }
-
-        return (true, null, null);
+        // Tự động dùng đúng BranchId từ Token cho Store Manager
+        return (true, null, null, userBranchId.Value);
     }
 
     /// <summary>
@@ -174,8 +170,9 @@ public class ShiftsController : ControllerBase
     [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<WorkScheduleDto>>>> GenerateMonthlySchedule([FromBody] GenerateMonthlyScheduleDto dto)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(dto.BranchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(dto.BranchId);
         if (!ok) return forbid!;
+        dto.BranchId = effId;
 
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
         ulong.TryParse(empIdClaim, out var userId);
@@ -199,7 +196,7 @@ public class ShiftsController : ControllerBase
         var targetBranchId = await _shiftService.GetBranchIdByScheduleIdAsync(scheduleId);
         if (targetBranchId.HasValue)
         {
-            var (ok, msg, forbid) = await CheckBranchAccessAsync(targetBranchId.Value);
+            var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(targetBranchId.Value);
             if (!ok) return forbid!;
         }
 
@@ -224,10 +221,10 @@ public class ShiftsController : ControllerBase
         [FromQuery] int year,
         [FromQuery] int month)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(branchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(branchId);
         if (!ok) return forbid!;
 
-        var result = await _shiftService.GetMonthlySchedulesAsync(branchId, year, month);
+        var result = await _shiftService.GetMonthlySchedulesAsync(effId, year, month);
         return Ok(result);
     }
 
@@ -245,8 +242,9 @@ public class ShiftsController : ControllerBase
     [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<ShiftAssignmentDto>>>> BatchAssignShifts([FromBody] BatchAssignShiftDto dto)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(dto.BranchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(dto.BranchId);
         if (!ok) return forbid!;
+        dto.BranchId = effId;
 
         var result = await _shiftService.BatchAssignShiftsAsync(dto);
         if (!result.Success) return BadRequest(result);
@@ -268,10 +266,10 @@ public class ShiftsController : ControllerBase
         [FromQuery] int year,
         [FromQuery] int month)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(branchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(branchId);
         if (!ok) return forbid!;
 
-        var result = await _shiftService.GetMonthlyRosterMatrixAsync(branchId, year, month);
+        var result = await _shiftService.GetMonthlyRosterMatrixAsync(effId, year, month);
         return Ok(result);
     }
 
@@ -290,13 +288,13 @@ public class ShiftsController : ControllerBase
         [FromQuery] int year,
         [FromQuery] int month)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(branchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(branchId);
         if (!ok) return forbid!;
 
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
         ulong.TryParse(empIdClaim, out var userId);
 
-        var result = await _shiftService.PublishMonthlyScheduleAsync(branchId, year, month, userId);
+        var result = await _shiftService.PublishMonthlyScheduleAsync(effId, year, month, userId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -313,8 +311,9 @@ public class ShiftsController : ControllerBase
     [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<WeeklyScheduleMatrixDto>>> GenerateWeeklySchedule([FromBody] GenerateWeeklyScheduleDto dto)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(dto.BranchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(dto.BranchId);
         if (!ok) return forbid!;
+        dto.BranchId = effId;
 
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
         ulong.TryParse(empIdClaim, out var userId);
@@ -333,7 +332,7 @@ public class ShiftsController : ControllerBase
         [FromQuery] ulong branchId,
         [FromQuery] string weekStartDate)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(branchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(branchId);
         if (!ok) return forbid!;
 
         if (!DateOnly.TryParse(weekStartDate, out var sDate))
@@ -341,7 +340,7 @@ public class ShiftsController : ControllerBase
             return BadRequest(ApiResponse<WeeklyScheduleMatrixDto>.Fail("Định dạng ngày bắt đầu tuần không hợp lệ (YYYY-MM-DD)."));
         }
 
-        var result = await _shiftService.GetWeeklyScheduleMatrixAsync(branchId, sDate);
+        var result = await _shiftService.GetWeeklyScheduleMatrixAsync(effId, sDate);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -354,8 +353,9 @@ public class ShiftsController : ControllerBase
     [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<ShiftAssignmentDto>>>> AssignFullTimeBatch([FromBody] AssignFullTimeBatchDto dto)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(dto.BranchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(dto.BranchId);
         if (!ok) return forbid!;
+        dto.BranchId = effId;
 
         var result = await _shiftService.AssignFullTimeBatchAsync(dto);
         if (!result.Success) return BadRequest(result);
@@ -371,7 +371,7 @@ public class ShiftsController : ControllerBase
         [FromQuery] ulong branchId,
         [FromQuery] string weekStartDate)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(branchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(branchId);
         if (!ok) return forbid!;
 
         if (!DateOnly.TryParse(weekStartDate, out var sDate))
@@ -379,7 +379,7 @@ public class ShiftsController : ControllerBase
             return BadRequest(ApiResponse<ScheduleConflictCheckResultDto>.Fail("Định dạng ngày không hợp lệ (YYYY-MM-DD)."));
         }
 
-        var result = await _shiftService.CheckWeeklyConflictsAsync(branchId, sDate);
+        var result = await _shiftService.CheckWeeklyConflictsAsync(effId, sDate);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -391,8 +391,9 @@ public class ShiftsController : ControllerBase
     [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<bool>>> PublishWeeklySchedule([FromBody] PublishWeeklyScheduleDto dto)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(dto.BranchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(dto.BranchId);
         if (!ok) return forbid!;
+        dto.BranchId = effId;
 
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
         ulong.TryParse(empIdClaim, out var userId);
@@ -412,7 +413,7 @@ public class ShiftsController : ControllerBase
         var targetBranchId = await _shiftService.GetBranchIdByAssignmentIdAsync(assignmentId);
         if (targetBranchId.HasValue)
         {
-            var (ok, msg, forbid) = await CheckBranchAccessAsync(targetBranchId.Value);
+            var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(targetBranchId.Value);
             if (!ok) return forbid!;
         }
 
@@ -428,8 +429,9 @@ public class ShiftsController : ControllerBase
     [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<AutoScheduleResultDto>>> AutoScheduleWeekly([FromBody] AutoScheduleWeeklyDto dto)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync(dto.BranchId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(dto.BranchId);
         if (!ok) return forbid!;
+        dto.BranchId = effId;
 
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
         ulong.TryParse(empIdClaim, out var userId);
@@ -472,7 +474,7 @@ public class ShiftsController : ControllerBase
         [FromQuery] string startDate,
         [FromQuery] string endDate)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync((ulong)storeId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync((ulong)storeId);
         if (!ok) return forbid!;
 
         if (!DateOnly.TryParse(startDate, out var sDate) || !DateOnly.TryParse(endDate, out var eDate))
@@ -480,7 +482,7 @@ public class ShiftsController : ControllerBase
             return BadRequest(ApiResponse<List<ShiftAssignmentDto>>.Fail("Định dạng ngày không hợp lệ (YYYY-MM-DD)."));
         }
 
-        var result = await _shiftService.GetScheduleAsync(storeId, sDate, eDate);
+        var result = await _shiftService.GetScheduleAsync((int)effId, sDate, eDate);
         return Ok(result);
     }
 
@@ -493,8 +495,9 @@ public class ShiftsController : ControllerBase
     [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<ShiftAssignmentDto>>> AssignShift([FromBody] CreateShiftAssignmentDto request)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync((ulong)request.StoreId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync((ulong)request.StoreId);
         if (!ok) return forbid!;
+        request.StoreId = (int)effId;
 
         var result = await _shiftService.AssignShiftAsync(request);
         if (!result.Success) return BadRequest(result);
@@ -513,7 +516,7 @@ public class ShiftsController : ControllerBase
         [FromQuery] int storeId,
         [FromQuery] string weekStartDate)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync((ulong)storeId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync((ulong)storeId);
         if (!ok) return forbid!;
 
         if (!DateOnly.TryParse(weekStartDate, out var sDate))
@@ -524,7 +527,7 @@ public class ShiftsController : ControllerBase
         var empIdClaim = User.FindFirst("EmployeeId")?.Value;
         int.TryParse(empIdClaim, out var empId);
 
-        var result = await _shiftService.PublishScheduleAsync(storeId, sDate, empId);
+        var result = await _shiftService.PublishScheduleAsync((int)effId, sDate, empId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -628,10 +631,10 @@ public class ShiftsController : ControllerBase
     [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
     public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetSwapRequests(int storeId)
     {
-        var (ok, msg, forbid) = await CheckBranchAccessAsync((ulong)storeId);
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync((ulong)storeId);
         if (!ok) return forbid!;
 
-        var result = await _shiftService.GetSwapRequestsByStoreAsync(storeId);
+        var result = await _shiftService.GetSwapRequestsByStoreAsync((int)effId);
         return Ok(result);
     }
 

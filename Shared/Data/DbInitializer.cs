@@ -88,6 +88,31 @@ public static class DbInitializer
                 }
             }
 
+            // Check attendance_logs table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_logs';";
+                
+                var attCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        attCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!attCols.Contains("Status"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `attendance_logs` ADD COLUMN `Status` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1: PENDING, 2: PRESENT, 3: LATE, 4: COMPLETED, 5: COMPLETED_LATE';";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
             // Check shift_swap_requests table columns
             using (var command = connection.CreateCommand())
             {

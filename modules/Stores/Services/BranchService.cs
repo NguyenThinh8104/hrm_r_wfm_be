@@ -59,6 +59,8 @@ public class BranchService : IBranchService, IStoreService
 
         // 4. Lấy danh sách entities từ database và chuyển đổi sang DTO
         var branches = await query
+            .Include(b => b.Tier)
+            .Include(b => b.Kiosks)
             .OrderBy(b => b.BranchCode)
             .ToListAsync();
 
@@ -94,6 +96,8 @@ public class BranchService : IBranchService, IStoreService
     public async Task<ApiResponse<BranchDto>> GetBranchByIdAsync(ulong id)
     {
         var branch = await _context.Branches
+            .Include(b => b.Tier)
+            .Include(b => b.Kiosks)
             .FirstOrDefaultAsync(b => b.Id == id);
 
         if (branch == null)
@@ -146,11 +150,27 @@ public class BranchService : IBranchService, IStoreService
             Name = dto.Name.Trim(),
             Address = dto.Address.Trim(),
             BranchTier = dto.BranchTier, // Map phân cấp chi nhánh từ CreateBranchDto vào entity
+            StaffCount = dto.StaffCount ?? 0,
+            TierId = dto.TierId,
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
             GeofenceRadiusMeters = dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0 ? dto.GeofenceRadiusMeters.Value : 50,
             CreatedAt = now,
             UpdatedAt = now
         };
+
+        if (dto.StaffCount.HasValue && !dto.TierId.HasValue)
+        {
+            var matchedTier = await _context.BranchTiers
+                .Where(t => t.MinStaffCount <= dto.StaffCount.Value && (!t.MaxStaffCount.HasValue || t.MaxStaffCount.Value >= dto.StaffCount.Value))
+                .OrderByDescending(t => t.MinStaffCount)
+                .FirstOrDefaultAsync();
+
+            if (matchedTier != null)
+            {
+                branch.TierId = matchedTier.Id;
+                branch.Tier = matchedTier;
+            }
+        }
 
         if (dto.Latitude.HasValue && dto.Longitude.HasValue)
         {
@@ -198,6 +218,27 @@ public class BranchService : IBranchService, IStoreService
 
         branch.Name = dto.Name.Trim();
         branch.Address = dto.Address.Trim();
+        if (dto.StaffCount.HasValue)
+        {
+            branch.StaffCount = dto.StaffCount.Value;
+            if (!dto.TierId.HasValue)
+            {
+                var matchedTier = await _context.BranchTiers
+                    .Where(t => t.MinStaffCount <= dto.StaffCount.Value && (!t.MaxStaffCount.HasValue || t.MaxStaffCount.Value >= dto.StaffCount.Value))
+                    .OrderByDescending(t => t.MinStaffCount)
+                    .FirstOrDefaultAsync();
+
+                if (matchedTier != null)
+                {
+                    branch.TierId = matchedTier.Id;
+                    branch.Tier = matchedTier;
+                }
+            }
+        }
+        if (dto.TierId.HasValue)
+        {
+            branch.TierId = dto.TierId.Value;
+        }
         if (dto.Latitude.HasValue && dto.Longitude.HasValue)
         {
             branch.Location = new NetTopologySuite.Geometries.Point(dto.Longitude.Value, dto.Latitude.Value) { SRID = 4326 };
@@ -244,6 +285,45 @@ public class BranchService : IBranchService, IStoreService
             : "Đã kích hoạt lại chi nhánh thành công.";
 
         return ApiResponse<BranchDto>.Ok(MapToBranchDto(branch), message);
+    }
+
+    /// <summary>
+    /// Cập nhật số lượng nhân sự của chi nhánh và tự động xác định lại tier tương ứng.
+    /// </summary>
+    public async Task<ApiResponse<BranchDto>> UpdateBranchStaffCountAsync(ulong branchId, int staffCount)
+    {
+        var branch = await _context.Branches
+            .Include(b => b.Tier)
+            .Include(b => b.Kiosks)
+            .FirstOrDefaultAsync(b => b.Id == branchId);
+
+        if (branch == null)
+            return ApiResponse<BranchDto>.Fail("Không tìm thấy chi nhánh.");
+
+        branch.StaffCount = staffCount;
+
+        var matchedTier = await _context.BranchTiers
+            .Where(t => t.MinStaffCount <= staffCount && (!t.MaxStaffCount.HasValue || t.MaxStaffCount.Value >= staffCount))
+            .OrderByDescending(t => t.MinStaffCount)
+            .FirstOrDefaultAsync();
+
+        if (matchedTier != null)
+        {
+            branch.TierId = matchedTier.Id;
+            branch.Tier = matchedTier;
+
+            if (matchedTier.TierName.Contains("1") || matchedTier.MinStaffCount >= 50)
+                branch.BranchTier = BranchTier.Tier1;
+            else if (matchedTier.TierName.Contains("3") || (matchedTier.MaxStaffCount.HasValue && matchedTier.MaxStaffCount.Value <= 20))
+                branch.BranchTier = BranchTier.Tier3;
+            else
+                branch.BranchTier = BranchTier.Tier2;
+        }
+
+        branch.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<BranchDto>.Ok(MapToBranchDto(branch), "Cập nhật số lượng nhân sự và xác định lại tier thành công.");
     }
 
     /// <summary>
@@ -462,6 +542,21 @@ public class BranchService : IBranchService, IStoreService
             Longitude = b.Longitude,
             GeofenceRadiusMeters = b.GeofenceRadiusMeters > 0 ? b.GeofenceRadiusMeters : 50,
             BranchTier = b.BranchTier, // Map phân cấp chi nhánh từ entity sang DTO (kèm BranchTierName tự tính toán)
+            StaffCount = b.StaffCount,
+            TierId = b.TierId,
+            Tier = b.Tier != null ? new TierDto
+            {
+                Id = b.Tier.Id,
+                TierName = b.Tier.TierName,
+                Description = b.Tier.Description,
+                MinStaffCount = b.Tier.MinStaffCount,
+                MaxStaffCount = b.Tier.MaxStaffCount,
+                OtherConditions = b.Tier.OtherConditions,
+                Conditions = b.Tier.Conditions,
+                Benefits = b.Tier.Benefits,
+                CreatedAt = b.Tier.CreatedAt,
+                UpdatedAt = b.Tier.UpdatedAt
+            } : null,
             KioskAllowedIp = null,
             KioskAllowedBrowser = null,
             Status = b.Status,

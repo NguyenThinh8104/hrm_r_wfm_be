@@ -65,7 +65,6 @@ public class KioskAttendanceController : ControllerBase
     /// <param name="request">DTO chứa KioskDeviceToken và OtpCode 60s</param>
     /// <returns>Bản ghi điểm danh ghi nhận thời gian vào ca (Status = PENDING chờ chụp ảnh)</returns>
     [HttpPost("check-in")]
-    [HttpPost("v3/check-in")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckIn([FromBody] KioskCheckInDto request)
     {
@@ -80,7 +79,6 @@ public class KioskAttendanceController : ControllerBase
     /// <param name="request">DTO chứa KioskDeviceToken và OtpCode 60s</param>
     /// <returns>Bản ghi điểm danh cập nhật thời gian ra ca (Status = PENDING chờ chụp ảnh)</returns>
     [HttpPost("check-out")]
-    [HttpPost("v3/check-out")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOut([FromBody] KioskCheckOutDto request)
     {
@@ -105,21 +103,6 @@ public class KioskAttendanceController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// [Bước 1 - Kiosk] Tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý khi điểm danh.
-    /// </summary>
-    /// <param name="storeId">Mã ID cửa hàng</param>
-    /// <param name="query">Từ khóa tìm kiếm theo Mã NV hoặc Tên</param>
-    /// <returns>Danh sách nhân viên thỏa điều kiện</returns>
-    [HttpGet("search-employees")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<List<KioskEmployeeSearchDto>>>> SearchEmployees(
-        [FromQuery] int storeId,
-        [FromQuery] string? query = null)
-    {
-        var result = await _attendanceService.SearchStoreEmployeesAsync(storeId, query);
-        return Ok(result);
-    }
 
     /// <summary>
     /// [API 1 - Storage S3] Tải tệp tin ảnh chân dung từ Kiosk lên S3 theo dạng multipart/form-data và trả về chuỗi photoKey.

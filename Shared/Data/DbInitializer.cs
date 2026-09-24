@@ -61,6 +61,23 @@ public static class DbInitializer
                     alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `BranchTier` INT NOT NULL DEFAULT 2;";
                     alterCmd.ExecuteNonQuery();
                 }
+
+                // Tự động kiểm tra và bổ sung cột StaffCount (mặc định = 0: dùng Tier Quota) nếu database chưa có
+                if (!branchCols.Contains("StaffCount"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `StaffCount` INT NOT NULL DEFAULT 0;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                // Loại bỏ bảng headcount_import_requests cũ nếu còn tồn tại
+                try
+                {
+                    using var dropCmd = connection.CreateCommand();
+                    dropCmd.CommandText = "DROP TABLE IF EXISTS `headcount_import_requests`;";
+                    dropCmd.ExecuteNonQuery();
+                }
+                catch { }
             }
 
             // Check kiosks table columns

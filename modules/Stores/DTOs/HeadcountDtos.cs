@@ -1,10 +1,7 @@
-using System.ComponentModel.DataAnnotations;
-using Microsoft.AspNetCore.Http;
-
 namespace Modules.Stores.DTOs;
 
 /// <summary>
-/// DTO phản hồi trạng thái định biên nhân sự của chi nhánh.
+/// DTO phản hồi trạng thái định biên nhân sự của chi nhánh theo mô hình Effective Quota.
 /// </summary>
 public class BranchHeadcountStatusDto
 {
@@ -20,9 +17,24 @@ public class BranchHeadcountStatusDto
     public int BranchTier => BranchTierValue;
 
     /// <summary>
-    /// Định biên chuẩn theo quy mô chi nhánh (Tier Quota).
+    /// Định biên chuẩn theo phân cấp quy mô chi nhánh (Tier Quota: Tier 1 = 30, Tier 2 = 15, Tier 3 = 8).
     /// </summary>
     public int StandardQuota { get; set; }
+
+    /// <summary>
+    /// Số lượng nhân sự định biên tùy chỉnh (Đã bãi bỏ, giữ 0 để tương thích backwards).
+    /// </summary>
+    public int StaffCount { get; set; } = 0;
+
+    /// <summary>
+    /// Định biên hiệu dụng: Luôn tuân thủ tuyệt đối định biên chuẩn theo phân cấp Tier (Tier 1 = 30, Tier 2 = 15, Tier 3 = 8).
+    /// </summary>
+    public int EffectiveQuota { get; set; }
+
+    /// <summary>
+    /// Alias tương thích ngược: Quota
+    /// </summary>
+    public int Quota => EffectiveQuota > 0 ? EffectiveQuota : StandardQuota;
 
     /// <summary>
     /// Số lượng nhân sự đang hoạt động thực tế (Status == 'ACTIVE').
@@ -35,218 +47,57 @@ public class BranchHeadcountStatusDto
     public int InactiveCount { get; set; }
 
     /// <summary>
-    /// Số lượng vị trí còn trống trong phạm vi định biên chuẩn.
+    /// Số lượng vị trí còn trống trong phạm vi định biên Tier.
     /// </summary>
-    public int AvailableQuotaSlots => Math.Max(0, StandardQuota - CurrentHeadcount);
+    public int AvailableQuotaSlots { get; set; }
 
     /// <summary>
-    /// Đánh dấu chi nhánh đã đạt hoặc vượt định biên chuẩn.
+    /// Đánh dấu chi nhánh đã đạt hoặc vượt định biên chuẩn Tier.
     /// </summary>
-    public bool IsQuotaReached => CurrentHeadcount >= StandardQuota;
+    public bool IsQuotaReached { get; set; }
 
     /// <summary>
     /// Alias tương thích với Frontend: isStandardQuotaReached
     /// </summary>
-    public bool IsStandardQuotaReached => CurrentHeadcount >= StandardQuota;
+    public bool IsStandardQuotaReached => IsQuotaReached;
 
     /// <summary>
-    /// Có thể tạo nhân sự trực tiếp không cần đơn ngoại lệ.
+    /// Có thể tạo nhân sự trực tiếp nếu quân số hiện tại nhỏ hơn định biên.
     /// </summary>
-    public bool CanCreateDirectly => CurrentHeadcount < StandardQuota;
+    public bool CanCreateDirectly { get; set; }
 
     /// <summary>
-    /// Số lượng đơn đề xuất mở rộng định biên đang chờ duyệt (PENDING).
+    /// Khả năng nâng cấp Tier khi chi nhánh đã kịch biên (Tier 3 -> Tier 2, Tier 2 -> Tier 1. Tier 1 là cao nhất).
     /// </summary>
-    public int PendingRequestsCount { get; set; }
+    public bool CanUpgradeTier => BranchTierValue > 1;
 
     /// <summary>
-    /// Tổng số lượng suất nhân sự bổ sung còn khả dụng từ các đơn mở rộng đã được duyệt.
+    /// Phân cấp Tier tiếp theo khi nâng cấp (Tier 3 nâng lên 2, Tier 2 nâng lên 1).
     /// </summary>
-    public int AvailableOverrideSlots { get; set; }
+    public int? NextTier => BranchTierValue > 1 ? BranchTierValue - 1 : null;
+
+    /// <summary>
+    /// Định biên chuẩn sau khi nâng lên Tier tiếp theo (Tier 3 -> 15, Tier 2 -> 30).
+    /// </summary>
+    public int? NextTierQuota => BranchTierValue == 3 ? 15 : (BranchTierValue == 2 ? 30 : null);
+
+    /// <summary>
+    /// Số lượng đơn đề xuất đang chờ duyệt (mặc định = 0 để tương thích FE cũ).
+    /// </summary>
+    public int PendingRequestsCount => 0;
+
+    /// <summary>
+    /// Số lượng suất mở rộng khả dụng từ đơn (mặc định = 0 để tương thích FE cũ).
+    /// </summary>
+    public int AvailableOverrideSlots => 0;
 
     /// <summary>
     /// Alias tương thích với Frontend: additionalApprovedQuota
     /// </summary>
-    public int AdditionalApprovedQuota => AvailableOverrideSlots;
+    public int AdditionalApprovedQuota => 0;
 
     /// <summary>
     /// Tổng số lượng vị trí nhân sự còn khả dụng của chi nhánh.
     /// </summary>
-    public int TotalAvailableSlots => AvailableQuotaSlots + AvailableOverrideSlots;
-}
-
-/// <summary>
-/// DTO thông tin chi tiết đơn đề xuất mở rộng định biên.
-/// </summary>
-public class HeadcountImportRequestDto
-{
-    public ulong Id { get; set; }
-    public ulong BranchId { get; set; }
-    public string BranchCode { get; set; } = string.Empty;
-    public string BranchName { get; set; } = string.Empty;
-    public ulong RequestedBy { get; set; }
-    public string RequesterName { get; set; } = string.Empty;
-    public string RequesterEmployeeCode { get; set; } = string.Empty;
-    public string FilePath { get; set; } = string.Empty;
-    public string FileName { get; set; } = string.Empty;
-    /// <summary>
-    /// Đường dẫn xem trực tiếp (inline preview) tệp tin trên trình duyệt (đặc biệt cho PDF).
-    /// </summary>
-    public string ViewUrl { get; set; } = string.Empty;
-    /// <summary>
-    /// Đường dẫn tải tệp tin về máy tính.
-    /// </summary>
-    public string DownloadUrl { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
-    public int TotalRequested { get; set; }
-    public int ApprovedQuantity { get; set; }
-    public int TotalApproved { get; set; }
-    public int AdditionalQuantity { get; set; }
-    /// <summary>
-    /// Số lượng còn lại chưa duyệt (Số xin trừ đi số đã duyệt).
-    /// </summary>
-    public int RemainingQuantity => Math.Max(0, TotalRequested - ApprovedQuantity);
-    public string Reason { get; set; } = string.Empty;
-    public string? AdminNotes { get; set; }
-    public ulong? ReviewedBy { get; set; }
-    public string? ReviewerName { get; set; }
-    public DateTime? ReviewedAt { get; set; }
-    public DateTime? ExpiresAt { get; set; }
-    public bool IsExpired => ExpiresAt.HasValue && ExpiresAt.Value < DateTime.UtcNow;
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
-}
-
-/// <summary>
-/// DTO tải lên file đề xuất mở rộng định biên (hỗ trợ .xlsx, .xls, .csv hoặc .pdf) từ Store Manager.
-/// </summary>
-public class UploadHeadcountRequestDto
-{
-    [Required(ErrorMessage = "Vui lòng chọn chi nhánh.")]
-    public ulong BranchId { get; set; }
-
-    [Required(ErrorMessage = "Vui lòng nhập số lượng nhân sự đề xuất.")]
-    [Range(1, 50, ErrorMessage = "Số lượng nhân sự đề xuất phải từ 1 đến 50 người.")]
-    public int TotalRequested { get; set; }
-
-    /// <summary>
-    /// Alias tương thích frontend: requestedQuantity
-    /// </summary>
-    public int? RequestedQuantity
-    {
-        get => TotalRequested;
-        set { if (value.HasValue && value.Value > 0) TotalRequested = value.Value; }
-    }
-
-    [Required(ErrorMessage = "Vui lòng nhập lý do đề xuất tăng định biên.")]
-    [StringLength(1000, ErrorMessage = "Lý do không được vượt quá 1000 ký tự.")]
-    public string Reason { get; set; } = string.Empty;
-
-    [Required(ErrorMessage = "Vui lòng đính kèm file đề xuất (.xlsx / .xls / .csv / .pdf).")]
-    public IFormFile File { get; set; } = null!;
-}
-
-/// <summary>
-/// DTO thẩm định và phê duyệt đơn mở rộng định biên từ Operations Admin.
-/// Hỗ trợ phê duyệt toàn bộ, phê duyệt một phần (Partial Approval) hoặc từ chối (Reject).
-/// Tương thích đa dạng payload từ Frontend (IsApproved bool, Status string "APPROVED"/"REJECTED", Decision, Action, ExpiresAt).
-/// </summary>
-public class ReviewHeadcountRequestDto
-{
-    private bool? _isApproved;
-
-    /// <summary>
-    /// Trạng thái phê duyệt (true = Phê duyệt, false = Từ chối).
-    /// Tự động đồng bộ với Status / Decision / Action nếu frontend gửi chuỗi "APPROVED"/"REJECTED".
-    /// </summary>
-    public bool IsApproved
-    {
-        get
-        {
-            if (_isApproved.HasValue) return _isApproved.Value;
-
-            if (!string.IsNullOrWhiteSpace(Status))
-            {
-                var s = Status.Trim().ToUpperInvariant();
-                return s == "APPROVED" || s == "APPROVE" || s == "ACCEPT" || s == "ACCEPTED";
-            }
-
-            if (!string.IsNullOrWhiteSpace(Decision))
-            {
-                var d = Decision.Trim().ToUpperInvariant();
-                return d == "APPROVED" || d == "APPROVE" || d == "ACCEPT" || d == "ACCEPTED";
-            }
-
-            if (!string.IsNullOrWhiteSpace(Action))
-            {
-                var a = Action.Trim().ToUpperInvariant();
-                return a == "APPROVE" || a == "APPROVED" || a == "ACCEPT" || a == "ACCEPTED";
-            }
-
-            return false;
-        }
-        set => _isApproved = value;
-    }
-
-    /// <summary>
-    /// Trạng thái gửi từ frontend: "APPROVED" hoặc "REJECTED".
-    /// </summary>
-    public string? Status { get; set; }
-
-    /// <summary>
-    /// Quyết định từ frontend: "APPROVED" hoặc "REJECTED".
-    /// </summary>
-    public string? Decision { get; set; }
-
-    /// <summary>
-    /// Hành động từ frontend: "APPROVE" hoặc "REJECT".
-    /// </summary>
-    public string? Action { get; set; }
-
-    /// <summary>
-    /// Số lượng nhân sự phê duyệt thực tế (hỗ trợ duyệt một phần Partial Approval).
-    /// Nếu để trống hoặc bằng 0 khi IsApproved = true, hệ thống sẽ duyệt toàn bộ (ApprovedQuantity = TotalRequested).
-    /// </summary>
-    [Range(0, 50, ErrorMessage = "Số lượng nhân sự phê duyệt không hợp lệ.")]
-    public int? ApprovedQuantity { get; set; }
-
-    /// <summary>
-    /// Số ngày hiệu lực của đơn (mặc định 30 ngày nếu không chỉ định).
-    /// </summary>
-    [Range(1, 365, ErrorMessage = "Thời hạn hiệu lực phải từ 1 đến 365 ngày.")]
-    public int? ExpirationDays { get; set; }
-
-    /// <summary>
-    /// Thời điểm hết hạn hiệu lực do frontend gửi trực tiếp (ISO string).
-    /// </summary>
-    public DateTime? ExpiresAt { get; set; }
-
-    /// <summary>
-    /// Ghi chú thẩm định từ Admin hoặc lý do từ chối (bắt buộc khi từ chối).
-    /// </summary>
-    public string? AdminNotes { get; set; }
-
-    /// <summary>
-    /// Alias ghi chú từ frontend
-    /// </summary>
-    public string? Notes
-    {
-        get => AdminNotes;
-        set { if (!string.IsNullOrWhiteSpace(value) && string.IsNullOrWhiteSpace(AdminNotes)) AdminNotes = value; }
-    }
-
-    public string? Note
-    {
-        get => AdminNotes;
-        set { if (!string.IsNullOrWhiteSpace(value) && string.IsNullOrWhiteSpace(AdminNotes)) AdminNotes = value; }
-    }
-}
-
-/// <summary>
-/// DTO đóng hoặc hết hạn thủ công đơn mở rộng định biên.
-/// </summary>
-public class CloseHeadcountRequestDto
-{
-    [Required(ErrorMessage = "Vui lòng nhập lý do đóng đơn.")]
-    public string Reason { get; set; } = string.Empty;
+    public int TotalAvailableSlots => AvailableQuotaSlots;
 }

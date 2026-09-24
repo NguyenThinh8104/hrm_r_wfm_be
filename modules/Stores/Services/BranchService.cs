@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Domain.Constants;
 using Domain.Entities;
 using Domain.Enums;
 using Modules.Stores.DTOs;
@@ -146,6 +147,7 @@ public class BranchService : IBranchService, IStoreService
             Name = dto.Name.Trim(),
             Address = dto.Address.Trim(),
             BranchTier = dto.BranchTier, // Map phân cấp chi nhánh từ CreateBranchDto vào entity
+            StaffCount = dto.StaffCount.HasValue && dto.StaffCount.Value > 0 ? dto.StaffCount.Value : 0,
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
             GeofenceRadiusMeters = dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0 ? dto.GeofenceRadiusMeters.Value : 50,
             CreatedAt = now,
@@ -206,11 +208,45 @@ public class BranchService : IBranchService, IStoreService
         {
             branch.GeofenceRadiusMeters = dto.GeofenceRadiusMeters.Value;
         }
+        if (dto.StaffCount.HasValue)
+        {
+            branch.StaffCount = Math.Max(0, dto.StaffCount.Value);
+        }
         branch.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
         return ApiResponse<BranchDto>.Ok(MapToBranchDto(branch), "Cập nhật thông tin chi nhánh thành công.");
+    }
+
+    /// <summary>
+    /// Nâng cấp phân cấp Tier của chi nhánh khi đạt kịch biên định biên (Tier 3 -> Tier 2 -> Tier 1).
+    /// </summary>
+    public async Task<ApiResponse<BranchDto>> UpgradeBranchTierAsync(ulong branchId)
+    {
+        var branch = await _context.Branches.FindAsync(branchId);
+        if (branch == null)
+        {
+            return ApiResponse<BranchDto>.Fail("Không tìm thấy chi nhánh cửa hàng.");
+        }
+
+        if (branch.BranchTier == BranchTier.Tier1)
+        {
+            return ApiResponse<BranchDto>.Fail($"Chi nhánh '{branch.Name}' đã ở phân cấp cao nhất (Tier 1 - định biên chuẩn tối đa 30 nhân sự). Không thể nâng cấp thêm.");
+        }
+
+        var oldTier = branch.BranchTier;
+        var newTier = oldTier == BranchTier.Tier3 ? BranchTier.Tier2 : BranchTier.Tier1;
+        var newQuota = HeadcountConstants.GetStandardQuota(newTier);
+
+        branch.BranchTier = newTier;
+        branch.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<BranchDto>.Ok(
+            MapToBranchDto(branch),
+            $"Đã nâng cấp chi nhánh '{branch.Name}' từ Tier {(int)oldTier} lên Tier {(int)newTier} thành công! Định biên chuẩn mới là {newQuota} nhân sự.");
     }
 
     /// <summary>
@@ -462,6 +498,7 @@ public class BranchService : IBranchService, IStoreService
             Longitude = b.Longitude,
             GeofenceRadiusMeters = b.GeofenceRadiusMeters > 0 ? b.GeofenceRadiusMeters : 50,
             BranchTier = b.BranchTier, // Map phân cấp chi nhánh từ entity sang DTO (kèm BranchTierName tự tính toán)
+            StaffCount = b.StaffCount,
             KioskAllowedIp = null,
             KioskAllowedBrowser = null,
             Status = b.Status,

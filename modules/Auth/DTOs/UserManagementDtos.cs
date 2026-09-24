@@ -54,14 +54,10 @@ public class CreateEmployeeDto
     public ulong HomeBranchId { get; set; }
     public string? Password { get; set; }
 
-    /// <summary>
-    /// ID đơn đề xuất mở rộng định biên (bắt buộc khi chi nhánh đã đạt giới hạn định biên chuẩn Tier Quota).
-    /// </summary>
+    [Obsolete("Luồng đề xuất mở rộng định biên đã được thay thế bằng StaffCount trên Chi nhánh.")]
     public ulong? ImportRequestId { get; set; }
 
-    /// <summary>
-    /// Lý do mở rộng định biên (bắt buộc khi chi nhánh đã đạt giới hạn định biên chuẩn Tier Quota).
-    /// </summary>
+    [Obsolete("Luồng đề xuất mở rộng định biên đã được thay thế bằng StaffCount trên Chi nhánh.")]
     public string? ExpansionReason { get; set; }
 }
 

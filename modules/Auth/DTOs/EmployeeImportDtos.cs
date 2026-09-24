@@ -16,14 +16,10 @@ public class BulkImportEmployeeRequestDto
     /// </summary>
     public ulong? DefaultBranchId { get; set; }
 
-    /// <summary>
-    /// Mã đơn mở rộng định biên (nếu đợt import này bổ sung nhân sự vượt định biên chuẩn).
-    /// </summary>
+    [Obsolete("Luồng đề xuất mở rộng định biên đã được thay thế bằng StaffCount trên Chi nhánh.")]
     public ulong? ImportRequestId { get; set; }
 
-    /// <summary>
-    /// Lý do giải trình mở rộng định biên (bắt buộc khi import vượt định biên chuẩn).
-    /// </summary>
+    [Obsolete("Luồng đề xuất mở rộng định biên đã được thay thế bằng StaffCount trên Chi nhánh.")]
     public string? ExpansionReason { get; set; }
 }
 

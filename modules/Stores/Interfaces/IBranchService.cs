@@ -26,6 +26,10 @@ public interface IBranchService
     Task<ApiResponse<BranchDto>> CreateBranchAsync(CreateBranchDto dto);
     Task<ApiResponse<BranchDto>> UpdateBranchAsync(ulong id, UpdateBranchDto dto);
     Task<ApiResponse<BranchDto>> UpdateBranchStatusAsync(ulong id, UpdateBranchStatusDto dto);
+    /// <summary>
+    /// Nâng cấp phân cấp Tier của chi nhánh khi đạt kịch biên định biên (Tier 3 -> Tier 2 -> Tier 1).
+    /// </summary>
+    Task<ApiResponse<BranchDto>> UpgradeBranchTierAsync(ulong branchId);
     Task<ApiResponse<bool>> DeleteBranchAsync(ulong id);
     // ==========================================
     // 2. Kiosk Management

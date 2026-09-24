@@ -191,28 +191,6 @@ public class FilesController : ControllerBase
             return true;
         }
 
-        // 2. Nếu tệp tin thuộc đơn đề xuất định biên headcount-requests:
-        if (key.StartsWith("headcount-requests", StringComparison.OrdinalIgnoreCase))
-        {
-            var req = await _context.HeadcountImportRequests
-                .AsNoTracking()
-                .FirstOrDefaultAsync(r => r.FilePath == key);
-
-            if (req == null)
-            {
-                // Nếu không tìm thấy đơn gắn với key này, từ chối quyền truy cập
-                return false;
-            }
-
-            // Nếu là Store Manager: chỉ được xem tệp tin thuộc chi nhánh của mình
-            if (normalizedRole == "STORE_MANAGER" || normalizedRole == "STOREMANAGER")
-            {
-                return branchId.HasValue && branchId.Value == req.BranchId;
-            }
-
-            return false;
-        }
-
         // Với các tài liệu dùng chung khác, mặc định cho phép user đã xác thực truy cập
         return true;
     }

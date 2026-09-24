@@ -362,12 +362,8 @@ public class UserService : IUserService
             return ApiResponse<EmployeeDetailDto>.Fail("Chi nhánh chỉ định không tồn tại hoặc đã ngừng hoạt động.");
         }
 
-        // 4. Thẩm định định biên nhân sự theo BranchTier & trừ lùi chỉ tiêu từ đơn mở rộng nếu vượt Quota
-        var quotaResult = await _headcountService.ValidateAndConsumeQuotaAsync(
-            branchIdToAssign,
-            dto.ImportRequestId,
-            dto.ExpansionReason,
-            actorId);
+        // 4. Thẩm định định biên nhân sự theo Effective Quota (ưu tiên StaffCount > 0, mặc định theo BranchTier)
+        var quotaResult = await _headcountService.ValidateHeadcountAsync(branchIdToAssign);
 
         if (!quotaResult.IsSuccess)
         {
@@ -410,10 +406,7 @@ public class UserService : IUserService
             Role = targetRole.RoleCode,
             Branch = branch.Name,
             newUser.EmploymentType,
-            IsHeadcountOverride = quotaResult.IsOverride,
-            ImportRequestId = quotaResult.ImportRequestId,
-            ExpansionReason = dto.ExpansionReason,
-            BranchQuota = quotaResult.Quota,
+            EffectiveQuota = quotaResult.EffectiveQuota,
             CurrentHeadcount = quotaResult.CurrentCount
         }, ipAddress);
 
@@ -953,16 +946,14 @@ public class UserService : IUserService
             validRowsToProcess.Add((r, targetRole, targetBranch));
         }
 
-        // 4. Thẩm định định biên (Headcount Quota) và tạo nhân sự cho các dòng hợp lệ
+        // 4. Thẩm định định biên (Effective Quota) và tạo nhân sự cho các dòng hợp lệ
         var newUsersToInsert = new List<User>();
+        var branchBatchCounter = new Dictionary<ulong, int>();
 
         foreach (var (row, role, branch) in validRowsToProcess)
         {
-            var quotaCheck = await _headcountService.ValidateAndConsumeQuotaAsync(
-                branch.Id,
-                dto.ImportRequestId,
-                dto.ExpansionReason,
-                actorId);
+            branchBatchCounter.TryGetValue(branch.Id, out var currentBatchCount);
+            var quotaCheck = await _headcountService.ValidateHeadcountAsync(branch.Id, currentBatchCount);
 
             if (!quotaCheck.IsSuccess)
             {
@@ -971,10 +962,12 @@ public class UserService : IUserService
                     RowNumber = row.RowNumber,
                     EmployeeCode = row.EmployeeCode,
                     FullName = row.FullName,
-                    ErrorMessage = quotaCheck.ErrorMessage ?? $"Chi nhánh '{branch.Name}' đã vượt định biên và không có đơn mở rộng hợp lệ."
+                    ErrorMessage = quotaCheck.ErrorMessage ?? $"Chi nhánh '{branch.Name}' đã đạt trần định biên nhân sự."
                 });
                 continue;
             }
+
+            branchBatchCounter[branch.Id] = currentBatchCount + 1;
 
             var normalizedCode = row.EmployeeCode.Trim().ToUpper();
             var normalizedEmail = row.Email.Trim().ToLower();
@@ -1030,9 +1023,7 @@ public class UserService : IUserService
 
             await LogAuditAsync(actorId, "BULK_IMPORT_EMPLOYEES", "users", 0, null, new
             {
-                TotalImported = newUsersToInsert.Count,
-                dto.ImportRequestId,
-                dto.ExpansionReason
+                TotalImported = newUsersToInsert.Count
             }, ipAddress);
         }
 

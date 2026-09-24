@@ -64,6 +64,22 @@ public class BranchesController : ControllerBase
     }
 
     /// <summary>
+    /// Tra cứu thông tin định biên chi nhánh (Quy mô Tier, Định biên chuẩn, StaffCount, Quân số, Vị trí trống).
+    /// Hỗ trợ cả 2 route: /api/v1/branches/{id}/headcount-status và route alias /api/v1/headcount-requests/branch/{id}/status.
+    /// </summary>
+    [HttpGet("{id}/headcount-status")]
+    [HttpGet("/api/v1/headcount-requests/branch/{id}/status")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
+    public async Task<ActionResult<ApiResponse<BranchHeadcountStatusDto>>> GetBranchHeadcountStatus(
+        ulong id,
+        [FromServices] IStoreHeadcountService headcountService)
+    {
+        var result = await headcountService.GetBranchHeadcountStatusAsync(id);
+        if (!result.Success) return NotFound(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// [Operations Admin] Thêm mới một chi nhánh cửa hàng vào hệ thống (yêu cầu phân cấp BranchTier).
     /// </summary>
     [HttpPost]
@@ -107,6 +123,19 @@ public class BranchesController : ControllerBase
     public async Task<ActionResult<ApiResponse<BranchDto>>> UpdateBranchStatus(ulong id, [FromBody] UpdateBranchStatusDto dto)
     {
         var result = await _branchService.UpdateBranchStatusAsync(id, dto);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Operations Admin/Admin] Nâng phân cấp Tier của chi nhánh khi đạt kịch trần định biên nhân sự (Tier 3 -> Tier 2 -> Tier 1).
+    /// </summary>
+    [HttpPost("{id}/upgrade-tier")]
+    [HttpPatch("{id}/upgrade-tier")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<BranchDto>>> UpgradeBranchTier(ulong id)
+    {
+        var result = await _branchService.UpgradeBranchTierAsync(id);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

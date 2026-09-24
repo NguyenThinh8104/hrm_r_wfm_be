@@ -61,6 +61,12 @@ public class Branch
         }
     }
 
+    /// <summary>
+    /// Số lượng nhân sự định biên tùy chỉnh (Custom Quota). 
+    /// Nếu > 0 sẽ ưu tiên dùng StaffCount làm Effective Quota; nếu <= 0 sẽ dùng định biên chuẩn theo BranchTier.
+    /// </summary>
+    public int StaffCount { get; set; } = 0;
+
     public int GeofenceRadiusMeters { get; set; } = 50;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -68,5 +74,4 @@ public class Branch
     public ICollection<User> Users { get; set; } = new List<User>();
     public ICollection<KioskDevice> Kiosks { get; set; } = new List<KioskDevice>();
     public ICollection<WorkSchedule> WorkSchedules { get; set; } = new List<WorkSchedule>();
-    public ICollection<HeadcountImportRequest> HeadcountImportRequests { get; set; } = new List<HeadcountImportRequest>();
 }

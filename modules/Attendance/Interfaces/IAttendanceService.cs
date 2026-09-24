@@ -45,6 +45,13 @@ public interface IAttendanceService
     Task<ApiResponse<UploadAttendancePhotoResponseDto>> UploadAttendancePhotoAsync(UploadAttendancePhotoDto request);
 
     /// <summary>
+    /// Hủy lượt điểm danh tại trạm Kiosk khi nhân viên dừng ở bước chụp ảnh hoặc muốn nhường người khác.
+    /// </summary>
+    /// <param name="request">DTO chứa KioskDeviceToken, AttendanceId, ActionType</param>
+    /// <returns>ApiResponse xác nhận hủy bản ghi điểm danh tạm thành công</returns>
+    Task<ApiResponse<bool>> CancelAttendanceAsync(CancelKioskAttendanceDto request);
+
+    /// <summary>
     /// Trưởng ca / Quản lý báo cáo gian lận điểm danh hoặc vắng mặt của nhân viên.
     /// </summary>
     /// <param name="leaderEmployeeId">ID nhân viên của Trưởng ca lập báo cáo</param>

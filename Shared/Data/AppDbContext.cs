@@ -314,6 +314,25 @@ public partial class AppDbContext : DbContext
                 .HasColumnType("tinyint unsigned")
                 .HasDefaultValue(AttendanceLogStatus.PENDING);
 
+            entity.Property(e => e.CheckInStatus)
+                .HasConversion<byte>()
+                .HasColumnType("tinyint unsigned")
+                .HasDefaultValue(CheckInStatus.PENDING)
+                .HasSentinel(CheckInStatus.PENDING);
+
+            entity.Property(e => e.CheckOutStatus)
+                .HasConversion<byte>()
+                .HasColumnType("tinyint unsigned")
+                .IsRequired(false);
+
+            entity.Property(e => e.LateMinutes)
+                .HasColumnType("int")
+                .IsRequired(false);
+
+            entity.Property(e => e.EarlyLeaveMinutes)
+                .HasColumnType("int")
+                .IsRequired(false);
+
             entity.HasOne(e => e.Assignment)
                 .WithOne(sa => sa.AttendanceLog)
                 .HasForeignKey<AttendanceLog>(e => e.AssignmentId)

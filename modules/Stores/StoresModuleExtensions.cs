@@ -11,6 +11,7 @@ public static class StoresModuleExtensions
         services.AddScoped<IBranchService, BranchService>();
         services.AddScoped<IStoreService, BranchService>();
         services.AddScoped<IKioskService, KioskService>();
+        services.AddScoped<ITierService, TierService>();
         services.AddScoped<BranchHeadcountService>();
         services.AddScoped<IStoreHeadcountService>(sp => sp.GetRequiredService<BranchHeadcountService>());
         services.AddScoped<Shared.Interfaces.IBranchHeadcountService>(sp => sp.GetRequiredService<BranchHeadcountService>());

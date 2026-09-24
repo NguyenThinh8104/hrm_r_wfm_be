@@ -70,6 +70,14 @@ public static class DbInitializer
                     alterCmd.ExecuteNonQuery();
                 }
 
+                // Tự động kiểm tra và bổ sung cột TierId nếu database chưa có
+                if (!branchCols.Contains("TierId"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `TierId` INT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
                 // Loại bỏ bảng headcount_import_requests cũ nếu còn tồn tại
                 try
                 {
@@ -78,6 +86,26 @@ public static class DbInitializer
                     dropCmd.ExecuteNonQuery();
                 }
                 catch { }
+            }
+
+            // Check branch_tiers table
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS `branch_tiers` (
+                        `Id` INT NOT NULL AUTO_INCREMENT,
+                        `TierName` VARCHAR(100) NOT NULL,
+                        `Description` LONGTEXT NULL,
+                        `MinStaffCount` INT NULL,
+                        `MaxStaffCount` INT NULL,
+                        `OtherConditions` LONGTEXT NULL,
+                        `Conditions` LONGTEXT NULL,
+                        `Benefits` LONGTEXT NULL,
+                        `CreatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                        `UpdatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                        PRIMARY KEY (`Id`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+                command.ExecuteNonQuery();
             }
 
             // Check kiosks table columns
@@ -101,6 +129,31 @@ public static class DbInitializer
                 {
                     using var alterCmd = connection.CreateCommand();
                     alterCmd.CommandText = "ALTER TABLE `kiosks` ADD COLUMN `IpAddress` LONGTEXT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
+            // Check attendance_logs table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_logs';";
+                
+                var attCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        attCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!attCols.Contains("Status"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `attendance_logs` ADD COLUMN `Status` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1: PENDING, 2: PRESENT, 3: LATE, 4: COMPLETED, 5: COMPLETED_LATE';";
                     alterCmd.ExecuteNonQuery();
                 }
             }

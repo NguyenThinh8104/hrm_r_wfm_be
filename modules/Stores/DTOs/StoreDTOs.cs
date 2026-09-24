@@ -49,6 +49,9 @@ public class BranchDto
     public int ActiveKiosks { get; set; }
     public List<KioskDto> Kiosks { get; set; } = new();
 
+    public int? TierId { get; set; }
+    public TierDto? Tier { get; set; }
+
     // Backward compatibility aliases
     public int StoreId => (int)Id;
     public string StoreCode => Code;
@@ -59,7 +62,7 @@ public class BranchDto
     /// <summary>
     /// Alias phân cấp số nguyên (1, 2, 3) tương thích ngược với Frontend.
     /// </summary>
-    public int Tier => (int)BranchTier;
+    public int BranchTierNumber => (int)BranchTier;
 
     public int KioskCount => TotalKiosks;
     public string? AllowedIp => KioskAllowedIp;
@@ -96,6 +99,7 @@ public class CreateBranchDto
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE";
+    public int? TierId { get; set; }
 
     // Aliases
     public string? BranchCode { get => Code; set => Code = value ?? string.Empty; }
@@ -124,6 +128,7 @@ public class UpdateBranchDto
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public int? GeofenceRadiusMeters { get; set; }
+    public int? TierId { get; set; }
     /// <summary>
     /// Phân cấp chi nhánh mới (Tùy chọn): 1 = Tier 1 (Lớn), 2 = Tier 2 (Tiêu chuẩn), 3 = Tier 3 (Nhỏ).
     /// </summary>

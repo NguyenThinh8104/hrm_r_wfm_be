@@ -121,4 +121,19 @@ public class StoresController : ControllerBase
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Cập nhật số lượng nhân sự của chi nhánh và tự động xác định lại tier tương ứng.
+    /// </summary>
+    [HttpPut("{id}/staff-count")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<BranchDto>>> UpdateStoreStaffCount(ulong id, [FromBody] UpdateBranchStaffCountDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ApiResponse<BranchDto>.Fail("Dữ liệu không hợp lệ."));
+
+        var result = await _branchService.UpdateBranchStaffCountAsync(id, dto.StaffCount);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }

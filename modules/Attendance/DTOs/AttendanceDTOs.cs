@@ -80,6 +80,19 @@ public class UploadAttendancePhotoResponseDto
     public string? PresignedUrl { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool IsLate { get; set; }
+    public string CheckInStatus { get; set; } = string.Empty;
+    public string? CheckOutStatus { get; set; }
+    public int? LateMinutes { get; set; }
+    public int? EarlyLeaveMinutes { get; set; }
+    public double? ActualWorkMinutes { get; set; }
+    public string DetailedMessage { get; set; } = string.Empty;
+}
+
+public class CancelKioskAttendanceDto
+{
+    public string KioskDeviceToken { get; set; } = string.Empty;
+    public ulong AttendanceId { get; set; }
+    public string ActionType { get; set; } = "CHECK_IN"; // "CHECK_IN" | "CHECK_OUT"
 }
 
 // Aliases cho các chỗ tham chiếu cũ nếu còn
@@ -180,6 +193,11 @@ public class AttendanceRecordDto
     public string? ReportedByName { get; set; }
     public string? ShiftName { get; set; }
     public bool IsLate { get; set; }
+    public string CheckInStatus { get; set; } = string.Empty;
+    public string? CheckOutStatus { get; set; }
+    public int? LateMinutes { get; set; }
+    public int? EarlyLeaveMinutes { get; set; }
+    public double? ActualWorkMinutes { get; set; }
 }
 
 

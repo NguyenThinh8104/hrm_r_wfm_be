@@ -47,6 +47,14 @@ public static class AttendanceMessages
     public const string TooEarlyForShift = "Chưa đến giờ điểm danh ca {0} ({1}). Chỉ được điểm danh sớm tối đa 30 phút (từ {2}).";
     public const string NoActiveShiftInTimeframe = "Hiện tại không có ca làm việc nào phù hợp trong khung giờ này. Vui lòng kiểm tra lại lịch phân công!";
     public const string CheckInLateSuccess = "Điểm danh VÀO CA MUỘN (LATE) lúc {0}! Giờ bắt đầu ca là {1}.";
+    public const string CheckInEarlySuccess = "Điểm danh vào ca thành công! Bạn đến sớm {0} phút (lúc {1}).";
+    public const string CheckInOnTimeSuccess = "Điểm danh vào ca thành công đúng giờ lúc {0}!";
+    public const string CheckInLateDetailedSuccess = "Điểm danh vào ca thành công lúc {0} (Đi muộn {1} phút - Giờ bắt đầu ca: {2}).";
+    public const string CheckOutOnTimeSuccess = "Điểm danh ra ca thành công đúng giờ lúc {0}! Hẹn gặp lại bạn.";
+    public const string CheckOutEarlySuccess = "Điểm danh ra ca thành công lúc {0} (Về sớm {1} phút - Giờ kết thúc ca: {2}).";
+    public const string CheckOutLateSuccess = "Điểm danh ra ca thành công lúc {0} (Làm thêm/Ra ca muộn {1} phút).";
+    public const string CancelAttendanceSuccess = "Đã hủy lượt điểm danh thành công.";
+    public const string CancelAttendanceFailed = "Không thể hủy lượt điểm danh hoặc bản ghi đã được hoàn tất trước đó.";
 }
 
 

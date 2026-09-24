@@ -21,6 +21,26 @@ public class AttendanceLog
     /// Trạng thái hợp nhất: PENDING (1), PRESENT (2), LATE (3), COMPLETED (4), COMPLETED_LATE (5).
     /// </summary>
     public AttendanceLogStatus Status { get; set; } = AttendanceLogStatus.PENDING;
+
+    /// <summary>
+    /// Trạng thái chi tiết lúc Check-in: PENDING (1), ON_TIME (2), LATE (3), EARLY (4).
+    /// </summary>
+    public CheckInStatus CheckInStatus { get; set; } = CheckInStatus.PENDING;
+
+    /// <summary>
+    /// Trạng thái chi tiết lúc Check-out: PENDING (1), ON_TIME (2), EARLY_LEAVE (3), LATE_LEAVE (4).
+    /// </summary>
+    public CheckOutStatus? CheckOutStatus { get; set; }
+
+    /// <summary>
+    /// Số phút đi muộn (nếu CheckInStatus == LATE).
+    /// </summary>
+    public int? LateMinutes { get; set; }
+
+    /// <summary>
+    /// Số phút về sớm (nếu CheckOutStatus == EARLY_LEAVE).
+    /// </summary>
+    public int? EarlyLeaveMinutes { get; set; }
     
     [NotMapped]
     public double? ActualWorkMinutes => CheckOutTime.HasValue ? (CheckOutTime.Value - CheckInTime).TotalMinutes : null;

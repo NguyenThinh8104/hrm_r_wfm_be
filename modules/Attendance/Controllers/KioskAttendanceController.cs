@@ -93,12 +93,26 @@ public class KioskAttendanceController : ControllerBase
     /// <param name="request">DTO chứa KioskDeviceToken, AttendanceId, ImageBase64, PhotoType</param>
     /// <returns>ApiResponse chứa photoKey, presignedUrl và status COMPLETED</returns>
     [HttpPost("upload-attendance-photo")]
-    [HttpPost("v3/upload-attendance-photo")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<UploadAttendancePhotoResponseDto>>> UploadAttendancePhoto(
         [FromBody] UploadAttendancePhotoDto request)
     {
         var result = await _attendanceService.UploadAttendancePhotoAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Hủy lượt điểm danh tại trạm Kiosk khi nhân viên dừng ở bước chụp ảnh hoặc muốn nhường người khác.
+    /// </summary>
+    /// <param name="request">DTO chứa KioskDeviceToken, AttendanceId, ActionType</param>
+    /// <returns>ApiResponse xác nhận hủy bản ghi điểm danh tạm thành công</returns>
+    [HttpPost("cancel")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> CancelAttendance(
+        [FromBody] CancelKioskAttendanceDto request)
+    {
+        var result = await _attendanceService.CancelAttendanceAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

@@ -204,6 +204,11 @@ public class AttendanceService : IAttendanceService
                 CheckOutMethod = al.CheckOutTime.HasValue ? "Kiosk" : null,
                 Status = status,
                 AttendanceLogStatus = al.Status.ToString(),
+                CheckInStatus = al.CheckInStatus.ToString(),
+                CheckOutStatus = al.CheckOutStatus?.ToString(),
+                LateMinutes = al.LateMinutes,
+                EarlyLeaveMinutes = al.EarlyLeaveMinutes,
+                ActualWorkMinutes = al.ActualWorkMinutes.HasValue ? Math.Round(al.ActualWorkMinutes.Value, 1) : null,
                 IsLate = isLate,
                 HasException = al.IsFraudFlagged || isLate,
                 ExceptionReason = al.IsFraudFlagged ? al.FraudReason : (isLate ? "Đi muộn" : null),
@@ -410,9 +415,9 @@ public class AttendanceService : IAttendanceService
                 string.Format(AttendanceMessages.NoShiftToday, user.FullName, today.ToString("dd/MM/yyyy")));
         }
 
-        // Lọc các ca chưa điểm danh Check-in
+        // Lọc các ca chưa điểm danh Check-in hoàn tất (hoặc chưa có log hoặc log vẫn đang PENDING chưa upload ảnh)
         var unattendedAssignments = activeAssignments
-            .Where(sa => sa.AttendanceLog == null || sa.AttendanceLog.CheckInTime == default)
+            .Where(sa => sa.AttendanceLog == null || sa.AttendanceLog.CheckInTime == default || (sa.AttendanceLog.Status == AttendanceLogStatus.PENDING && string.IsNullOrEmpty(sa.AttendanceLog.CheckInPhotoKey)))
             .ToList();
 
         if (unattendedAssignments.Count == 0)
@@ -488,18 +493,31 @@ public class AttendanceService : IAttendanceService
 
         var assignment = matchedShift.Assignment;
 
-        // 7. Tạo AttendanceLog với Status = PENDING (chờ upload ảnh, chưa tính late)
-        var log = new AttendanceLog
+        // 7. Tạo hoặc tái sử dụng AttendanceLog với Status = PENDING (chờ upload ảnh)
+        AttendanceLog log;
+        if (assignment.AttendanceLog != null && assignment.AttendanceLog.Status == AttendanceLogStatus.PENDING && string.IsNullOrEmpty(assignment.AttendanceLog.CheckInPhotoKey))
         {
-            AssignmentId = assignment.Id,
-            BranchId = kiosk.BranchId,
-            KioskId = kiosk.Id,
-            CheckInTime = now,
-            Status = AttendanceLogStatus.PENDING,
-            CreatedAt = now
-        };
-
-        _context.AttendanceLogs.Add(log);
+            log = assignment.AttendanceLog;
+            log.CheckInTime = now;
+            log.BranchId = kiosk.BranchId;
+            log.KioskId = kiosk.Id;
+            log.CheckInStatus = CheckInStatus.PENDING;
+            log.CreatedAt = now;
+        }
+        else
+        {
+            log = new AttendanceLog
+            {
+                AssignmentId = assignment.Id,
+                BranchId = kiosk.BranchId,
+                KioskId = kiosk.Id,
+                CheckInTime = now,
+                Status = AttendanceLogStatus.PENDING,
+                CheckInStatus = CheckInStatus.PENDING,
+                CreatedAt = now
+            };
+            _context.AttendanceLogs.Add(log);
+        }
         await _context.SaveChangesAsync();
 
         var successMessage = string.Format(AttendanceMessages.CheckInSuccess, now.ToString("HH:mm:ss"));
@@ -519,6 +537,7 @@ public class AttendanceService : IAttendanceService
             CheckInMethod = "Kiosk_OTP",
             Status = "Pending",
             AttendanceLogStatus = log.Status.ToString(),
+            CheckInStatus = log.CheckInStatus.ToString(),
             IsLate = false,
             HasException = false,
             ExceptionReason = null
@@ -579,7 +598,7 @@ public class AttendanceService : IAttendanceService
                 .ThenInclude(sa => sa.Schedule)
                     .ThenInclude(s => s.ShiftTemplate)
             .Where(al => al.Assignment.UserId == user.Id &&
-                         al.CheckOutTime == null &&
+                         al.CheckOutPhotoKey == null &&
                          (al.Assignment.Schedule.WorkDate == today ||
                           (al.Assignment.Schedule.ShiftTemplate.IsOvernight && al.Assignment.Schedule.WorkDate == yesterday)))
             .OrderByDescending(al => al.CheckInTime)
@@ -590,23 +609,12 @@ public class AttendanceService : IAttendanceService
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.NoOpenAttendanceLogForCheckOut);
         }
 
-        // 6. Cập nhật CheckOutTime và cập nhật trạng thái COMPLETED / COMPLETED_LATE
+        // 6. Cập nhật CheckOutTime và CheckOutStatus = PENDING (chờ chụp ảnh xác thực)
         log.CheckOutTime = now;
         log.KioskId = kiosk.Id;
-        log.Status = (log.Status == AttendanceLogStatus.LATE || log.Status == AttendanceLogStatus.COMPLETED_LATE)
-            ? AttendanceLogStatus.COMPLETED_LATE
-            : AttendanceLogStatus.COMPLETED;
-
-        if (log.Assignment != null)
-        {
-            log.Assignment.Status = "COMPLETED";
-        }
+        log.CheckOutStatus = CheckOutStatus.PENDING;
 
         await _context.SaveChangesAsync();
-
-        double workMinutes = Math.Round(log.ActualWorkMinutes ?? 0, 1);
-        int hours = (int)(workMinutes / 60);
-        int mins = (int)(workMinutes % 60);
 
         return ApiResponse<AttendanceRecordDto>.Ok(new AttendanceRecordDto
         {
@@ -618,12 +626,15 @@ public class AttendanceService : IAttendanceService
             StoreId = (int)kiosk.BranchId,
             KioskId = (int)kiosk.Id,
             StoreName = kiosk.Branch.Name,
+            ShiftName = log.Assignment?.Schedule?.ShiftTemplate?.Name,
             CheckInTime = log.CheckInTime,
             CheckOutTime = log.CheckOutTime,
             CheckInMethod = "Kiosk_OTP",
             CheckOutMethod = "Kiosk_OTP",
-            Status = log.IsLate ? "Completed (Late)" : "Completed",
-            AttendanceLogStatus = log.Status.ToString(),
+            Status = "Pending",
+            AttendanceLogStatus = "PENDING",
+            CheckInStatus = log.CheckInStatus.ToString(),
+            CheckOutStatus = "PENDING",
             IsLate = log.IsLate
         }, string.Format(AttendanceMessages.CheckOutSuccess, now.ToString("HH:mm:ss")));
     }
@@ -696,34 +707,99 @@ public class AttendanceService : IAttendanceService
             return ApiResponse<UploadAttendancePhotoResponseDto>.Fail(AttendanceMessages.UploadAttendancePhotoV3Failed);
         }
 
-        // 8. Cập nhật attendance record với photoKey và cập nhật status (ĐÂY LÀ NƠI DUY NHẤT TÍNH TOÁN LATE)
+        // 8. Cập nhật attendance record với photoKey và tính toán trạng thái chuyên cần
         bool isLate = false;
+        string detailedMessage = AttendanceMessages.UploadAttendancePhotoV3Success;
+
+        var assignment = await _context.ShiftAssignments
+            .Include(a => a.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .FirstOrDefaultAsync(a => a.Id == log.AssignmentId);
+
+        var workDate = assignment?.Schedule?.WorkDate ?? DateOnly.FromDateTime(log.CheckInTime);
+        var template = assignment?.Schedule?.ShiftTemplate;
+
         if (photoType == "CHECK_IN")
         {
             log.CheckInPhotoKey = photoS3Key;
 
-            // Kiểm tra đi muộn: Quá 5 phút ân hạn so với giờ bắt đầu ca
-            var assignment = await _context.ShiftAssignments
-                .Include(a => a.Schedule)
-                    .ThenInclude(s => s.ShiftTemplate)
-                .FirstOrDefaultAsync(a => a.Id == log.AssignmentId);
+            var shiftStartDt = template != null
+                ? workDate.ToDateTime(template.StartTime)
+                : log.CheckInTime;
 
-            if (assignment?.Schedule?.ShiftTemplate != null)
+            if (log.CheckInTime < shiftStartDt)
             {
-                var workDate = assignment.Schedule.WorkDate;
-                var shiftStartDt = workDate.ToDateTime(assignment.Schedule.ShiftTemplate.StartTime);
-                isLate = log.CheckInTime > shiftStartDt.AddMinutes(5);
+                int earlyMins = (int)Math.Max(0, Math.Round((shiftStartDt - log.CheckInTime).TotalMinutes));
+                log.CheckInStatus = CheckInStatus.EARLY;
+                log.LateMinutes = 0;
+                log.Status = AttendanceLogStatus.PRESENT;
+                detailedMessage = string.Format(AttendanceMessages.CheckInEarlySuccess, earlyMins, log.CheckInTime.ToString("HH:mm:ss"));
             }
-
-            log.Status = isLate ? AttendanceLogStatus.LATE : AttendanceLogStatus.PRESENT;
+            else if (log.CheckInTime <= shiftStartDt.AddMinutes(5))
+            {
+                log.CheckInStatus = CheckInStatus.ON_TIME;
+                log.LateMinutes = 0;
+                log.Status = AttendanceLogStatus.PRESENT;
+                detailedMessage = string.Format(AttendanceMessages.CheckInOnTimeSuccess, log.CheckInTime.ToString("HH:mm:ss"));
+            }
+            else
+            {
+                isLate = true;
+                int lateMins = (int)Math.Max(1, Math.Round((log.CheckInTime - shiftStartDt).TotalMinutes));
+                log.CheckInStatus = CheckInStatus.LATE;
+                log.LateMinutes = lateMins;
+                log.Status = AttendanceLogStatus.LATE;
+                detailedMessage = string.Format(AttendanceMessages.CheckInLateDetailedSuccess, log.CheckInTime.ToString("HH:mm:ss"), lateMins, shiftStartDt.ToString("HH:mm"));
+            }
         }
         else
         {
             log.CheckOutPhotoKey = photoS3Key;
+
+            DateTime shiftEndDt;
+            if (template != null)
+            {
+                shiftEndDt = (template.IsOvernight || template.EndTime < template.StartTime)
+                    ? workDate.AddDays(1).ToDateTime(template.EndTime)
+                    : workDate.ToDateTime(template.EndTime);
+            }
+            else
+            {
+                shiftEndDt = log.CheckOutTime ?? log.CheckInTime.AddHours(8);
+            }
+
+            var checkOutTime = log.CheckOutTime ?? _timeProvider.GetLocalNow().DateTime;
+            log.CheckOutTime = checkOutTime;
+
+            if (checkOutTime < shiftEndDt.AddMinutes(-5))
+            {
+                int earlyLeaveMins = (int)Math.Max(1, Math.Round((shiftEndDt - checkOutTime).TotalMinutes));
+                log.CheckOutStatus = CheckOutStatus.EARLY_LEAVE;
+                log.EarlyLeaveMinutes = earlyLeaveMins;
+                detailedMessage = string.Format(AttendanceMessages.CheckOutEarlySuccess, checkOutTime.ToString("HH:mm:ss"), earlyLeaveMins, shiftEndDt.ToString("HH:mm"));
+            }
+            else if (checkOutTime <= shiftEndDt.AddMinutes(15))
+            {
+                log.CheckOutStatus = CheckOutStatus.ON_TIME;
+                log.EarlyLeaveMinutes = 0;
+                detailedMessage = string.Format(AttendanceMessages.CheckOutOnTimeSuccess, checkOutTime.ToString("HH:mm:ss"));
+            }
+            else
+            {
+                int lateLeaveMins = (int)Math.Max(1, Math.Round((checkOutTime - shiftEndDt).TotalMinutes));
+                log.CheckOutStatus = CheckOutStatus.LATE_LEAVE;
+                detailedMessage = string.Format(AttendanceMessages.CheckOutLateSuccess, checkOutTime.ToString("HH:mm:ss"), lateLeaveMins);
+            }
+
             isLate = log.IsLate;
-            log.Status = (log.Status == AttendanceLogStatus.LATE || log.Status == AttendanceLogStatus.COMPLETED_LATE)
+            log.Status = (log.CheckInStatus == CheckInStatus.LATE || log.Status == AttendanceLogStatus.LATE || log.Status == AttendanceLogStatus.COMPLETED_LATE)
                 ? AttendanceLogStatus.COMPLETED_LATE
                 : AttendanceLogStatus.COMPLETED;
+
+            if (assignment != null)
+            {
+                assignment.Status = "COMPLETED";
+            }
         }
 
         await _context.SaveChangesAsync();
@@ -736,8 +812,76 @@ public class AttendanceService : IAttendanceService
             PhotoKey = photoS3Key,
             PresignedUrl = presignedUrl,
             Status = log.Status.ToString(),
-            IsLate = isLate
-        }, AttendanceMessages.UploadAttendancePhotoV3Success);
+            IsLate = isLate,
+            CheckInStatus = log.CheckInStatus.ToString(),
+            CheckOutStatus = log.CheckOutStatus?.ToString(),
+            LateMinutes = log.LateMinutes,
+            EarlyLeaveMinutes = log.EarlyLeaveMinutes,
+            ActualWorkMinutes = log.ActualWorkMinutes.HasValue ? Math.Round(log.ActualWorkMinutes.Value, 1) : null,
+            DetailedMessage = detailedMessage
+        }, detailedMessage);
+    }
+
+    /// <summary>
+    /// Hủy lượt điểm danh tại trạm Kiosk khi nhân viên dừng ở bước chụp ảnh hoặc muốn nhường người khác.
+    /// </summary>
+    public async Task<ApiResponse<bool>> CancelAttendanceAsync(CancelKioskAttendanceDto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.KioskDeviceToken))
+        {
+            return ApiResponse<bool>.Fail(AttendanceMessages.InvalidKioskDeviceToken);
+        }
+
+        var kiosk = await _context.KioskDevices
+            .FirstOrDefaultAsync(k => k.DeviceToken == request.KioskDeviceToken.Trim() && k.Status == "ACTIVE");
+
+        if (kiosk == null)
+        {
+            return ApiResponse<bool>.Fail(AttendanceMessages.KioskNotActive);
+        }
+
+        var log = await _context.AttendanceLogs
+            .Include(l => l.Assignment)
+            .FirstOrDefaultAsync(l => l.Id == request.AttendanceId && l.KioskId == kiosk.Id);
+
+        if (log == null)
+        {
+            return ApiResponse<bool>.Fail(AttendanceMessages.AttendanceRecordNotFound);
+        }
+
+        var actionType = request.ActionType?.Trim().ToUpper() ?? "CHECK_IN";
+
+        if (actionType == "CHECK_IN")
+        {
+            // Chỉ cho phép hủy nếu chưa upload ảnh Check-in thành công
+            if (log.Status != AttendanceLogStatus.PENDING || !string.IsNullOrEmpty(log.CheckInPhotoKey))
+            {
+                return ApiResponse<bool>.Fail(AttendanceMessages.CancelAttendanceFailed);
+            }
+
+            _context.AttendanceLogs.Remove(log);
+            await _context.SaveChangesAsync();
+            return ApiResponse<bool>.Ok(true, AttendanceMessages.CancelAttendanceSuccess);
+        }
+        else
+        {
+            // Check-out: Nếu chưa upload ảnh Check-out (CheckOutPhotoKey == null)
+            if (!string.IsNullOrEmpty(log.CheckOutPhotoKey))
+            {
+                return ApiResponse<bool>.Fail(AttendanceMessages.CancelAttendanceFailed);
+            }
+
+            log.CheckOutTime = null;
+            log.CheckOutStatus = null;
+            log.Status = (log.CheckInStatus == CheckInStatus.LATE) ? AttendanceLogStatus.LATE : AttendanceLogStatus.PRESENT;
+            if (log.Assignment != null)
+            {
+                log.Assignment.Status = "CONFIRMED";
+            }
+
+            await _context.SaveChangesAsync();
+            return ApiResponse<bool>.Ok(true, AttendanceMessages.CancelAttendanceSuccess);
+        }
     }
 
     private async Task<bool> ValidatePinOrOtpAsync(User user, string inputCode, bool consumeOtp = false)

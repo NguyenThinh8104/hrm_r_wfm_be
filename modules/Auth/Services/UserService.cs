@@ -711,6 +711,11 @@ public class UserService : IUserService
             return ApiResponse<BulkImportResultDto>.Fail("Định dạng tệp tin không hợp lệ. Chỉ chấp nhận định dạng .xlsx, .xls hoặc .csv.");
         }
 
+        if (ext == ".xls")
+        {
+            return ApiResponse<BulkImportResultDto>.Fail("Hệ thống chỉ hỗ trợ định dạng Excel mới (.xlsx) hoặc .csv. Vui lòng mở tệp tin bằng Microsoft Excel và lưu lại thành (.xlsx).");
+        }
+
         // 1. Phân tích các dòng từ file
         var parsedRows = new List<ParsedEmployeeRow>();
         try
@@ -726,46 +731,52 @@ public class UserService : IUserService
                     if (lineIndex == 1) continue; // Bỏ qua tiêu đề
                     if (string.IsNullOrWhiteSpace(line)) continue;
 
-                    var parts = line.Split(',');
+                    // Hỗ trợ cả dấu phẩy (,) và dấu chấm phẩy (;)
+                    var delimiter = line.Contains(';') ? ';' : ',';
+                    var parts = line.Split(delimiter);
                     if (parts.Length < 6) continue;
 
                     parsedRows.Add(new ParsedEmployeeRow
                     {
                         RowNumber = lineIndex,
-                        EmployeeCode = parts.Length > 1 ? parts[1].Trim() : string.Empty,
-                        FullName = parts.Length > 2 ? parts[2].Trim() : string.Empty,
-                        Email = parts.Length > 3 ? parts[3].Trim() : string.Empty,
-                        Phone = parts.Length > 4 ? parts[4].Trim() : string.Empty,
-                        RoleCode = parts.Length > 5 ? parts[5].Trim() : string.Empty,
-                        EmploymentType = parts.Length > 6 ? parts[6].Trim() : "FULL_TIME",
-                        BranchIdentifier = parts.Length > 7 ? parts[7].Trim() : string.Empty,
-                        Password = parts.Length > 8 && !string.IsNullOrWhiteSpace(parts[8]) ? parts[8].Trim() : "Password@123"
+                        EmployeeCode = parts.Length > 1 ? parts[1].Trim().Trim('"') : string.Empty,
+                        FullName = parts.Length > 2 ? parts[2].Trim().Trim('"') : string.Empty,
+                        Email = parts.Length > 3 ? parts[3].Trim().Trim('"') : string.Empty,
+                        Phone = parts.Length > 4 ? parts[4].Trim().Trim('"') : string.Empty,
+                        RoleCode = parts.Length > 5 ? parts[5].Trim().Trim('"') : string.Empty,
+                        EmploymentType = parts.Length > 6 && !string.IsNullOrWhiteSpace(parts[6]) ? parts[6].Trim().Trim('"') : "FULL_TIME",
+                        BranchIdentifier = parts.Length > 7 ? parts[7].Trim().Trim('"') : string.Empty,
+                        Password = parts.Length > 8 && !string.IsNullOrWhiteSpace(parts[8]) ? parts[8].Trim().Trim('"') : "Password@123"
                     });
                 }
             }
             else
             {
-                using var stream = dto.File.OpenReadStream();
-                using var workbook = new XLWorkbook(stream);
-                var worksheet = workbook.Worksheets.FirstOrDefault();
+                using var memoryStream = new MemoryStream();
+                await dto.File.CopyToAsync(memoryStream);
+                memoryStream.Position = 0;
+
+                using var workbook = new XLWorkbook(memoryStream);
+                var worksheet = workbook.Worksheets.FirstOrDefault(w => w.Name.Equals("Danh_Sach_Nhan_Su", StringComparison.OrdinalIgnoreCase))
+                             ?? workbook.Worksheets.FirstOrDefault();
+
                 if (worksheet == null)
                 {
                     return ApiResponse<BulkImportResultDto>.Fail("Tệp tin Excel không chứa trang tính (worksheet) nào.");
                 }
 
                 var rows = worksheet.RowsUsed().Skip(1); // Bỏ qua tiêu đề
-                int rowNum = 1;
                 foreach (var r in rows)
                 {
-                    rowNum++;
-                    var code = r.Cell(2).GetString()?.Trim();
-                    var name = r.Cell(3).GetString()?.Trim();
-                    var email = r.Cell(4).GetString()?.Trim();
-                    var phone = r.Cell(5).GetString()?.Trim();
-                    var role = r.Cell(6).GetString()?.Trim();
-                    var type = r.Cell(7).GetString()?.Trim();
-                    var branch = r.Cell(8).GetString()?.Trim();
-                    var pass = r.Cell(9).GetString()?.Trim();
+                    int rowNum = r.RowNumber();
+                    var code = GetCellString(r.Cell(2));
+                    var name = GetCellString(r.Cell(3));
+                    var email = GetCellString(r.Cell(4));
+                    var phone = GetCellString(r.Cell(5));
+                    var role = GetCellString(r.Cell(6));
+                    var type = GetCellString(r.Cell(7));
+                    var branch = GetCellString(r.Cell(8));
+                    var pass = GetCellString(r.Cell(9));
 
                     // Nếu cả hàng đều trống thì bỏ qua
                     if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name) &&
@@ -777,13 +788,13 @@ public class UserService : IUserService
                     parsedRows.Add(new ParsedEmployeeRow
                     {
                         RowNumber = rowNum,
-                        EmployeeCode = code ?? string.Empty,
-                        FullName = name ?? string.Empty,
-                        Email = email ?? string.Empty,
-                        Phone = phone ?? string.Empty,
-                        RoleCode = role ?? string.Empty,
+                        EmployeeCode = code,
+                        FullName = name,
+                        Email = email,
+                        Phone = phone,
+                        RoleCode = role,
                         EmploymentType = string.IsNullOrWhiteSpace(type) ? "FULL_TIME" : type,
-                        BranchIdentifier = branch ?? string.Empty,
+                        BranchIdentifier = branch,
                         Password = string.IsNullOrWhiteSpace(pass) ? "Password@123" : pass
                     });
                 }
@@ -1057,6 +1068,13 @@ public class UserService : IUserService
         {
             // Tránh crash nếu audit logging gặp lỗi tạm thời
         }
+    }
+
+    private static string GetCellString(IXLCell cell)
+    {
+        if (cell == null || cell.IsEmpty()) return string.Empty;
+        // XLCellValue.ToString() an toàn cho mọi kiểu dữ liệu (Text, Number, Date, Boolean)
+        return cell.Value.ToString().Trim();
     }
 
     #endregion

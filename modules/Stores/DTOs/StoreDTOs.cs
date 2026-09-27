@@ -35,6 +35,11 @@ public class BranchDto
         BranchTier.Tier3 => "Cấp 3 - Nhỏ",
         _ => "Không xác định"
     };
+    /// <summary>
+    /// Số lượng nhân sự định biên tùy chỉnh (0 = dùng mặc định theo BranchTier).
+    /// </summary>
+    public int StaffCount { get; set; }
+
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
@@ -44,7 +49,6 @@ public class BranchDto
     public int ActiveKiosks { get; set; }
     public List<KioskDto> Kiosks { get; set; } = new();
 
-    public int StaffCount { get; set; } = 0;
     public int? TierId { get; set; }
     public TierDto? Tier { get; set; }
 
@@ -85,10 +89,16 @@ public class CreateBranchDto
     [Required(ErrorMessage = "Phân cấp chi nhánh (BranchTier) là bắt buộc.")]
     [EnumDataType(typeof(BranchTier), ErrorMessage = "Phân cấp chi nhánh không hợp lệ. Chỉ chấp nhận 1 (Tier1), 2 (Tier2), 3 (Tier3).")]
     public BranchTier BranchTier { get; set; } = BranchTier.Tier2;
+
+    /// <summary>
+    /// Định biên tùy chỉnh (Tùy chọn, mặc định = 0 để áp dụng theo BranchTier).
+    /// </summary>
+    [Range(0, 500, ErrorMessage = "Định biên nhân sự phải từ 0 đến 500.")]
+    public int? StaffCount { get; set; }
+
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE";
-    public int? StaffCount { get; set; }
     public int? TierId { get; set; }
 
     // Aliases
@@ -118,13 +128,19 @@ public class UpdateBranchDto
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public int? GeofenceRadiusMeters { get; set; }
-    public int? StaffCount { get; set; }
     public int? TierId { get; set; }
     /// <summary>
     /// Phân cấp chi nhánh mới (Tùy chọn): 1 = Tier 1 (Lớn), 2 = Tier 2 (Tiêu chuẩn), 3 = Tier 3 (Nhỏ).
     /// </summary>
     [EnumDataType(typeof(BranchTier), ErrorMessage = "Phân cấp chi nhánh không hợp lệ. Chỉ chấp nhận 1 (Tier1), 2 (Tier2), 3 (Tier3).")]
     public BranchTier? BranchTier { get; set; }
+
+    /// <summary>
+    /// Cập nhật định biên nhân sự tùy chỉnh (0 = dùng mặc định theo BranchTier).
+    /// </summary>
+    [Range(0, 500, ErrorMessage = "Định biên nhân sự phải từ 0 đến 500.")]
+    public int? StaffCount { get; set; }
+
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
 

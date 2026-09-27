@@ -235,10 +235,17 @@ public class UserService : IUserService
         {
             query = query.Where(u => u.RoleId == filter.RoleId.Value);
         }
-
-        if (!string.IsNullOrWhiteSpace(filter.EmploymentType))
+        else if (!string.IsNullOrWhiteSpace(filter.RoleCode))
         {
-            query = query.Where(u => u.EmploymentType == filter.EmploymentType.ToUpper());
+            var targetRoleCode = filter.RoleCode.Trim().ToUpper();
+            query = query.Where(u => u.Role.RoleCode == targetRoleCode);
+        }
+
+        var contractType = !string.IsNullOrWhiteSpace(filter.ContractType) ? filter.ContractType : filter.EmploymentType;
+        if (!string.IsNullOrWhiteSpace(contractType))
+        {
+            var targetContractType = contractType.Trim().ToUpper();
+            query = query.Where(u => u.EmploymentType == targetContractType);
         }
 
         if (!string.IsNullOrWhiteSpace(filter.Status))
@@ -271,8 +278,8 @@ public class UserService : IUserService
                 RoleName = u.Role.RoleName,
                 EmploymentType = u.EmploymentType,
                 HomeBranchId = u.HomeBranchId,
-                BranchCode = u.HomeBranch != null ? u.HomeBranch.BranchCode : null,
-                BranchName = u.HomeBranch != null ? u.HomeBranch.Name : null,
+                BranchCode = u.HomeBranch != null ? u.HomeBranch.BranchCode : "HQ",
+                BranchName = u.HomeBranch != null ? u.HomeBranch.Name : "Trụ sở chính (HQ)",
                 Status = u.Status,
                 CreatedAt = u.CreatedAt,
                 UpdatedAt = u.UpdatedAt
@@ -280,6 +287,61 @@ public class UserService : IUserService
             .ToListAsync();
 
         return ApiResponse<List<EmployeeDetailDto>>.Ok(employees, "Lấy danh sách hồ sơ nhân sự thành công.");
+    }
+
+    public async Task<ApiResponse<EmployeeStatsDto>> GetEmployeeStatsAsync(ulong? branchId, ulong actorId, string actorRole, ulong? actorBranchId)
+    {
+        var query = _context.Users
+            .Include(u => u.Role)
+            .AsQueryable();
+
+        var normalizedRole = actorRole.ToUpper();
+        if (normalizedRole == "STORE_MANAGER" || normalizedRole == "STOREMANAGER")
+        {
+            if (!actorBranchId.HasValue)
+                return ApiResponse<EmployeeStatsDto>.Fail("Tài khoản Quản lý chưa được gán chi nhánh.");
+            query = query.Where(u => u.HomeBranchId == actorBranchId.Value);
+        }
+        else if (branchId.HasValue && branchId.Value > 0)
+        {
+            query = query.Where(u => u.HomeBranchId == branchId.Value);
+        }
+        else
+        {
+            // Tổng tất cả chi nhánh trong chuỗi: lấy toàn bộ nhân sự công tác tại các chi nhánh
+            query = query.Where(u => u.HomeBranchId != null);
+        }
+
+        var users = await query
+            .Select(u => new
+            {
+                u.Status,
+                RoleCode = u.Role != null ? u.Role.RoleCode : string.Empty
+            })
+            .ToListAsync();
+
+        var total = users.Count;
+        var active = users.Count(u => u.Status != "INACTIVE");
+        var inactive = users.Count(u => u.Status == "INACTIVE");
+
+        var roleStats = new EmployeeRoleStatsDto
+        {
+            ShiftLeader = users.Count(u => u.RoleCode == "SHIFT_LEADER"),
+            Cashier = users.Count(u => u.RoleCode == "CASHIER"),
+            Sales = users.Count(u => u.RoleCode == "SALES_STAFF"),
+            Security = users.Count(u => u.RoleCode == "SECURITY_GUARD" || u.RoleCode == "SECURITY"),
+            Manager = users.Count(u => u.RoleCode == "STORE_MANAGER")
+        };
+
+        var stats = new EmployeeStatsDto
+        {
+            TotalEmployees = total,
+            ActiveCount = active,
+            InactiveCount = inactive,
+            RoleStats = roleStats
+        };
+
+        return ApiResponse<EmployeeStatsDto>.Ok(stats, "Lấy thống kê nhân sự thành công.");
     }
 
     public async Task<ApiResponse<EmployeeDetailDto>> GetEmployeeByIdAsync(ulong userId, ulong actorId, string actorRole, ulong? actorBranchId)

@@ -5,10 +5,10 @@
 
 ## MỤC LỤC
 1. [Tổng quan Các Luồng Nghiệp vụ Đang Hoạt động](#i-tổng-quan-các-luồng-nghiệp-vụ-đang-hoạt-động)
-2. [Luồng Khai báo Nhân sự (UC 1.4 & UC 1.5)](#ii-chi-tiết-luồng-khai-báo-nhân-sự-uc-14--uc-15)
+2. [Luồng Khai báo Nhân sự & Kiểm soát Định biên chuẩn theo Tier (UC 1.4 & UC 1.5)](#ii-chi-tiết-luồng-khai-báo-nhân-sự--kiểm-soát-định-biên-chuẩn-theo-tier-tier-headcount-control)
 3. [Luồng Điều động Nhân sự Liên chi nhánh (UC 4.1 – UC 4.4)](#iii-chi-tiết-luồng-điều-động-nhân-sự-liên-chi-nhánh-uc-41--uc-44)
 4. [Biểu đồ Tuần tự (Sequence Diagrams)](#iv-biểu-đồ-tuần-tự-sequence-diagrams)
-   - [Sequence Diagram 1: Khai báo Nhân sự](#1-sequence-diagram-khai-báo-nhân-sự)
+   - [Sequence Diagram 1: Khai báo Nhân sự & Nâng Tier](#1-sequence-diagram-khai-báo-nhân-sự--nâng-tier-chi-nhánh-khi-đạt-định-trần)
    - [Sequence Diagram 2: Điều động Nhân sự Liên chi nhánh](#2-sequence-diagram-điều-động-nhân-sự-liên-chi-nhánh)
 5. [Luồng Quản lý Điểm siêu thị (Chi nhánh & Kiosk - UC 1.2)](#v-luồng-quản-lý-điểm-siêu-thị-chi-nhánh--kiosk---uc-12)
 6. [Tác động của Quản lý Điểm siêu thị đến Khai báo & Điều động Nhân sự](#vi-tác-động-của-quản-lý-điểm-siêu-thị-đến-khai-báo--điều-động-nhân-sự)
@@ -71,7 +71,7 @@ hrm_r_wfm_be/modules/
 
 ---
 
-## II. CHI TIẾT LUỒNG KHAI BÁO NHÂN SỰ & QUẢN LÝ ĐỊNH BIÊN (HEADCOUNT MANAGEMENT)
+## II. CHI TIẾT LUỒNG KHAI BÁO NHÂN SỰ & KIỂM SOÁT ĐỊNH BIÊN CHUẨN THEO TIER (TIER HEADCOUNT CONTROL)
 
 ### 1. Phân cấp Vai trò & Nguyên tắc Phân quyền (RBAC)
 Hệ thống chuẩn hóa 7 vai trò người dùng:
@@ -84,72 +84,124 @@ Hệ thống chuẩn hóa 7 vai trò người dùng:
 7. `SECURITY_GUARD`: Nhân viên bảo vệ.
 
 #### Nguyên tắc phân quyền nghiêm ngặt (RBAC Enforcement):
-- **Chỉ duy nhất `OPERATIONS_ADMIN`**:
+- **Chỉ duy nhất `OPERATIONS_ADMIN` và `ADMIN`**:
   - Được phép gọi API tạo mới tài khoản nhân sự (`POST /api/v1/users/employees` và alias `POST /api/Users/employees`).
   - Được phép cấp mới tài khoản Cửa hàng trưởng (`POST /api/Users/store-managers`).
-  - Được quyền thẩm định, phê duyệt (toàn bộ hoặc một phần) hoặc từ chối các đơn đề xuất mở rộng định biên.
+  - Được quyền thực hiện nâng phân cấp Tier của chi nhánh (`POST /api/v1/branches/{id}/upgrade-tier`).
 - **`STORE_MANAGER` (Cửa hàng trưởng)**:
   - **Bị cấm tạo nhân sự trực tiếp**: Mọi nỗ lực gọi API tạo nhân sự đều bị chặn với mã phản hồi `403 Forbidden` / `400 Bad Request`.
-  - **Quyền hạn duy nhất về nhân sự**: Gửi đơn đề xuất mở rộng định biên (`POST /api/v1/headcount-requests/upload`) đính kèm file Excel (.xlsx) để xin cấp thêm nhân lực khi chi nhánh có nhu cầu tăng quân số.
+  - **Không có quyền nâng Tier chi nhánh**: Phân cấp chi nhánh là quyết định mang tính chiến lược của Quản trị chuỗi (Operations Admin).
 
 ---
 
-### 2. Cơ chế Định biên Chuẩn theo Quy mô Chi nhánh (BranchTier Quota)
-Hệ thống tự động xác định định biên nhân sự chuẩn (Standard Headcount Quota) dựa theo phân cấp quy mô `BranchTier`:
+### 2. Cơ chế Định biên Chuẩn Cố định theo Phân cấp Chi nhánh (BranchTier Quota)
+Hệ thống ấn định định biên nhân sự chuẩn (Standard Headcount Quota) bất biến theo phân cấp quy mô `BranchTier` (`Domain/Constants/HeadcountConstants.cs`):
 - **Tier 1 (Đại siêu thị / Flagship Store)**: Định biên chuẩn tối đa **30** nhân sự.
 - **Tier 2 (Siêu thị tiêu chuẩn - Standard Store)**: Định biên chuẩn tối đa **15** nhân sự.
 - **Tier 3 (Cửa hàng tiện lợi mini - Express Store)**: Định biên chuẩn tối đa **8** nhân sự.
 
-Quân số hoạt động thực tế (`CurrentHeadcount`) được tính bằng:
+> [!IMPORTANT]
+> **Loại bỏ cơ chế nâng trần linh hoạt `StaffCount`**: Hệ thống đã bãi bỏ hoàn toàn việc dùng thuộc tính `StaffCount` để tùy ý nới lỏng trần định biên cho chi nhánh. Mọi hạn mức định biên (`EffectiveQuota`) luôn tuân thủ nghiêm ngặt 100% theo định biên chuẩn của phân cấp Tier (`Tier 1 = 30, Tier 2 = 15, Tier 3 = 8`).
+
+Quân số hoạt động thực tế (`CurrentHeadcount`) được tính toán theo thời gian thực:
 $$\text{CurrentHeadcount} = \sum \text{Users}(\text{HomeBranchId} = \text{BranchId} \land \text{Status} = \text{'ACTIVE'})$$
 
 ---
 
-### 3. Logic Bù đắp Định biên Chuẩn (Headcount Attrition Compensation)
+### 3. Logic Bù đắp Định biên Tự nhiên (Headcount Attrition Compensation)
 Quy chuẩn vận hành quan trọng dành cho đội ngũ phát triển và QA/Testing:
 
 > [!NOTE]
 > **Kịch bản bù đắp quân số tự nhiên**:
-> - **Giả định**: Chi nhánh Tier 3 có định biên chuẩn $\text{Quota} = 8$. Hiện tại chi nhánh đang có đủ 8 nhân sự hoạt động ($\text{CurrentHeadcount} = 8$ - trạng thái OPTIMAL).
+> - **Giả định**: Chi nhánh Tier 3 có định biên chuẩn $\text{Quota} = 8$. Hiện tại chi nhánh đang có đủ 8 nhân sự hoạt động ($\text{CurrentHeadcount} = 8$ - trạng thái kịch biên).
 > - **Biến động**: Khi 1 nhân viên nghỉ việc hoặc chấm dứt hợp đồng, Quản trị viên chuyển trạng thái nhân sự này sang `INACTIVE` (`PATCH /api/Users/{id}/status`).
 > - **Cơ chế tự động**: Lúc này chỉ số $\text{CurrentHeadcount}$ của chi nhánh tự động giảm từ $8 \rightarrow 7$.
-> - **Kết luận nghiệp vụ**: Chi nhánh tự động dôi ra 1 vị trí trống ($\text{AvailableQuotaSlots} = 1$). `OPERATIONS_ADMIN` có thể **tạo ngay 1 nhân sự mới** để thay thế trong phạm vi định biên chuẩn mà **hoàn toàn KHÔNG cần thông qua luồng Import Request**.
+> - **Kết luận nghiệp vụ**: Chi nhánh tự động dôi ra 1 vị trí trống ($\text{AvailableQuotaSlots} = 1$). `OPERATIONS_ADMIN` có thể **tạo ngay 1 nhân sự mới** để thay thế trong phạm vi định biên chuẩn của Tier 3 mà **hoàn toàn KHÔNG cần phải nâng Tier chi nhánh**.
 
 ---
 
-### 4. Luồng Xử lý Đơn Mở rộng Định biên (Headcount Expansion & Override Workflow)
+### 4. Cơ chế Nâng Tier Chi Nhánh Khi Đạt Định Trần Kịch Biên (Branch Tier Upgrade Workflow)
 
-Khi chi nhánh đã đạt giới hạn định biên chuẩn ($\text{CurrentHeadcount} \ge \text{StandardQuota}$):
-1. **Store Manager upload đề xuất (`POST /api/v1/headcount-requests/upload`)**:
-   - Đính kèm file Excel (.xlsx), số lượng nhân sự đề xuất (`TotalRequested`), lý do giải trình.
-   - File upload được lưu an toàn trên hệ thống lưu trữ (AWS S3 / Local Storage).
-   - Bản ghi được tạo trong bảng `headcount_import_requests` với trạng thái `PENDING`.
-2. **Operations Admin thẩm định & Phê duyệt (`POST /api/v1/headcount-requests/{id}/review`)**:
-   - **Từ chối (Reject)**: Nếu lý do không hợp lý, Admin từ chối kèm lý do $\rightarrow$ `Status = 'REJECTED'`.
-   - **Phê duyệt một phần (Partial Approval)**: Admin có quyền duyệt số lượng linh hoạt thay vì duyệt toàn bộ (ví dụ: Store Manager đề xuất +5, Admin chỉ duyệt +3). Lúc này `ApprovedQuantity = 3`, `AdditionalQuantity = 3`, `Status = 'APPROVED'`.
-   - **Quản lý hạn dùng (Quota Expiration)**: Đơn được gán thời hạn hiệu lực (`ExpiresAt`, mặc định 30 ngày). Quá thời hạn này, đơn tự động chuyển thành `EXPIRED` và không được phép sử dụng.
-3. **Admin tạo nhân sự vượt định biên (`POST /api/v1/users/employees`)**:
-   - Khi tạo nhân viên vượt Quota, Admin **bắt buộc** phải truyền `ImportRequestId` (thuộc đơn hợp lệ của chi nhánh) và `ExpansionReason`.
-   - Hệ thống tự động trừ lùi chỉ tiêu khả dụng:
-     $$\text{AdditionalQuantity} \leftarrow \text{AdditionalQuantity} - 1$$
-     $$\text{TotalApproved} \leftarrow \text{TotalApproved} + 1$$
-   - Khi $\text{AdditionalQuantity} = 0$, trạng thái đơn tự động chuyển sang `'EXHAUSTED'`. Hệ thống ngăn chặn tuyệt đối việc sử dụng tiếp đơn này.
+Khi chi nhánh đã đạt trần kịch biên định biên ($\text{CurrentHeadcount} \ge \text{StandardQuota}$) và Admin có nhu cầu tuyển dụng thêm nhân sự:
+
+```
+┌────────────────────────┐      Đạt trần 8/8       ┌────────────────────────┐      Đạt trần 15/15     ┌────────────────────────┐
+│     TIER 3 (Mini)      │ ─────────────────────►  │    TIER 2 (Chuẩn)      │ ─────────────────────►  │     TIER 1 (Lớn)       │
+│ Định biên tối đa: 8 NV │   Nâng cấp mở rộng 15   │ Định biên tối đa: 15 NV│   Nâng cấp mở rộng 30   │ Định biên tối đa: 30 NV│
+└────────────────────────┘                         └────────────────────────┘                         └───────────┬────────────┘
+                                                                                                                  │
+                                                                                          Kịch trần tối đa hệ thống (30/30)
+                                                                                          KHÔNG THỂ NÂNG THÊM
+```
+
+1. **Khóa tạo mới tại Client (Frontend Pre-validation)**:
+   - Khi Admin chọn chi nhánh đã đạt trần định biên, hệ thống lập tức khóa nút **"Xác Nhận Khai Báo"** (`disabled = true`).
+   - Modal hiển thị banner cảnh báo đỏ và cung cấp nút thao tác nhanh:
+     - Với chi nhánh Tier 3: **`[⚡ Nâng lên Tier 2 (15 nhân sự)]`**.
+     - Với chi nhánh Tier 2: **`[⚡ Nâng lên Tier 1 (30 nhân sự)]`**.
+     - Với chi nhánh Tier 1: Cảnh báo chi nhánh đã ở mức tối đa toàn chuỗi (30/30 kịch trần), không có nút nâng cấp.
+2. **Admin thực hiện nâng Tier trực tiếp (`POST /api/v1/branches/{id}/upgrade-tier`)**:
+   - Admin nhấn nút nâng Tier ngay trên form khai báo (hoặc tại thẻ `HeadcountQuotaCard`).
+   - Backend kiểm tra điều kiện:
+     - Nếu đang là Tier 3: Cập nhật `branch.BranchTier = BranchTier.Tier2;` $\rightarrow$ Định biên mở rộng lên **15** nhân sự.
+     - Nếu đang là Tier 2: Cập nhật `branch.BranchTier = BranchTier.Tier1;` $\rightarrow$ Định biên mở rộng lên **30** nhân sự.
+     - Nếu đang là Tier 1: Trả về lỗi `400 Bad Request` vì đã ở mức tối đa.
+3. **Mở khóa hoàn tất khai báo không mất dữ liệu**:
+   - Ngay khi API nâng Tier trả về thành công, Frontend tự động cập nhật lại hạn mức định biên mới (từ 8 lên 15 hoặc từ 15 lên 30).
+   - Nút **"Xác Nhận Khai Báo" được mở khóa ngay lập tức**.
+   - Admin tiếp tục nhấn nút xác nhận để thêm nhân sự mà **không cần đóng modal hay nhập lại dữ liệu đã điền dở**.
 
 ---
 
-### 5. Bảng Kịch bản Kiểm thử Nghiệp vụ (QA Test Cases)
+### 5. Hướng Dẫn Kỹ Thuật Từng Bước & Bản Đồ Mã Nguồn (Step-by-Step Architecture Guide)
 
-| Mã TC | Tên Kịch bản Kiểm thử | Thao tác & Dữ liệu đầu vào | Kết quả Kỳ vọng |
-| :---: | :--- | :--- | :--- |
-| **TC-HC-01** | Chặn Store Manager tạo nhân sự trực tiếp | `STORE_MANAGER` gọi `POST /api/v1/users/employees` | Trả về `403 Forbidden` / `400 Bad Request` ("Chỉ duy nhất OPERATIONS_ADMIN mới có quyền tạo mới...") |
-| **TC-HC-02** | Store Manager upload file Excel xin tăng định biên | `STORE_MANAGER` nộp file `.xlsx`, `TotalRequested = 5`, lý do | Trả về `201 Created`, bản ghi lưu `Status = 'PENDING'`, `AdditionalQuantity = 5` |
-| **TC-HC-03** | Chặn Admin tạo NV khi đã đủ Quota mà không có đơn | Chi nhánh Tier 3 có 8 NV ACTIVE. Admin gọi tạo NV (không truyền `ImportRequestId`) | Trả về `400 Bad Request` ("Chi nhánh đã đạt giới hạn định biên...") |
-| **TC-HC-04** | Admin duyệt một phần đơn mở rộng (Partial Approval) | Admin gọi review: `IsApproved = true`, `ApprovedQuantity = 3` (gốc là 5) | Đơn chuyển `APPROVED`, `ApprovedQuantity = 3`, `AdditionalQuantity = 3` |
-| **TC-HC-05** | Admin tạo NV vượt Quota kèm đơn hợp lệ | Admin tạo NV kèm `ImportRequestId`, `ExpansionReason` | Tạo NV thành công (`201 Created`), `AdditionalQuantity` giảm từ 3 xuống 2 |
-| **TC-HC-06** | Tự động chuyển trạng thái EXHAUSTED khi hết suất | Admin tạo đủ số lượng suất còn lại của đơn | `AdditionalQuantity` về 0, đơn tự động chuyển `Status = 'EXHAUSTED'` |
-| **TC-HC-07** | Chặn dùng đơn đã EXHAUSTED hoặc EXPIRED | Admin cố tạo NV dùng đơn đã hết suất hoặc đã quá `ExpiresAt` | Trả về `400 Bad Request` ("Đơn mở rộng định biên đã hết chỉ tiêu / hết hạn") |
-| **TC-HC-08** | Bù đắp định biên khi nhân viên nghỉ việc | Chi nhánh Tier 3 có 8 NV. 1 NV chuyển sang `INACTIVE` (còn 7). Admin tạo NV mới | Tạo NV thành công ngay lập tức **không cần** `ImportRequestId` vì $7 < 8$ (Tier Quota) |
-| **TC-HC-09** | Admin từ chối đơn đề xuất (Reject Request) | Admin gọi review: `IsApproved = false`, lý do từ chối | Đơn chuyển `Status = 'REJECTED'`, ghi nhận `AdminNotes` |
+```
+[UI: EmployeeManagementPage] 
+   └── [Modal: EmployeeFormModal] 
+          ├── 1. Pre-check Quota: headcountService.getBranchHeadcountStatus()
+          │         └── GET /api/v1/headcount-requests/branch/{id}/status 
+          │               └── BE: BranchesController -> BranchHeadcountService -> HeadcountConstants
+          │
+          ├── 2. Nâng Tier (Khi kịch biên): headcountService.upgradeBranchTier()
+          │         └── POST /api/v1/branches/{id}/upgrade-tier 
+          │               └── BE: BranchesController -> BranchService -> DB (BranchTier)
+          │
+          └── 3. Bấm Submit Khai Báo: employeeService.createEmployee()
+                    └── POST /api/Users/employees 
+                          └── BE: UsersController -> UserService -> ValidateHeadcountAsync -> DB (User)
+```
+
+#### Chi tiết các thành phần trong mã nguồn:
+
+| Bước xử lý | Phía Client (Frontend React) | Phía Server (Backend .NET 8) | Kiểm tra dữ liệu & Điều kiện |
+| :--- | :--- | :--- | :--- |
+| **1. Tra cứu định biên** | `EmployeeFormModal.jsx` gọi `headcountService.getBranchHeadcountStatus(branchId)` | `BranchesController.GetBranchHeadcountStatus` $\rightarrow$ `BranchHeadcountService.GetBranchHeadcountStatusAsync` | Đếm quân số ACTIVE: `Users.Count(u => u.HomeBranchId == id && u.Status == "ACTIVE")`. So sánh với `HeadcountConstants.GetStandardQuota(branch.BranchTier)`. Trả về `BranchHeadcountStatusDto`. |
+| **2. Nâng Tier khi kịch biên** | Nút `[⚡ Nâng lên Tier ...]` gọi `headcountService.upgradeBranchTier(branchId)` | `BranchesController.UpgradeBranchTier` $\rightarrow$ `BranchService.UpgradeBranchTierAsync` | Kiểm tra `branch.BranchTier > 1`. Nâng Tier 3 $\rightarrow$ Tier 2 hoặc Tier 2 $\rightarrow$ Tier 1. Cập nhật `branch.UpdatedAt = UtcNow`, lưu DB. Trả về thông báo thành công. |
+| **3. Kiểm tra form tại FE** | Hàm `validate()` trong `EmployeeFormModal.jsx` | *(Chưa gửi request)* | Kiểm tra bắt buộc: Họ tên, Mã NV, SĐT (9-12 số), Email hợp lệ, Mật khẩu khởi tạo, Vai trò, Chi nhánh công tác. |
+| **4. Tiếp nhận & Thẩm định BE** | `employeeService.createEmployee(payload)` gửi `POST /api/Users/employees` | `UsersController.CreateEmployee` $\rightarrow$ `UserService.CreateEmployeeAsync` | 1. Branch phải tồn tại và `Status == "ACTIVE"`.<br>2. Gọi `_headcountService.ValidateHeadcountAsync`: Nếu `projectedCount >= standardQuota` $\rightarrow$ Báo lỗi kịch trần.<br>3. Kiểm tra trùng lặp `EmployeeCode`, `Email`, `Phone`. |
+| **5. Tạo tài khoản & Gửi Email** | *(Chờ phản hồi API)* | `UserService.CreateEmployeeAsync` $\rightarrow$ `_context.Users.Add()` $\rightarrow$ `_emailService.SendWelcomeEmailAsync()` | Băm mật khẩu bằng BCrypt, gán `Status = "ACTIVE"`, lưu Database. Kích hoạt gửi Welcome Email có mã NV, mật khẩu và link đăng nhập. Trả về `201 Created`. |
+
+---
+
+### 6. Bảng Kịch bản Kiểm thử Nghiệp vụ (QA Test Cases - Chuẩn FSOFT v2/0)
+
+*Mã tài liệu: 02ae-BM/PM/HDCV/FSOFT v2/0 — Facilitate_Test Case\Employee Headcount Control*
+
+| Mã TC | Tên Kịch bản Kiểm thử | Điều kiện Tiền đề (Pre-conditions) | Các bước Thực hiện (Procedure) | Kết quả Kỳ vọng (Expected Results) |
+| :---: | :--- | :--- | :--- | :--- |
+| **TC_EMP_HC_001** | Bãi bỏ trường nhập StaffCount trên form chi nhánh | Quyền Admin, mở modal cấu hình chi nhánh (`BranchFormModal`). | 1. Mở modal thêm/sửa chi nhánh.<br>2. Kiểm tra các trường dữ liệu. | Không còn trường `StaffCount`. Phân cấp Tier hiển thị rõ định biên chuẩn cố định (Tier 1 = 30, Tier 2 = 15, Tier 3 = 8). |
+| **TC_EMP_HC_002** | Hiển thị định biên chuẩn Tier trên thẻ Quota Card | Quyền Admin, xem trang `/employees`. | 1. Quan sát widget định biên chi nhánh. | Định biên hiển thị chuẩn theo Tier. Không còn nhãn hay số liệu "Quota tùy chỉnh". |
+| **TC_EMP_HC_003** | Khai báo nhân sự khi chi nhánh còn vị trí trống | Chi nhánh A (Tier 3) có 5/8 nhân sự (còn 3 slot trống). | 1. Mở modal tạo nhân viên, chọn Chi nhánh A.<br>2. Điền form hợp lệ và bấm Xác nhận. | Banner xanh hiển thị còn 3 slot. Nút tạo mở khóa. Tạo thành công, quân số tăng lên 6/8. Gửi Welcome Email. |
+| **TC_EMP_HC_004** | Chặn khai báo nhân sự khi chi nhánh Tier 3 kịch trần (8/8) | Chi nhánh B (Tier 3) đã đủ 8/8 nhân sự. | 1. Chọn Chi nhánh B trên modal tạo nhân viên. | Banner đỏ cảnh báo kịch trần 8/8. Nút "Xác Nhận Khai Báo" bị khóa (Disabled). Hiển thị nút `⚡ Nâng lên Tier 2 (15 nhân sự)`. |
+| **TC_EMP_HC_005** | Chặn khai báo nhân sự khi chi nhánh Tier 2 kịch trần (15/15) | Chi nhánh C (Tier 2) đã đủ 15/15 nhân sự. | 1. Chọn Chi nhánh C trên modal tạo nhân viên. | Banner đỏ cảnh báo kịch trần 15/15. Nút submit bị khóa. Hiển thị nút `⚡ Nâng lên Tier 1 (30 nhân sự)`. |
+| **TC_EMP_HC_006** | Chặn khai báo khi chi nhánh Tier 1 kịch trần (30/30) | Chi nhánh D (Tier 1) đã đủ 30/30 nhân sự. | 1. Chọn Chi nhánh D trên modal tạo nhân viên. | Banner đỏ cảnh báo kịch trần tối đa toàn chuỗi. Nút submit bị khóa. **Không có nút nâng Tier**. |
+| **TC_EMP_HC_007** | Admin nâng Tier 3 lên Tier 2 trực tiếp từ Modal tạo nhân sự | Chi nhánh B (Tier 3) đang đầy 8/8 nhân sự; form nhân viên đã điền xong. | 1. Nhấn nút `⚡ Nâng lên Tier 2 (15 nhân sự)` trên banner.<br>2. Sau khi có toast thành công, bấm "Xác Nhận Khai Báo". | Chi nhánh nâng lên Tier 2 thành công, quota thành 15. Form giữ nguyên dữ liệu đã nhập. Nút Xác nhận mở khóa. Tạo nhân viên thành công, quân số đạt 9/15. |
+| **TC_EMP_HC_008** | Admin nâng Tier 2 lên Tier 1 trực tiếp từ Modal tạo nhân sự | Chi nhánh C (Tier 2) đang đầy 15/15 nhân sự. | 1. Nhấn nút `⚡ Nâng lên Tier 1 (30 nhân sự)` trên banner.<br>2. Bấm "Xác Nhận Khai Báo". | Chi nhánh nâng lên Tier 1, quota thành 30. Tạo nhân viên thành công, quân số đạt 16/30. |
+| **TC_EMP_HC_009** | Nâng Tier nhanh từ thẻ HeadcountQuotaCard | Chi nhánh B (Tier 3) đang đầy 8/8 nhân sự. | 1. Bấm nút `⚡ Nâng Tier 2 (15)` trên thẻ chi nhánh. | Chi nhánh chuyển sang Tier 2 (15 người). Thẻ chuyển sang trạng thái còn 7 slot. |
+| **TC_EMP_HC_010** | Backend chặn nâng cấp đối với chi nhánh đã ở Tier 1 | Chi nhánh D là Tier 1. Gọi API `POST /api/v1/branches/{id}/upgrade-tier`. | Gửi request nâng cấp Tier cho chi nhánh Tier 1. | Backend trả về `400 Bad Request` ("Chi nhánh đã ở phân cấp cao nhất..."). |
+| **TC_EMP_HC_011** | Backend chặn tạo nhân viên trực tiếp khi kịch trần qua API | Chi nhánh B (Tier 3) có 8/8 nhân sự. Gọi API `POST /api/Users/employees`. | Gửi request tạo nhân viên vào Chi nhánh B. | Backend trả về `400 Bad Request` kèm thông báo lỗi hướng dẫn nâng Tier. |
+| **TC_EMP_HC_012** | Tự động mở slot bù đắp khi nhân sự chuyển sang INACTIVE | Chi nhánh B (Tier 3) có 8/8 nhân sự. 1 nhân viên chuyển sang INACTIVE. | 1. Admin khóa/chuyển trạng thái 1 nhân viên sang INACTIVE.<br>2. Mở modal tạo nhân sự cho Chi nhánh B. | Quân số tự động giảm còn 7/8. Chi nhánh còn 1 slot trống. Nút tạo nhân viên mở khóa bình thường mà không cần nâng Tier. |
+| **TC_EMP_HC_013** | Kiểm soát định biên khi Import hàng loạt | Chi nhánh E (Tier 2) có 14/15 nhân viên (còn 1 slot). File Excel có 3 nhân viên. | 1. Thực hiện Import file Excel. | Dòng 1 import thành công (quân số lên 15/15). Dòng 2 và 3 bị chặn và báo lỗi kịch trần định biên. |
 
 
 ---
@@ -200,44 +252,80 @@ Ngay khi lệnh điều động chuyển sang `APPROVED`:
 
 ## IV. BIỂU ĐỒ TUẦN TỰ (SEQUENCE DIAGRAMS)
 
-### 1. Sequence Diagram: Khai báo Nhân sự
+### 1. Sequence Diagram: Khai báo Nhân sự & Nâng Tier Chi Nhánh Khi Đạt Định Trần
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Actor as Operations Admin / Store Manager
-    participant UI as Frontend Client (React)
-    participant Ctrl as UsersController
-    participant Svc as UserService
+    actor Admin as Operations Admin
+    participant FE as Frontend (React Modal)
+    participant BE_Headcount as BE: BranchHeadcountService
+    participant BE_Branch as BE: BranchService
+    participant BE_User as BE: UserService
     participant DB as MySQL Database
-    participant Email as EmailService (SMTP)
+    participant Email as Email Service (SMTP)
 
-    Actor->>UI: Nhập thông tin nhân viên (Mã NV, Họ tên, Email, SĐT, Role, Branch)
-    UI->>Ctrl: POST /api/Users/employees (kèm JWT Bearer Token)
-    Ctrl->>Svc: CreateEmployeeAsync(dto, actorId, role, branchId)
-    
+    %% GIAI ĐOẠN 1: MỞ FORM VÀ KIỂM TRA ĐỊNH BIÊN
     rect rgb(240, 248, 255)
-        note right of Svc: Kiểm tra Nghiệp vụ & Phân quyền
-        Svc->>Svc: Kiểm tra Role: Store Manager chỉ được tạo 4 vai trò vận hành
-        Svc->>Svc: Gán HomeBranchId theo Store Manager (nếu không phải Admin)
-        Svc->>DB: Kiểm tra trùng EmployeeCode, Email, Phone
-        DB-->>Svc: Không trùng lặp
-        Svc->>DB: Kiểm tra Branch có tồn tại và Status == 'ACTIVE'?
-        DB-->>Svc: Branch hợp lệ & đang ACTIVE
+    note over Admin, BE_Headcount: GIAI ĐOẠN 1: Chọn Chi Nhánh & Kiểm Tra Định Biên Chuẩn Tier
+    Admin->>FE: Bấm "Khai Báo Nhân Sự Mới" & Chọn Chi nhánh
+    FE->>BE_Headcount: GET /api/v1/headcount-requests/branch/{id}/status
+    BE_Headcount->>DB: Đếm quân số ACTIVE: COUNT(Users where BranchId & ACTIVE)
+    DB-->>BE_Headcount: currentHeadcount
+    BE_Headcount->>BE_Headcount: Lấy định biên chuẩn: GetStandardQuota(BranchTier)<br/>(Tier 1 = 30, Tier 2 = 15, Tier 3 = 8)
+    BE_Headcount-->>FE: Trả về BranchHeadcountStatusDto<br/>{standardQuota, currentHeadcount, isQuotaReached, canUpgradeTier, nextTier, nextTierQuota}
     end
 
-    Svc->>Svc: Băm mật khẩu (BCrypt/PBKDF2)
-    Svc->>DB: INSERT INTO users (Status='ACTIVE', HomeBranchId, ...)
-    DB-->>Svc: Lưu thành công (User ID)
+    %% GIAI ĐOẠN 2: XỬ LÝ THEO TRẠNG THÁI ĐỊNH BIÊN
+    alt TRƯỜNG HỢP A: Chi nhánh còn vị trí trống (currentHeadcount < standardQuota)
+        FE->>FE: Hiển thị banner xanh: "Còn trống X vị trí"<br/>Nút "Xác Nhận Khai Báo" = ENABLED
+
+    else TRƯỜNG HỢP B: Chi nhánh đã đạt kịch trần (Tier 3 = 8/8 hoặc Tier 2 = 15/15)
+        rect rgb(255, 245, 230)
+        note over Admin, BE_Branch: GIAI ĐOẠN 2: Nâng Tier Chi Nhánh Trực Tiếp Để Mở Rộng Hạn Mức
+        FE->>FE: Hiển thị cảnh báo đỏ + Nút [⚡ Nâng lên Tier tiếp theo]<br/>Nút "Xác Nhận Khai Báo" = DISABLED
+        Admin->>FE: Bấm nút [⚡ Nâng lên Tier tiếp theo] (vd: Tier 3 -> Tier 2)
+        FE->>BE_Branch: POST /api/v1/branches/{id}/upgrade-tier
+        BE_Branch->>DB: Kiểm tra phân cấp & Cập nhật: BranchTier = nextTier
+        DB-->>BE_Branch: Cập nhật thành công
+        BE_Branch-->>FE: 200 OK (Thông báo nâng cấp thành công)
+        
+        FE->>BE_Headcount: Tự động gọi lại: GET /status
+        BE_Headcount-->>FE: Trả về định biên mới (vd: Tier 2 chuẩn 15 slot, còn 7 slot trống)
+        FE->>FE: Cập nhật banner xanh + MỞ KHÓA nút "Xác Nhận Khai Báo"<br/>(Form giữ nguyên dữ liệu Admin đã nhập)
+        end
+
+    else TRƯỜNG HỢP C: Chi nhánh đã đạt kịch trần tối đa (Tier 1 = 30/30)
+        FE->>FE: Hiển thị cảnh báo: "Đã đạt trần tối đa toàn chuỗi (30/30)"<br/>Không có nút nâng Tier + Nút "Xác Nhận" = DISABLED vĩnh viễn
+    end
+
+    %% GIAI ĐOẠN 3: XÁC NHẬN KHAI BÁO NHÂN SỰ
+    rect rgb(240, 255, 240)
+    note over Admin, Email: GIAI ĐOẠN 3: Gửi Dữ Liệu Tạo Nhân Sự & Cấp Tài Khoản
+    Admin->>FE: Điền thông tin nhân viên (Mã NV, Họ tên, Email, SĐT, Role) & Bấm "Xác Nhận Khai Báo"
+    FE->>BE_User: POST /api/Users/employees
     
-    Svc->>DB: INSERT INTO system_audit_logs (Action='CREATE_EMPLOYEE')
+    %% Thẩm định phía BE
+    BE_User->>BE_Headcount: ValidateHeadcountAsync(branchId)
+    BE_Headcount->>DB: Kiểm tra lại quân số ACTIVE thực tế
+    DB-->>BE_Headcount: currentActiveCount
+    BE_Headcount-->>BE_User: HeadcountValidationResult.Success (Còn slot theo Tier hiện tại)
     
-    Svc-)Email: SendWelcomeEmailAsync (Mã NV, Mật khẩu, Chi nhánh)
-    Email-->>Svc: Email gửi thành công / Enqueued
+    %% Kiểm tra trùng lặp & Lưu
+    BE_User->>DB: Kiểm tra trùng lặp (Mã NV, Email, SĐT)
+    DB-->>BE_User: Hợp lệ (Không trùng)
+    BE_User->>BE_User: Băm mật khẩu (BCrypt) & Khởi tạo User (Status = ACTIVE)
+    BE_User->>DB: INSERT INTO Users ...
+    DB-->>BE_User: Lưu thành công (User ID mới)
+
+    %% Gửi Email chào mừng
+    BE_User-)Email: Kích hoạt gửi Welcome Email (Username, Password khởi tạo, Link đăng nhập)
     
-    Svc-->>Ctrl: ApiResponse.Ok(EmployeeDetailDto)
-    Ctrl-->>UI: 201 Created (Thông tin nhân viên mới)
-    UI-->>Actor: Hiển thị thông báo thành công & cập nhật danh sách
+    BE_User-->>FE: 201 Created (ApiResponse: EmployeeDetailDto)
+    end
+
+    %% HOÀN TẤT
+    FE->>Admin: Toast thông báo thành công + Đóng Modal + Cập nhật quân số trên bảng & widget
 ```
 
 ---

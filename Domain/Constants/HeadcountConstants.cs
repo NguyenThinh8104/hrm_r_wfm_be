@@ -36,43 +36,4 @@ public static class HeadcountConstants
         BranchTier.Tier3 => Tier3StandardQuota,
         _ => Tier2StandardQuota
     };
-
-    // ==========================================
-    // 2. Trạng thái Đơn đề xuất Mở rộng Định biên
-    // ==========================================
-
-    /// <summary>
-    /// Đang chờ Operations Admin thẩm định và phê duyệt.
-    /// </summary>
-    public const string StatusPending = "PENDING";
-
-    /// <summary>
-    /// Đã được Operations Admin phê duyệt (toàn bộ hoặc một phần).
-    /// </summary>
-    public const string StatusApproved = "APPROVED";
-
-    /// <summary>
-    /// Bị Operations Admin từ chối.
-    /// </summary>
-    public const string StatusRejected = "REJECTED";
-
-    /// <summary>
-    /// Đã sử dụng hết toàn bộ số lượng chỉ tiêu bổ sung (AdditionalQuantity == 0).
-    /// </summary>
-    public const string StatusExhausted = "EXHAUSTED";
-
-    /// <summary>
-    /// Đơn đã hết hạn hiệu lực theo thời gian quy định (ExpiresAt < DateTime.UtcNow).
-    /// </summary>
-    public const string StatusExpired = "EXPIRED";
-
-    /// <summary>
-    /// Đơn bị đóng thủ công bởi Quản trị viên.
-    /// </summary>
-    public const string StatusClosed = "CLOSED";
-
-    /// <summary>
-    /// Thời hạn hiệu lực mặc định của đơn mở rộng định biên sau khi duyệt (30 ngày).
-    /// </summary>
-    public const int DefaultExpirationDays = 30;
 }

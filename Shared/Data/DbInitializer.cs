@@ -62,7 +62,7 @@ public static class DbInitializer
                     alterCmd.ExecuteNonQuery();
                 }
 
-                // Tự động kiểm tra và bổ sung cột StaffCount nếu database chưa có
+                // Tự động kiểm tra và bổ sung cột StaffCount (mặc định = 0: dùng Tier Quota) nếu database chưa có
                 if (!branchCols.Contains("StaffCount"))
                 {
                     using var alterCmd = connection.CreateCommand();
@@ -77,6 +77,15 @@ public static class DbInitializer
                     alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `TierId` INT NULL;";
                     alterCmd.ExecuteNonQuery();
                 }
+
+                // Loại bỏ bảng headcount_import_requests cũ nếu còn tồn tại
+                try
+                {
+                    using var dropCmd = connection.CreateCommand();
+                    dropCmd.CommandText = "DROP TABLE IF EXISTS `headcount_import_requests`;";
+                    dropCmd.ExecuteNonQuery();
+                }
+                catch { }
             }
 
             // Check branch_tiers table

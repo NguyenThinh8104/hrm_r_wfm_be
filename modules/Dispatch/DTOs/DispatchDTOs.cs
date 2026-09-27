@@ -69,3 +69,17 @@ public class StorePairDispatchMatrixDto
     public int DispatchCount { get; set; }
     public double TotalHours { get; set; }
 }
+
+public class DispatchEmployeeOptionDto
+{
+    public ulong Id { get; set; }
+    public ulong EmployeeId => Id;
+    public ulong UserId => Id;
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string RoleName { get; set; } = string.Empty;
+    public string PositionName { get; set; } = string.Empty;
+    public string RoleCode { get; set; } = string.Empty;
+    public ulong HomeBranchId { get; set; }
+}
+

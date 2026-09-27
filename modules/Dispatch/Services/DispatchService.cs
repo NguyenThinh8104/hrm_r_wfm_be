@@ -518,4 +518,40 @@ public class DispatchService : IDispatchService
 
         return ApiResponse<bool>.Ok(true, "Đã hủy và xóa yêu cầu điều động thành công.");
     }
+
+    /// <summary>
+    /// Lấy danh sách nhân sự của chi nhánh phục vụ điều động chi viện liên chi nhánh (UC 4.1).
+    /// Loại trừ Cửa hàng trưởng và Admin, chỉ lấy nhân sự ACTIVE.
+    /// </summary>
+    public async Task<ApiResponse<List<DispatchEmployeeOptionDto>>> GetBranchEmployeesForDispatchAsync(ulong branchId)
+    {
+        var branch = await _context.Branches.FindAsync(branchId);
+        if (branch == null)
+        {
+            return ApiResponse<List<DispatchEmployeeOptionDto>>.Fail("Không tìm thấy chi nhánh chỉ định.");
+        }
+
+        var excludedRoleCodes = new[] { "STORE_MANAGER", "OPERATIONS_ADMIN", "BUSINESS_OWNER" };
+
+        var employees = await _context.Users
+            .Include(u => u.Role)
+            .Where(u => u.HomeBranchId == branchId && u.Status == "ACTIVE")
+            .Where(u => u.Role != null && !excludedRoleCodes.Contains(u.Role.RoleCode))
+            .OrderBy(u => u.RoleId)
+            .ThenBy(u => u.FullName)
+            .Select(u => new DispatchEmployeeOptionDto
+            {
+                Id = u.Id,
+                EmployeeCode = u.EmployeeCode,
+                FullName = u.FullName,
+                RoleName = u.Role != null ? u.Role.RoleName : "Nhân viên",
+                PositionName = u.Role != null ? u.Role.RoleName : "Nhân viên",
+                RoleCode = u.Role != null ? u.Role.RoleCode : string.Empty,
+                HomeBranchId = u.HomeBranchId ?? branchId
+            })
+            .ToListAsync();
+
+        return ApiResponse<List<DispatchEmployeeOptionDto>>.Ok(employees, "Lấy danh sách nhân sự chi viện thành công.");
+    }
 }
+

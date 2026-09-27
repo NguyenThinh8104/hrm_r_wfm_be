@@ -12,4 +12,6 @@ public interface IDispatchService
     Task<ApiResponse<DispatchNetworkMetricsDto>> GetNetworkMetricsAsync(DateOnly? fromDate, DateOnly? toDate);
     Task<ApiResponse<DispatchRecordDto>> UpdateDispatchRequestAsync(int managerId, int dispatchId, UpdateDispatchRequestDto request);
     Task<ApiResponse<bool>> DeleteDispatchRequestAsync(int managerId, int dispatchId);
+    Task<ApiResponse<List<DispatchEmployeeOptionDto>>> GetBranchEmployeesForDispatchAsync(ulong branchId);
 }
+

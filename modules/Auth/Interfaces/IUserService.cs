@@ -13,6 +13,7 @@ public interface IUserService
 
     // UC 1.5: Quản lý Hồ sơ & Hợp đồng Nhân sự Toàn chuỗi
     Task<ApiResponse<List<EmployeeDetailDto>>> GetEmployeesAsync(EmployeeFilterDto filter, ulong actorId, string actorRole, ulong? actorBranchId);
+    Task<ApiResponse<EmployeeStatsDto>> GetEmployeeStatsAsync(ulong? branchId, ulong actorId, string actorRole, ulong? actorBranchId);
     Task<ApiResponse<EmployeeDetailDto>> GetEmployeeByIdAsync(ulong userId, ulong actorId, string actorRole, ulong? actorBranchId);
     Task<ApiResponse<EmployeeDetailDto>> CreateEmployeeAsync(CreateEmployeeDto dto, ulong actorId, string actorRole, ulong? actorBranchId, string? ipAddress);
     Task<ApiResponse<EmployeeDetailDto>> UpdateEmployeeAsync(ulong userId, UpdateEmployeeDto dto, ulong actorId, string actorRole, ulong? actorBranchId, string? ipAddress);

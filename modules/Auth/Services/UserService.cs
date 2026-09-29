@@ -42,7 +42,7 @@ public class UserService : IUserService
         var storeManagers = await _context.Users
             .Include(u => u.Role)
             .Include(u => u.HomeBranch)
-            .Where(u => u.Role.RoleCode == "STORE_MANAGER")
+            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status != "DELETED")
             .OrderBy(u => u.HomeBranchId)
             .ThenBy(u => u.FullName)
             .Select(u => new StoreManagerDto
@@ -208,6 +208,8 @@ public class UserService : IUserService
         var query = _context.Users
             .Include(u => u.Role)
             .Include(u => u.HomeBranch)
+            .Include(u => u.OriginalHomeBranch)
+            .Where(u => u.Status != "DELETED")
             .AsQueryable();
 
         // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì chỉ xem nhân viên chi nhánh mình và loại trừ Cửa hàng trưởng
@@ -282,7 +284,10 @@ public class UserService : IUserService
                 BranchName = u.HomeBranch != null ? u.HomeBranch.Name : "Trụ sở chính (HQ)",
                 Status = u.Status,
                 CreatedAt = u.CreatedAt,
-                UpdatedAt = u.UpdatedAt
+                UpdatedAt = u.UpdatedAt,
+                IsDispatched = u.OriginalHomeBranchId != null,
+                OriginalHomeBranchId = u.OriginalHomeBranchId,
+                OriginalBranchName = u.OriginalHomeBranch != null ? u.OriginalHomeBranch.Name : null
             })
             .ToListAsync();
 
@@ -293,6 +298,7 @@ public class UserService : IUserService
     {
         var query = _context.Users
             .Include(u => u.Role)
+            .Where(u => u.Status != "DELETED")
             .AsQueryable();
 
         var normalizedRole = actorRole.ToUpper();
@@ -349,6 +355,7 @@ public class UserService : IUserService
         var user = await _context.Users
             .Include(u => u.Role)
             .Include(u => u.HomeBranch)
+            .Include(u => u.OriginalHomeBranch)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
@@ -374,7 +381,10 @@ public class UserService : IUserService
             BranchName = user.HomeBranch?.Name,
             Status = user.Status,
             CreatedAt = user.CreatedAt,
-            UpdatedAt = user.UpdatedAt
+            UpdatedAt = user.UpdatedAt,
+            IsDispatched = user.OriginalHomeBranchId != null,
+            OriginalHomeBranchId = user.OriginalHomeBranchId,
+            OriginalBranchName = user.OriginalHomeBranch?.Name
         });
     }
 
@@ -599,6 +609,47 @@ public class UserService : IUserService
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt
         }, "Cập nhật thông tin hồ sơ nhân sự thành công.");
+    }
+
+    public async Task<ApiResponse<bool>> DeleteUserAsync(ulong userId, ulong actorId, string actorRole, string? ipAddress)
+    {
+        var normalizedRole = actorRole.ToUpper();
+        if (normalizedRole != "OPERATIONS_ADMIN" && normalizedRole != "BUSINESS_OWNER" && !normalizedRole.Contains("ADMIN") && !normalizedRole.Contains("OWNER"))
+        {
+            return ApiResponse<bool>.Fail("Bạn không có quyền thực hiện xóa tài khoản nhân sự.");
+        }
+
+        var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null || user.Status == "DELETED")
+            return ApiResponse<bool>.Fail("Không tìm thấy tài khoản người dùng.");
+
+        if (user.Id == actorId)
+            return ApiResponse<bool>.Fail("Không thể tự xóa tài khoản của chính mình.");
+
+        // Điều kiện tiên quyết: Tài khoản phải ở trạng thái ĐÃ KHÓA (INACTIVE)
+        if (user.Status != "INACTIVE")
+        {
+            return ApiResponse<bool>.Fail("Tài khoản đang hoạt động. Bạn phải khóa tài khoản trước khi thực hiện xóa.");
+        }
+
+        try
+        {
+            _context.Users.Remove(user);
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            _context.Entry(user).State = EntityState.Unchanged;
+            user.Status = "DELETED";
+            user.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+        }
+
+        await LogAuditAsync(actorId, "DELETE_USER", "users", user.Id,
+            new { user.FullName, user.EmployeeCode, user.Email, user.Status },
+            new { Action = "DELETED" }, ipAddress);
+
+        return ApiResponse<bool>.Ok(true, $"Đã xóa tài khoản '{user.FullName}' ({user.EmployeeCode}) thành công.");
     }
 
     #endregion

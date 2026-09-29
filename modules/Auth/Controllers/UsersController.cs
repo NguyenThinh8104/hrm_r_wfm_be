@@ -148,6 +148,20 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// UC 1.5: Xóa tài khoản nhân sự (Chỉ thực hiện được khi tài khoản đã bị khóa)
+    /// </summary>
+    [HttpDelete("employees/{id:long}")]
+    [HttpDelete("{id:long}")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteEmployee(ulong id)
+    {
+        var (actorId, role, _, ip) = GetCurrentUserInfo();
+        var result = await _userService.DeleteUserAsync(id, actorId, role, ip);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// UC 1.5: Tải file mẫu Excel chuẩn để phục vụ import nhân sự hàng loạt (kèm danh mục mã chi nhánh & vai trò).
     /// </summary>
     [HttpGet("employees/import-template")]

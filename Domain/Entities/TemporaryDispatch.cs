@@ -18,4 +18,6 @@ public class TemporaryDispatch
     public string Status { get; set; } = "PENDING";
     public string? Note { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public ICollection<DispatchEmployee> DispatchEmployees { get; set; } = new List<DispatchEmployee>();
 }

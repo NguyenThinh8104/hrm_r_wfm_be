@@ -41,6 +41,10 @@ public class EmployeeDetailDto
     public string Status { get; set; } = "ACTIVE";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public bool IsDispatched { get; set; }
+    public ulong? OriginalHomeBranchId { get; set; }
+    public string? OriginalBranchName { get; set; }
+    public DateOnly? DispatchEndDate { get; set; }
 }
 
 public class CreateEmployeeDto

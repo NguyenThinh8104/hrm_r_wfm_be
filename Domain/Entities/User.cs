@@ -14,6 +14,8 @@ public class User
     public string EmploymentType { get; set; } = "FULL_TIME";
     public ulong? HomeBranchId { get; set; }
     public Branch? HomeBranch { get; set; }
+    public ulong? OriginalHomeBranchId { get; set; }
+    public Branch? OriginalHomeBranch { get; set; }
     public string Status { get; set; } = "ACTIVE";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

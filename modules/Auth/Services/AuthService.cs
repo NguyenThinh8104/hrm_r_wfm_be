@@ -113,8 +113,10 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         var isDispatched = await _context.TemporaryDispatches
-            .AnyAsync(d => d.UserId == user.Id && d.TargetBranchId == (ulong)request.StoreId 
-                        && d.StartDate <= today && d.EndDate >= today && d.Status == "APPROVED");
+            .AnyAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                        && d.TargetBranchId == (ulong)request.StoreId 
+                        && d.StartDate <= today && d.EndDate >= today 
+                        && (d.Status == "APPROVED" || d.Status == "PARTIAL"));
 
         if (user.HomeBranchId != (ulong)request.StoreId && !isDispatched)
         {
@@ -475,7 +477,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
         {
             var pendingSwaps = await _context.ShiftSwapRequests
                 .Include(s => s.RequesterUser)
-                .Include(s => s.Schedule).ThenInclude(sc => sc.ShiftTemplate)
+                .Include(s => s.Schedule!).ThenInclude(sc => sc!.ShiftTemplate)
                 .Where(s => s.Schedule != null && s.Schedule.BranchId == user.HomeBranchId.Value && s.Status == "PENDING")
                 .OrderByDescending(s => s.CreatedAt)
                 .Take(5)
@@ -498,7 +500,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
         else
         {
             var mySwaps = await _context.ShiftSwapRequests
-                .Include(s => s.Schedule).ThenInclude(sc => sc.ShiftTemplate)
+                .Include(s => s.Schedule!).ThenInclude(sc => sc!.ShiftTemplate)
                 .Include(s => s.ReviewedByUser)
                 .Where(s => (s.RequesterUserId == user.Id || s.TargetUserId == user.Id) && s.Status != "PENDING")
                 .OrderByDescending(s => s.ReviewedAt ?? s.CreatedAt)

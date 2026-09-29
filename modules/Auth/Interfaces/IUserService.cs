@@ -22,6 +22,9 @@ public interface IUserService
     Task<ApiResponse<BulkImportResultDto>> BulkImportEmployeesAsync(BulkImportEmployeeRequestDto dto, ulong actorId, string actorRole, string? ipAddress);
     Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync();
 
+    // UC 1.5 - Xóa tài khoản nhân sự (Chỉ xóa khi đã khóa)
+    Task<ApiResponse<bool>> DeleteUserAsync(ulong userId, ulong actorId, string actorRole, string? ipAddress);
+
     // Danh mục Roles & Chi nhánh
     Task<ApiResponse<List<RoleDto>>> GetRolesAsync();
     Task<ApiResponse<List<BranchSimpleDto>>> GetBranchesAsync();

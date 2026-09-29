@@ -230,13 +230,20 @@ public class AttendanceService : IAttendanceService
         var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
 
         // Lấy danh sách ID nhân viên đang có lệnh điều động hợp lệ đến cửa hàng này hôm nay
-        var dispatchedUserIds = await _context.TemporaryDispatches
+        var dispatchedDispatches = await _context.TemporaryDispatches
+            .Include(d => d.DispatchEmployees)
             .Where(d => d.TargetBranchId == (ulong)storeId 
-                     && d.Status == "APPROVED" 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL")
                      && d.StartDate <= today 
                      && today <= d.EndDate)
-            .Select(d => d.UserId)
             .ToListAsync();
+
+        var dispatchedUserIds = dispatchedDispatches
+            .SelectMany(d => d.DispatchEmployees.Any() 
+                ? d.DispatchEmployees.Where(de => de.Status == "APPROVED").Select(de => de.UserId)
+                : (d.UserId > 0 ? new[] { d.UserId } : Array.Empty<ulong>()))
+            .Distinct()
+            .ToList();
 
         var dbQuery = _context.Users
             .Include(u => u.Role)

@@ -564,18 +564,20 @@ public class ShiftService : IShiftService
             if (user.HomeBranchId != dto.BranchId)
             {
                 var incomingDispatch = await _context.TemporaryDispatches
-                    .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                    .Include(d => d.DispatchEmployees)
+                    .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                            && d.TargetBranchId == dto.BranchId 
-                                           && d.Status == "APPROVED" 
+                                           && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                            && d.StartDate <= item.WorkDate 
                                            && item.WorkDate <= d.EndDate);
 
                 if (incomingDispatch == null)
                 {
                     var futureDispatch = await _context.TemporaryDispatches
-                        .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                        .Include(d => d.DispatchEmployees)
+                        .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                                && d.TargetBranchId == dto.BranchId 
-                                               && d.Status == "APPROVED" 
+                                               && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                                && d.StartDate > item.WorkDate);
 
                     if (futureDispatch != null)
@@ -593,9 +595,10 @@ public class ShiftService : IShiftService
             {
                 var outgoingDispatch = await _context.TemporaryDispatches
                     .Include(d => d.TargetBranch)
-                    .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                    .Include(d => d.DispatchEmployees)
+                    .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                            && d.SourceBranchId == dto.BranchId 
-                                           && d.Status == "APPROVED" 
+                                           && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                            && d.StartDate <= item.WorkDate 
                                            && item.WorkDate <= d.EndDate);
 
@@ -952,21 +955,28 @@ public class ShiftService : IShiftService
         // Lấy danh sách lệnh điều động nhân sự (Incoming Dispatches và Outgoing Dispatches) trong tuần
         var incomingDispatches = await _context.TemporaryDispatches
             .Include(d => d.SourceBranch)
+            .Include(d => d.DispatchEmployees)
             .Where(d => d.TargetBranchId == branchId 
-                     && d.Status == "APPROVED" 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                      && d.StartDate <= weekEndDate 
                      && d.EndDate >= weekStartDate)
             .ToListAsync();
 
         var outgoingDispatches = await _context.TemporaryDispatches
             .Include(d => d.TargetBranch)
+            .Include(d => d.DispatchEmployees)
             .Where(d => d.SourceBranchId == branchId 
-                     && d.Status == "APPROVED" 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                      && d.StartDate <= weekEndDate 
                      && d.EndDate >= weekStartDate)
             .ToListAsync();
 
-        var incomingUserIds = incomingDispatches.Select(d => d.UserId).Distinct().ToList();
+        var incomingUserIds = incomingDispatches
+            .SelectMany(d => d.DispatchEmployees.Any()
+                ? d.DispatchEmployees.Where(de => de.Status == "APPROVED").Select(de => de.UserId)
+                : (d.UserId > 0 ? new[] { d.UserId } : Array.Empty<ulong>()))
+            .Distinct()
+            .ToList();
 
         var storeUsers = await _context.Users
             .Include(u => u.Role)
@@ -996,8 +1006,8 @@ public class ShiftService : IShiftService
                 Status = sa.Status
             }).ToList();
 
-            var incoming = incomingDispatches.FirstOrDefault(d => d.UserId == user.Id);
-            var outgoing = outgoingDispatches.FirstOrDefault(d => d.UserId == user.Id);
+            var incoming = incomingDispatches.FirstOrDefault(d => d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"));
+            var outgoing = outgoingDispatches.FirstOrDefault(d => d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"));
 
             return new EmployeeMonthlyRosterDto
             {
@@ -1099,18 +1109,20 @@ public class ShiftService : IShiftService
                 if (user.HomeBranchId != dto.BranchId)
                 {
                     var incomingDispatch = await _context.TemporaryDispatches
-                        .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                        .Include(d => d.DispatchEmployees)
+                        .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                                && d.TargetBranchId == dto.BranchId 
-                                               && d.Status == "APPROVED" 
+                                               && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                                && d.StartDate <= workDate 
                                                && workDate <= d.EndDate);
 
                     if (incomingDispatch == null)
                     {
                         var futureDispatch = await _context.TemporaryDispatches
-                            .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                            .Include(d => d.DispatchEmployees)
+                            .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                                    && d.TargetBranchId == dto.BranchId 
-                                                   && d.Status == "APPROVED" 
+                                                   && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                                    && d.StartDate > workDate);
 
                         if (futureDispatch != null)
@@ -1128,9 +1140,10 @@ public class ShiftService : IShiftService
                 {
                     var outgoingDispatch = await _context.TemporaryDispatches
                         .Include(d => d.TargetBranch)
-                        .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                        .Include(d => d.DispatchEmployees)
+                        .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                                && d.SourceBranchId == dto.BranchId 
-                                               && d.Status == "APPROVED" 
+                                               && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                                && d.StartDate <= workDate 
                                                && workDate <= d.EndDate);
 
@@ -1423,20 +1436,27 @@ public class ShiftService : IShiftService
 
         // 2. Lấy danh sách nhân viên chi nhánh (bao gồm nhân sự được điều động đến trong tuần)
         var incomingDispatches = await _context.TemporaryDispatches
+            .Include(d => d.DispatchEmployees)
             .Where(d => d.TargetBranchId == dto.BranchId 
-                     && d.Status == "APPROVED" 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                      && d.StartDate <= weekEndDate 
                      && d.EndDate >= dto.WeekStartDate)
             .ToListAsync();
 
         var outgoingDispatches = await _context.TemporaryDispatches
+            .Include(d => d.DispatchEmployees)
             .Where(d => d.SourceBranchId == dto.BranchId 
-                     && d.Status == "APPROVED" 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                      && d.StartDate <= weekEndDate 
                      && d.EndDate >= dto.WeekStartDate)
             .ToListAsync();
 
-        var incomingUserIds = incomingDispatches.Select(d => d.UserId).Distinct().ToList();
+        var incomingUserIds = incomingDispatches
+            .SelectMany(d => d.DispatchEmployees.Any()
+                ? d.DispatchEmployees.Where(de => de.Status == "APPROVED").Select(de => de.UserId)
+                : (d.UserId > 0 ? new[] { d.UserId } : Array.Empty<ulong>()))
+            .Distinct()
+            .ToList();
 
         var employees = await _context.Users
             .Include(u => u.Role)
@@ -1783,9 +1803,10 @@ public class ShiftService : IShiftService
         {
             var incomingDispatch = await _context.TemporaryDispatches
                 .Include(d => d.SourceBranch)
-                .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                .Include(d => d.DispatchEmployees)
+                .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                        && d.TargetBranchId == targetBranchId 
-                                       && d.Status == "APPROVED" 
+                                       && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                        && d.StartDate <= request.WorkDate 
                                        && request.WorkDate <= d.EndDate);
 
@@ -1793,9 +1814,10 @@ public class ShiftService : IShiftService
             {
                 // Kiểm tra xem có lệnh điều chuyển nhưng chưa đến ngày bắt đầu không
                 var futureDispatch = await _context.TemporaryDispatches
-                    .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                    .Include(d => d.DispatchEmployees)
+                    .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                            && d.TargetBranchId == targetBranchId 
-                                           && d.Status == "APPROVED" 
+                                           && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                            && d.StartDate > request.WorkDate);
 
                 if (futureDispatch != null)
@@ -1813,9 +1835,10 @@ public class ShiftService : IShiftService
             // Nhân sự thuộc chi nhánh gốc: Kiểm tra xem ngày này có bị điều chuyển đi cơ sở khác không
             var outgoingDispatch = await _context.TemporaryDispatches
                 .Include(d => d.TargetBranch)
-                .FirstOrDefaultAsync(d => d.UserId == user.Id 
+                .Include(d => d.DispatchEmployees)
+                .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
                                        && d.SourceBranchId == targetBranchId 
-                                       && d.Status == "APPROVED" 
+                                       && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
                                        && d.StartDate <= request.WorkDate 
                                        && request.WorkDate <= d.EndDate);
 

@@ -160,15 +160,75 @@ public class UserService : IUserService
 
     public async Task<ApiResponse<bool>> ToggleUserStatusAsync(ulong userId, UpdateStatusDto dto, ulong actorId, string? ipAddress)
     {
-        var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == userId);
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null)
             return ApiResponse<bool>.Fail("Không tìm thấy tài khoản người dùng.");
 
         if (user.Id == actorId)
             return ApiResponse<bool>.Fail("Không thể tự khóa tài khoản của chính mình.");
 
+        // Bắt buộc phải có lý do
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return ApiResponse<bool>.Fail("Bắt buộc phải nhập lý do khi thay đổi trạng thái tài khoản.");
+
         var oldStatus = user.Status;
         var newStatus = string.IsNullOrWhiteSpace(dto.Status) ? (user.Status == "ACTIVE" ? "INACTIVE" : "ACTIVE") : dto.Status.ToUpper();
+
+        // RÀNG BUỘC KHI KHÓA TÀI KHOẢN: Kiểm tra các dịch vụ đang hoạt động
+        if (newStatus == "INACTIVE")
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            // 1. Kiểm tra lịch làm việc (Work Schedules & Shift Assignments sắp tới hoặc hôm nay)
+            var activeShifts = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule)
+                    .ThenInclude(s => s.ShiftTemplate)
+                .Include(sa => sa.Schedule)
+                    .ThenInclude(s => s.Branch)
+                .Where(sa => sa.UserId == userId 
+                          && sa.Schedule.WorkDate >= today 
+                          && sa.Schedule.Status != "CANCELLED"
+                          && sa.Status != "CANCELLED")
+                .OrderBy(sa => sa.Schedule.WorkDate)
+                .Take(5)
+                .ToListAsync();
+
+            if (activeShifts.Any())
+            {
+                var shiftListStr = string.Join("; ", activeShifts.Select(s => 
+                    $"{s.Schedule.WorkDate:dd/MM/yyyy} ({s.Schedule.ShiftTemplate?.Name ?? "Ca làm việc"} - {s.Schedule.Branch?.Name ?? "Chi nhánh"})"));
+                return ApiResponse<bool>.Fail(
+                    $"Không thể khóa tài khoản: Nhân viên đang có {activeShifts.Count} ca làm việc sắp tới [{shiftListStr}]. " +
+                    "Vui lòng hủy lịch phân ca hoặc điều chuyển người thay thế trước khi khóa tài khoản.");
+            }
+
+            // 2. Kiểm tra ca trực đang hoạt động hiện tại (Đã Check-in và chưa Check-out)
+            var isCurrentlyWorking = await _context.AttendanceLogs
+                .AnyAsync(a => a.Assignment.UserId == userId && a.CheckOutTime == null && (a.Status == Domain.Enums.AttendanceLogStatus.PRESENT || a.Status == Domain.Enums.AttendanceLogStatus.LATE));
+            if (isCurrentlyWorking)
+            {
+                return ApiResponse<bool>.Fail("Không thể khóa tài khoản: Nhân viên hiện đang trong ca trực làm việc (đã điểm danh vào ca và chưa hoàn tất Check-out).");
+            }
+
+            // 3. Kiểm tra điều động nhân sự đang có hiệu lực
+            if (user.OriginalHomeBranchId != null)
+            {
+                return ApiResponse<bool>.Fail("Không thể khóa tài khoản: Nhân viên đang trong thời gian điều động chi viện tại chi nhánh khác. Vui lòng hoàn tất điều động trước khi khóa.");
+            }
+
+            var activeDispatch = await _context.DispatchEmployees
+                .Include(de => de.Dispatch)
+                .AnyAsync(de => de.UserId == userId 
+                             && (de.Dispatch.Status == "PENDING" || de.Dispatch.Status == "APPROVED")
+                             && de.Dispatch.EndDate >= today);
+            if (activeDispatch)
+            {
+                return ApiResponse<bool>.Fail("Không thể khóa tài khoản: Nhân viên đang có đơn điều động nhân sự đang chờ duyệt hoặc đang có hiệu lực.");
+            }
+        }
 
         user.Status = newStatus;
         user.UpdatedAt = DateTime.UtcNow;
@@ -177,16 +237,42 @@ public class UserService : IUserService
 
         await LogAuditAsync(actorId, "UPDATE_USER_STATUS", "users", user.Id,
             new { Status = oldStatus },
-            new { Status = newStatus }, ipAddress);
+            new { Status = newStatus, Reason = dto.Reason.Trim() }, ipAddress);
 
-        return ApiResponse<bool>.Ok(true, $"Cập nhật trạng thái tài khoản '{user.FullName}' thành '{newStatus}' thành công.");
+        // Gửi email thông báo về email của hồ sơ nhân sự
+        bool emailSent = false;
+        try
+        {
+            emailSent = await _emailService.SendAccountStatusChangeEmailAsync(
+                user.Email,
+                user.FullName,
+                user.EmployeeCode,
+                newStatus,
+                dto.Reason.Trim()
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi email thông báo trạng thái cho {Email}", user.Email);
+        }
+
+        var actionText = newStatus == "INACTIVE" ? "Đã khóa tạm thời" : "Đã kích hoạt lại";
+        var statusMsg = emailSent
+            ? $"{actionText} tài khoản '{user.FullName}' thành công. Email thông báo kèm lý do đã được gửi tới '{user.Email}'."
+            : $"{actionText} tài khoản '{user.FullName}' thành công. (Lưu ý: Không gửi được email thông báo tới '{user.Email}' do giới hạn máy chủ Gmail SMTP hoặc địa chỉ email không hợp lệ).";
+
+        return ApiResponse<bool>.Ok(true, statusMsg);
     }
 
-    public async Task<ApiResponse<bool>> ResetPasswordAsync(ulong userId, ResetPasswordDto dto, ulong actorId, string? ipAddress)
+    public async Task<ApiResponse<ResetPasswordResultDto>> ResetPasswordAsync(ulong userId, ResetPasswordDto dto, ulong actorId, string? ipAddress)
     {
         var user = await _context.Users.FindAsync(userId);
         if (user == null)
-            return ApiResponse<bool>.Fail("Không tìm thấy người dùng.");
+            return ApiResponse<ResetPasswordResultDto>.Fail("Không tìm thấy người dùng.");
+
+        // Bắt buộc phải có lý do
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return ApiResponse<ResetPasswordResultDto>.Fail("Bắt buộc phải nhập lý do khi cấp lại mật khẩu cho nhân sự.");
 
         var newPassword = string.IsNullOrWhiteSpace(dto.NewPassword) ? "Password@123" : dto.NewPassword.Trim();
         user.PasswordHash = _passwordHasher.Hash(newPassword);
@@ -194,9 +280,38 @@ public class UserService : IUserService
 
         await _context.SaveChangesAsync();
 
-        await LogAuditAsync(actorId, "RESET_PASSWORD", "users", user.Id, null, new { Message = "Đã đặt lại mật khẩu" }, ipAddress);
+        await LogAuditAsync(actorId, "RESET_PASSWORD", "users", user.Id, null, new { Message = "Đã đặt lại mật khẩu", Reason = dto.Reason.Trim() }, ipAddress);
 
-        return ApiResponse<bool>.Ok(true, $"Đặt lại mật khẩu thành công. Mật khẩu mới là: {newPassword}");
+        // Gửi email thông báo mật khẩu mới về email của hồ sơ nhân sự
+        bool resetEmailSent = false;
+        try
+        {
+            resetEmailSent = await _emailService.SendPasswordResetNotificationEmailAsync(
+                user.Email,
+                user.FullName,
+                user.EmployeeCode,
+                newPassword,
+                dto.Reason.Trim()
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi email cấp lại mật khẩu cho {Email}", user.Email);
+        }
+
+        var resetMsg = resetEmailSent
+            ? $"Đặt lại mật khẩu thành công. Mật khẩu mới là: {newPassword}. Email thông báo đã được gửi về '{user.Email}'."
+            : $"Đặt lại mật khẩu thành công. Mật khẩu mới là: {newPassword}. (Lưu ý: Không gửi được email tới '{user.Email}' do giới hạn máy chủ Gmail SMTP hoặc địa chỉ email không hợp lệ).";
+
+        var resultDto = new ResetPasswordResultDto
+        {
+            NewPassword = newPassword,
+            Email = user.Email,
+            EmailSent = resetEmailSent,
+            Message = resetMsg
+        };
+
+        return ApiResponse<ResetPasswordResultDto>.Ok(resultDto, resetMsg);
     }
 
     #endregion
@@ -210,6 +325,11 @@ public class UserService : IUserService
             .Include(u => u.HomeBranch)
             .Include(u => u.OriginalHomeBranch)
             .Where(u => u.Status != "DELETED")
+            .Where(u => u.Role.RoleCode != "OPERATIONS_ADMIN"
+                     && u.Role.RoleCode != "OPERATIONSADMIN"
+                     && u.Role.RoleCode != "ADMIN"
+                     && u.Role.RoleCode != "BUSINESS_OWNER"
+                     && u.Role.RoleCode != "BUSINESSOWNER")
             .AsQueryable();
 
         // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì chỉ xem nhân viên chi nhánh mình và loại trừ Cửa hàng trưởng
@@ -300,6 +420,11 @@ public class UserService : IUserService
         var query = _context.Users
             .Include(u => u.Role)
             .Where(u => u.Status != "DELETED")
+            .Where(u => u.Role.RoleCode != "OPERATIONS_ADMIN"
+                     && u.Role.RoleCode != "OPERATIONSADMIN"
+                     && u.Role.RoleCode != "ADMIN"
+                     && u.Role.RoleCode != "BUSINESS_OWNER"
+                     && u.Role.RoleCode != "BUSINESSOWNER")
             .AsQueryable();
 
         var normalizedRole = actorRole.ToUpper();

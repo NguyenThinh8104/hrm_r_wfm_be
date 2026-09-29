@@ -9,7 +9,7 @@ public interface IUserService
     Task<ApiResponse<List<StoreManagerDto>>> GetStoreManagersAsync();
     Task<ApiResponse<StoreManagerDto>> CreateStoreManagerAsync(CreateStoreManagerDto dto, ulong actorId, string? ipAddress);
     Task<ApiResponse<bool>> ToggleUserStatusAsync(ulong userId, UpdateStatusDto dto, ulong actorId, string? ipAddress);
-    Task<ApiResponse<bool>> ResetPasswordAsync(ulong userId, ResetPasswordDto dto, ulong actorId, string? ipAddress);
+    Task<ApiResponse<ResetPasswordResultDto>> ResetPasswordAsync(ulong userId, ResetPasswordDto dto, ulong actorId, string? ipAddress);
 
     // UC 1.5: Quản lý Hồ sơ & Hợp đồng Nhân sự Toàn chuỗi
     Task<ApiResponse<List<EmployeeDetailDto>>> GetEmployeesAsync(EmployeeFilterDto filter, ulong actorId, string actorRole, ulong? actorBranchId);

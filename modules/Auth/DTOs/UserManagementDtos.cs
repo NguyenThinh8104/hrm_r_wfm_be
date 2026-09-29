@@ -81,11 +81,21 @@ public class UpdateEmployeeDto
 public class UpdateStatusDto
 {
     public string Status { get; set; } = "ACTIVE";
+    public string? Reason { get; set; }
 }
 
 public class ResetPasswordDto
 {
     public string? NewPassword { get; set; }
+    public string? Reason { get; set; }
+}
+
+public class ResetPasswordResultDto
+{
+    public string NewPassword { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public bool EmailSent { get; set; }
+    public string Message { get; set; } = string.Empty;
 }
 
 public class RoleDto

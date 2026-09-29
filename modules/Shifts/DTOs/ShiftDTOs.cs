@@ -416,6 +416,7 @@ public class WeeklyScheduleMatrixDto
     public List<DateOnly> Days { get; set; } = new List<DateOnly>();
     public List<WorkScheduleDto> Schedules { get; set; } = new List<WorkScheduleDto>();
     public List<EmployeeMonthlyRosterDto> EmployeeRosters { get; set; } = new List<EmployeeMonthlyRosterDto>();
+    public List<ShiftDto> ActiveTemplates { get; set; } = new List<ShiftDto>();
 }
 
 /// <summary>

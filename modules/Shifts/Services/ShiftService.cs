@@ -1039,6 +1039,8 @@ public class ShiftService : IShiftService
                 weekStatus = "PARTIAL";
         }
 
+        var activeTemplatesRes = await GetAllShiftTemplatesAsync(false);
+
         var matrix = new WeeklyScheduleMatrixDto
         {
             BranchId = branchId,
@@ -1048,7 +1050,8 @@ public class ShiftService : IShiftService
             WeekStatus = weekStatus,
             Days = days,
             Schedules = scheduleDtos,
-            EmployeeRosters = employeeRosters
+            EmployeeRosters = employeeRosters,
+            ActiveTemplates = activeTemplatesRes.Data ?? new List<ShiftDto>()
         };
 
         return ApiResponse<WeeklyScheduleMatrixDto>.Ok(matrix);
@@ -1070,6 +1073,7 @@ public class ShiftService : IShiftService
 
         var shiftTemplate = await _context.ShiftTemplates.FindAsync(dto.ShiftTemplateId);
         if (shiftTemplate == null) return ApiResponse<List<ShiftAssignmentDto>>.Fail("Không tìm thấy mẫu ca làm việc.");
+        if (!shiftTemplate.IsActive) return ApiResponse<List<ShiftAssignmentDto>>.Fail($"Mẫu ca '{shiftTemplate.Name}' đã bị Quản trị viên vô hiệu hóa (INACTIVE), không thể phân công.");
 
         var daysOfWeek = (dto.DaysOfWeek != null && dto.DaysOfWeek.Any()) 
             ? dto.DaysOfWeek 
@@ -1783,6 +1787,7 @@ public class ShiftService : IShiftService
 
         var shiftTemplate = await _context.ShiftTemplates.FindAsync((uint)request.ShiftId);
         if (shiftTemplate == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy khung ca làm việc.");
+        if (!shiftTemplate.IsActive) return ApiResponse<ShiftAssignmentDto>.Fail($"Mẫu ca '{shiftTemplate.Name}' đã bị Quản trị viên vô hiệu hóa (INACTIVE), không thể phân công.");
 
         var user = await _context.Users
             .Include(u => u.Role)

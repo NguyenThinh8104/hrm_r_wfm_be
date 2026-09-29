@@ -39,6 +39,11 @@ public class DispatchService : IDispatchService
             return ApiResponse<DispatchRecordDto>.Fail("Không thể tạo yêu cầu điều động cho ngày trong quá khứ.");
         }
 
+        if (string.IsNullOrWhiteSpace(request.Reason))
+        {
+            return ApiResponse<DispatchRecordDto>.Fail("Vui lòng nhập lý do / công việc cần tăng cường điều động nhân sự.");
+        }
+
         var fromBranch = await _context.Branches.FindAsync((ulong)request.FromStoreId);
         var toBranch = await _context.Branches.FindAsync((ulong)request.ToStoreId);
         if (fromBranch == null || toBranch == null || fromBranch.Status != "ACTIVE" || toBranch.Status != "ACTIVE")
@@ -515,6 +520,11 @@ public class DispatchService : IDispatchService
         if (request.StartDate < today)
         {
             return ApiResponse<DispatchRecordDto>.Fail("Không thể điều động cho ngày trong quá khứ.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Reason))
+        {
+            return ApiResponse<DispatchRecordDto>.Fail("Vui lòng nhập lý do / công việc cần tăng cường điều động nhân sự.");
         }
 
         var fromBranch = await _context.Branches.FindAsync((ulong)request.FromStoreId);

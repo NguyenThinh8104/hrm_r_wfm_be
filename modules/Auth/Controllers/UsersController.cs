@@ -92,9 +92,24 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// UC 1.5: Lấy số liệu thống kê nhân sự (Tổng nhân sự, Active, Inactive, Phân loại vai trò)
+    /// Độc lập hoàn toàn với từ khóa tìm kiếm (search), chỉ phụ thuộc chi nhánh để đảm bảo số liệu dashboard ổn định.
+    /// </summary>
+    [HttpGet("employees/stats")]
+    [HttpGet("/api/v1/users/employees/stats")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER,OperationsAdmin,StoreManager,BusinessOwner,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<EmployeeStatsDto>>> GetEmployeeStats([FromQuery] ulong? branchId)
+    {
+        var (actorId, role, actorBranchId, _) = GetCurrentUserInfo();
+        var result = await _userService.GetEmployeeStatsAsync(branchId, actorId, role, actorBranchId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// UC 1.5: Xem chi tiết hồ sơ nhân sự
     /// </summary>
-    [HttpGet("employees/{id}")]
+    [HttpGet("employees/{id:long}")]
     [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER,OperationsAdmin,StoreManager,BusinessOwner,Admin,ADMIN")]
     public async Task<ActionResult<ApiResponse<EmployeeDetailDto>>> GetEmployeeById(ulong id)
     {

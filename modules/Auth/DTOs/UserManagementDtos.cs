@@ -103,8 +103,28 @@ public class EmployeeFilterDto
 {
     public ulong? BranchId { get; set; }
     public byte? RoleId { get; set; }
+    public string? RoleCode { get; set; }
     public string? EmploymentType { get; set; }
+    public string? ContractType { get; set; }
     public string? Status { get; set; }
     public string? Search { get; set; }
     public bool? ExcludeStoreManager { get; set; }
 }
+
+public class EmployeeStatsDto
+{
+    public int TotalEmployees { get; set; }
+    public int ActiveCount { get; set; }
+    public int InactiveCount { get; set; }
+    public EmployeeRoleStatsDto RoleStats { get; set; } = new();
+}
+
+public class EmployeeRoleStatsDto
+{
+    public int ShiftLeader { get; set; }
+    public int Cashier { get; set; }
+    public int Sales { get; set; }
+    public int Security { get; set; }
+    public int Manager { get; set; }
+}
+

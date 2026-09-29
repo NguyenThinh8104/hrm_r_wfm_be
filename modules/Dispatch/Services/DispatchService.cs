@@ -123,6 +123,22 @@ public class DispatchService : IDispatchService
                     : $"{dispatch.Note} | Lý do từ chối: {request.ApprovalNotes.Trim()}";
             }
 
+            // CASCADE CANCEL: Hủy tất cả đơn chuyển/đổi ca đang chờ duyệt của nhân viên tại chi nhánh đích
+            var pendingSwaps = await _context.Set<Domain.Entities.ShiftSwapRequest>()
+                .Include(s => s.RequestingAssignment)
+                    .ThenInclude(sa => sa.Schedule)
+                .Where(s => s.RequesterUserId == dispatch.UserId
+                         && (s.Status == "PENDING" || s.Status == "PENDING_PEER")
+                         && s.RequestingAssignment != null
+                         && s.RequestingAssignment.Schedule.BranchId == dispatch.TargetBranchId)
+                .ToListAsync();
+
+            foreach (var swap in pendingSwaps)
+            {
+                swap.Status = "CANCELLED";
+                // TODO: Thông báo qua email/notification
+            }
+
             await _context.SaveChangesAsync();
             return ApiResponse<bool>.Ok(true, "Đã từ chối lệnh điều động.");
         }
@@ -511,6 +527,22 @@ public class DispatchService : IDispatchService
         if (!isAdmin && !isRequester && !isStoreManagerTarget)
         {
             return ApiResponse<bool>.Fail("Bạn không có quyền hủy đơn điều động của chi nhánh khác.");
+        }
+
+        // CASCADE CANCEL: Hủy tất cả đơn chuyển/đổi ca đang chờ duyệt của nhân viên tại chi nhánh đích
+        var pendingSwaps = await _context.Set<Domain.Entities.ShiftSwapRequest>()
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.Schedule)
+            .Where(s => s.RequesterUserId == dispatch.UserId
+                     && (s.Status == "PENDING" || s.Status == "PENDING_PEER")
+                     && s.RequestingAssignment != null
+                     && s.RequestingAssignment.Schedule.BranchId == dispatch.TargetBranchId)
+            .ToListAsync();
+
+        foreach (var swap in pendingSwaps)
+        {
+            swap.Status = "CANCELLED";
+            // TODO: Thông báo qua email/notification cho các bên liên quan nếu cần
         }
 
         _context.TemporaryDispatches.Remove(dispatch);

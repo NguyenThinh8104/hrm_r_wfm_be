@@ -373,6 +373,15 @@ public class ReviewSwapRequestDto
     public string? Remarks { get; set; }
 }
 
+/// <summary>
+/// DTO cho nhân viên đồng nghiệp (TargetUser) xác nhận hoặc từ chối đơn đổi/chuyển ca (Bước 1 của luồng 2 bước).
+/// </summary>
+public class PeerReviewSwapRequestDto
+{
+    public int SwapRequestId { get; set; }
+    public bool IsAccepted { get; set; }
+}
+
 public class ColleagueDto
 {
     public int EmployeeId { get; set; }

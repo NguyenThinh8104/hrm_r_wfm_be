@@ -623,6 +623,46 @@ public class ShiftsController : ControllerBase
     }
 
     /// <summary>
+    /// Đồng nghiệp (TargetUser) xác nhận hoặc từ chối đơn đổi/chuyển ca (Bước 1 luồng 2 bước).
+    /// </summary>
+    [HttpPost("swap-peer-review")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<bool>>> PeerReviewSwapRequest([FromBody] PeerReviewSwapRequestDto request)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+        if (!int.TryParse(empIdClaim, out var empId))
+        {
+            return Unauthorized(ApiResponse<bool>.Fail("Không xác định được danh tính nhân viên."));
+        }
+
+        var result = await _shiftService.RespondToSwapRequestAsync(empId, request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Nhân viên tạo đơn hủy đơn đổi/chuyển/nghỉ ca đang chờ xử lý.
+    /// </summary>
+    [HttpPost("swap-cancel/{swapRequestId}")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<bool>>> CancelSwapRequest(int swapRequestId)
+    {
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value;
+        if (!int.TryParse(empIdClaim, out var empId))
+        {
+            return Unauthorized(ApiResponse<bool>.Fail("Không xác định được danh tính nhân viên."));
+        }
+
+        var result = await _shiftService.CancelSwapRequestAsync(empId, swapRequestId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Lấy danh sách các yêu cầu đổi ca trực của cửa hàng.
     /// </summary>
     /// <param name="storeId">ID cửa hàng</param>
@@ -659,18 +699,25 @@ public class ShiftsController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách đồng nghiệp cùng chi nhánh để nhân viên chọn khi đổi/chuyển ca.
+    /// Lấy danh sách đồng nghiệp đang thực sự làm việc tại chi nhánh vào ngày cụ thể để nhân viên chọn khi đổi/chuyển ca.
+    /// Hỗ trợ nhân viên biệt phái: Bao gồm cả NV gốc của chi nhánh và NV từ chi nhánh khác được điều chuyển đến.
     /// </summary>
     [HttpGet("colleagues/{branchId}")]
     [Authorize]
-    public async Task<ActionResult<ApiResponse<List<ColleagueDto>>>> GetColleagues(int branchId)
+    public async Task<ActionResult<ApiResponse<List<ColleagueDto>>>> GetColleagues(int branchId, [FromQuery] string? workDate = null)
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value 
             ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
             ?? User.FindFirst("sub")?.Value;
         int.TryParse(empIdClaim, out var empId);
 
-        var result = await _shiftService.GetColleaguesForSwapAsync(empId, branchId);
+        DateOnly? parsedWorkDate = null;
+        if (!string.IsNullOrEmpty(workDate) && DateOnly.TryParse(workDate, out var wd))
+        {
+            parsedWorkDate = wd;
+        }
+
+        var result = await _shiftService.GetColleaguesForSwapAsync(empId, branchId, parsedWorkDate);
         return Ok(result);
     }
 

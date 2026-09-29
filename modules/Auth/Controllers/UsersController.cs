@@ -135,10 +135,10 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự
+    /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự (Chỉ dành cho Quản trị viên, Store Manager chỉ có quyền xem)
     /// </summary>
     [HttpPut("employees/{id}")]
-    [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER,OperationsAdmin,StoreManager,BusinessOwner,Admin,ADMIN")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
     public async Task<ActionResult<ApiResponse<EmployeeDetailDto>>> UpdateEmployee(ulong id, [FromBody] UpdateEmployeeDto dto)
     {
         var (actorId, role, branchId, ip) = GetCurrentUserInfo();

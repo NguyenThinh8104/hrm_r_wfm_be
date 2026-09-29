@@ -279,6 +279,7 @@ public class UserService : IUserService
                 RoleCode = u.Role.RoleCode,
                 RoleName = u.Role.RoleName,
                 EmploymentType = u.EmploymentType,
+                ContractType = u.EmploymentType,
                 HomeBranchId = u.HomeBranchId,
                 BranchCode = u.HomeBranch != null ? u.HomeBranch.BranchCode : "HQ",
                 BranchName = u.HomeBranch != null ? u.HomeBranch.Name : "Trụ sở chính (HQ)",
@@ -376,6 +377,7 @@ public class UserService : IUserService
             RoleCode = user.Role.RoleCode,
             RoleName = user.Role.RoleName,
             EmploymentType = user.EmploymentType,
+            ContractType = user.EmploymentType,
             HomeBranchId = user.HomeBranchId,
             BranchCode = user.HomeBranch?.BranchCode,
             BranchName = user.HomeBranch?.Name,
@@ -460,7 +462,7 @@ public class UserService : IUserService
             Phone = normalizedPhone,
             PasswordHash = _passwordHasher.Hash(plainPassword),
             RoleId = dto.RoleId,
-            EmploymentType = string.Equals(dto.EmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME",
+            EmploymentType = string.Equals(!string.IsNullOrWhiteSpace(dto.ContractType) ? dto.ContractType : dto.EmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME",
             HomeBranchId = branchIdToAssign,
             Status = "ACTIVE",
             CreatedAt = DateTime.UtcNow,
@@ -515,6 +517,7 @@ public class UserService : IUserService
             RoleCode = targetRole.RoleCode,
             RoleName = targetRole.RoleName,
             EmploymentType = newUser.EmploymentType,
+            ContractType = newUser.EmploymentType,
             HomeBranchId = newUser.HomeBranchId,
             BranchCode = branch.BranchCode,
             BranchName = branch.Name,
@@ -563,7 +566,8 @@ public class UserService : IUserService
         user.FullName = dto.FullName.Trim();
         user.Phone = normalizedPhone;
         user.RoleId = dto.RoleId;
-        user.EmploymentType = string.Equals(dto.EmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME";
+        var effectiveEmploymentType = !string.IsNullOrWhiteSpace(dto.ContractType) ? dto.ContractType : dto.EmploymentType;
+        user.EmploymentType = string.Equals(effectiveEmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME";
 
         if (normalizedActorRole != "STORE_MANAGER" && normalizedActorRole != "STOREMANAGER")
         {
@@ -602,6 +606,7 @@ public class UserService : IUserService
             RoleCode = targetRole.RoleCode,
             RoleName = targetRole.RoleName,
             EmploymentType = user.EmploymentType,
+            ContractType = user.EmploymentType,
             HomeBranchId = user.HomeBranchId,
             BranchCode = user.HomeBranch?.BranchCode,
             BranchName = user.HomeBranch?.Name,

@@ -659,7 +659,6 @@ public class DispatchService : IDispatchService
             // TODO: Thông báo qua email/notification cho các bên liên quan nếu cần
         }
 
-        _context.DispatchEmployees.RemoveRange(dispatch.DispatchEmployees);
         _context.TemporaryDispatches.Remove(dispatch);
         await _context.SaveChangesAsync();
 

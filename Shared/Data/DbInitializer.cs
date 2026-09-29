@@ -236,6 +236,67 @@ public static class DbInitializer
                     catch { }
                 }
             }
+
+            // Check users table columns for OriginalHomeBranchId
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users';";
+                
+                var userCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        userCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!userCols.Contains("OriginalHomeBranchId"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `OriginalHomeBranchId` BIGINT UNSIGNED NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
+            // Create dispatch_employees table if not exists and migrate old data
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS `dispatch_employees` (
+                        `Id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        `DispatchId` BIGINT UNSIGNED NOT NULL,
+                        `UserId` BIGINT UNSIGNED NOT NULL,
+                        `Status` VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                        `ApprovedBy` BIGINT UNSIGNED NULL,
+                        `Note` LONGTEXT NULL,
+                        `CreatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                        PRIMARY KEY (`Id`),
+                        UNIQUE KEY `IX_dispatch_employees_DispatchId_UserId` (`DispatchId`, `UserId`),
+                        KEY `IX_dispatch_employees_UserId` (`UserId`),
+                        KEY `IX_dispatch_employees_ApprovedBy` (`ApprovedBy`),
+                        CONSTRAINT `FK_dispatch_employees_temporary_dispatches_DispatchId` FOREIGN KEY (`DispatchId`) REFERENCES `temporary_dispatches` (`Id`) ON DELETE CASCADE,
+                        CONSTRAINT `FK_dispatch_employees_users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE,
+                        CONSTRAINT `FK_dispatch_employees_users_ApprovedBy` FOREIGN KEY (`ApprovedBy`) REFERENCES `users` (`Id`) ON DELETE SET NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+                command.ExecuteNonQuery();
+
+                // Migrate old dispatches data
+                try
+                {
+                    using var insertCmd = connection.CreateCommand();
+                    insertCmd.CommandText = @"
+                        INSERT IGNORE INTO `dispatch_employees` (`DispatchId`, `UserId`, `Status`, `ApprovedBy`, `Note`, `CreatedAt`)
+                        SELECT `Id`, `UserId`, `Status`, `ApprovedBy`, NULL, `CreatedAt`
+                        FROM `temporary_dispatches`
+                        WHERE `UserId` > 0;";
+                    insertCmd.ExecuteNonQuery();
+                }
+                catch { }
+            }
         }
         catch
         {

@@ -25,6 +25,7 @@ public partial class AppDbContext : DbContext
     public DbSet<ShiftAssignment> ShiftAssignments { get; set; } = null!;
     public DbSet<ShiftSwapRequest> ShiftSwapRequests { get; set; } = null!;
     public DbSet<TemporaryDispatch> TemporaryDispatches { get; set; } = null!;
+    public DbSet<DispatchEmployee> DispatchEmployees { get; set; } = null!;
     public DbSet<AttendanceLog> AttendanceLogs { get; set; } = null!;
     public DbSet<OvertimeRequest> OvertimeRequests { get; set; } = null!;
     public DbSet<ShiftHandover> ShiftHandovers { get; set; } = null!;
@@ -106,6 +107,11 @@ public partial class AppDbContext : DbContext
             entity.HasOne(e => e.HomeBranch)
                 .WithMany(b => b.Users)
                 .HasForeignKey(e => e.HomeBranchId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.OriginalHomeBranch)
+                .WithMany()
+                .HasForeignKey(e => e.OriginalHomeBranchId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -293,6 +299,29 @@ public partial class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.RequestedBy)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ApprovedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.ApprovedBy)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // 10b. dispatch_employees
+        modelBuilder.Entity<DispatchEmployee>(entity =>
+        {
+            entity.ToTable("dispatch_employees");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.DispatchId, e.UserId }).IsUnique();
+
+            entity.HasOne(e => e.Dispatch)
+                .WithMany(d => d.DispatchEmployees)
+                .HasForeignKey(e => e.DispatchId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasOne(e => e.ApprovedByUser)
                 .WithMany()

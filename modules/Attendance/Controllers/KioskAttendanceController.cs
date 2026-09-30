@@ -65,7 +65,6 @@ public class KioskAttendanceController : ControllerBase
     /// <param name="request">DTO chứa KioskDeviceToken và OtpCode 60s</param>
     /// <returns>Bản ghi điểm danh ghi nhận thời gian vào ca (Status = PENDING chờ chụp ảnh)</returns>
     [HttpPost("check-in")]
-    [HttpPost("v3/check-in")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckIn([FromBody] KioskCheckInDto request)
     {
@@ -80,7 +79,6 @@ public class KioskAttendanceController : ControllerBase
     /// <param name="request">DTO chứa KioskDeviceToken và OtpCode 60s</param>
     /// <returns>Bản ghi điểm danh cập nhật thời gian ra ca (Status = PENDING chờ chụp ảnh)</returns>
     [HttpPost("check-out")]
-    [HttpPost("v3/check-out")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOut([FromBody] KioskCheckOutDto request)
     {
@@ -95,7 +93,6 @@ public class KioskAttendanceController : ControllerBase
     /// <param name="request">DTO chứa KioskDeviceToken, AttendanceId, ImageBase64, PhotoType</param>
     /// <returns>ApiResponse chứa photoKey, presignedUrl và status COMPLETED</returns>
     [HttpPost("upload-attendance-photo")]
-    [HttpPost("v3/upload-attendance-photo")]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<UploadAttendancePhotoResponseDto>>> UploadAttendancePhoto(
         [FromBody] UploadAttendancePhotoDto request)
@@ -106,20 +103,20 @@ public class KioskAttendanceController : ControllerBase
     }
 
     /// <summary>
-    /// [Bước 1 - Kiosk] Tìm kiếm danh sách nhân viên của cửa hàng phục vụ gợi ý khi điểm danh.
+    /// Hủy lượt điểm danh tại trạm Kiosk khi nhân viên dừng ở bước chụp ảnh hoặc muốn nhường người khác.
     /// </summary>
-    /// <param name="storeId">Mã ID cửa hàng</param>
-    /// <param name="query">Từ khóa tìm kiếm theo Mã NV hoặc Tên</param>
-    /// <returns>Danh sách nhân viên thỏa điều kiện</returns>
-    [HttpGet("search-employees")]
+    /// <param name="request">DTO chứa KioskDeviceToken, AttendanceId, ActionType</param>
+    /// <returns>ApiResponse xác nhận hủy bản ghi điểm danh tạm thành công</returns>
+    [HttpPost("cancel")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<List<KioskEmployeeSearchDto>>>> SearchEmployees(
-        [FromQuery] int storeId,
-        [FromQuery] string? query = null)
+    public async Task<ActionResult<ApiResponse<bool>>> CancelAttendance(
+        [FromBody] CancelKioskAttendanceDto request)
     {
-        var result = await _attendanceService.SearchStoreEmployeesAsync(storeId, query);
+        var result = await _attendanceService.CancelAttendanceAsync(request);
+        if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
 
     /// <summary>
     /// [API 1 - Storage S3] Tải tệp tin ảnh chân dung từ Kiosk lên S3 theo dạng multipart/form-data và trả về chuỗi photoKey.

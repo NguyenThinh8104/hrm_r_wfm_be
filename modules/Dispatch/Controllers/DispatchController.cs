@@ -125,6 +125,30 @@ public class DispatchController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// [Store Manager & Ops Admin] Lấy danh sách nhân sự của chi nhánh phục vụ điều động chi viện (UC 4.1, UC 4.2).
+    /// Hỗ trợ cả 2 route để tương thích ngược:
+    /// - GET /api/dispatch/branch-employees/{branchId}
+    /// - GET /api/kiosk/attendance/search-employees?storeId={storeId}
+    /// </summary>
+    [HttpGet("branch-employees/{branchId:long}")]
+    [HttpGet("/api/kiosk/attendance/search-employees")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<List<DispatchEmployeeOptionDto>>>> GetBranchEmployeesForDispatch(
+        [FromRoute] ulong? branchId,
+        [FromQuery] ulong? storeId)
+    {
+        var targetId = branchId.HasValue && branchId.Value > 0 ? branchId.Value : (storeId ?? 0);
+        if (targetId == 0)
+        {
+            return BadRequest(ApiResponse<List<DispatchEmployeeOptionDto>>.Fail("Vui lòng cung cấp mã chi nhánh (branchId hoặc storeId)."));
+        }
+
+        var result = await _dispatchService.GetBranchEmployeesForDispatchAsync(targetId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
     private int GetCurrentUserId()
     {
         var empIdClaim = User.FindFirst("EmployeeId")?.Value 

@@ -61,6 +61,51 @@ public static class DbInitializer
                     alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `BranchTier` INT NOT NULL DEFAULT 2;";
                     alterCmd.ExecuteNonQuery();
                 }
+
+                // Tự động kiểm tra và bổ sung cột StaffCount (mặc định = 0: dùng Tier Quota) nếu database chưa có
+                if (!branchCols.Contains("StaffCount"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `StaffCount` INT NOT NULL DEFAULT 0;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                // Tự động kiểm tra và bổ sung cột TierId nếu database chưa có
+                if (!branchCols.Contains("TierId"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `TierId` INT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                // Loại bỏ bảng headcount_import_requests cũ nếu còn tồn tại
+                try
+                {
+                    using var dropCmd = connection.CreateCommand();
+                    dropCmd.CommandText = "DROP TABLE IF EXISTS `headcount_import_requests`;";
+                    dropCmd.ExecuteNonQuery();
+                }
+                catch { }
+            }
+
+            // Check branch_tiers table
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS `branch_tiers` (
+                        `Id` INT NOT NULL AUTO_INCREMENT,
+                        `TierName` VARCHAR(100) NOT NULL,
+                        `Description` LONGTEXT NULL,
+                        `MinStaffCount` INT NULL,
+                        `MaxStaffCount` INT NULL,
+                        `OtherConditions` LONGTEXT NULL,
+                        `Conditions` LONGTEXT NULL,
+                        `Benefits` LONGTEXT NULL,
+                        `CreatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                        `UpdatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+                        PRIMARY KEY (`Id`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+                command.ExecuteNonQuery();
             }
 
             // Check kiosks table columns
@@ -84,6 +129,31 @@ public static class DbInitializer
                 {
                     using var alterCmd = connection.CreateCommand();
                     alterCmd.CommandText = "ALTER TABLE `kiosks` ADD COLUMN `IpAddress` LONGTEXT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
+            // Check attendance_logs table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attendance_logs';";
+                
+                var attCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        attCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!attCols.Contains("Status"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `attendance_logs` ADD COLUMN `Status` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1: PENDING, 2: PRESENT, 3: LATE, 4: COMPLETED, 5: COMPLETED_LATE';";
                     alterCmd.ExecuteNonQuery();
                 }
             }
@@ -165,6 +235,67 @@ public static class DbInitializer
                     }
                     catch { }
                 }
+            }
+
+            // Check users table columns for OriginalHomeBranchId
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users';";
+                
+                var userCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        userCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!userCols.Contains("OriginalHomeBranchId"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `OriginalHomeBranchId` BIGINT UNSIGNED NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
+            // Create dispatch_employees table if not exists and migrate old data
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS `dispatch_employees` (
+                        `Id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        `DispatchId` BIGINT UNSIGNED NOT NULL,
+                        `UserId` BIGINT UNSIGNED NOT NULL,
+                        `Status` VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                        `ApprovedBy` BIGINT UNSIGNED NULL,
+                        `Note` LONGTEXT NULL,
+                        `CreatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                        PRIMARY KEY (`Id`),
+                        UNIQUE KEY `IX_dispatch_employees_DispatchId_UserId` (`DispatchId`, `UserId`),
+                        KEY `IX_dispatch_employees_UserId` (`UserId`),
+                        KEY `IX_dispatch_employees_ApprovedBy` (`ApprovedBy`),
+                        CONSTRAINT `FK_dispatch_employees_temporary_dispatches_DispatchId` FOREIGN KEY (`DispatchId`) REFERENCES `temporary_dispatches` (`Id`) ON DELETE CASCADE,
+                        CONSTRAINT `FK_dispatch_employees_users_UserId` FOREIGN KEY (`UserId`) REFERENCES `users` (`Id`) ON DELETE CASCADE,
+                        CONSTRAINT `FK_dispatch_employees_users_ApprovedBy` FOREIGN KEY (`ApprovedBy`) REFERENCES `users` (`Id`) ON DELETE SET NULL
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+                command.ExecuteNonQuery();
+
+                // Migrate old dispatches data
+                try
+                {
+                    using var insertCmd = connection.CreateCommand();
+                    insertCmd.CommandText = @"
+                        INSERT IGNORE INTO `dispatch_employees` (`DispatchId`, `UserId`, `Status`, `ApprovedBy`, `Note`, `CreatedAt`)
+                        SELECT `Id`, `UserId`, `Status`, `ApprovedBy`, NULL, `CreatedAt`
+                        FROM `temporary_dispatches`
+                        WHERE `UserId` > 0;";
+                    insertCmd.ExecuteNonQuery();
+                }
+                catch { }
             }
         }
         catch

@@ -66,7 +66,7 @@ public class UsersController : ControllerBase
     /// </summary>
     [HttpPost("{id}/reset-password")]
     [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
-    public async Task<ActionResult<ApiResponse<bool>>> ResetPassword(ulong id, [FromBody] ResetPasswordDto dto)
+    public async Task<ActionResult<ApiResponse<ResetPasswordResultDto>>> ResetPassword(ulong id, [FromBody] ResetPasswordDto dto)
     {
         var (actorId, _, _, ip) = GetCurrentUserInfo();
         var result = await _userService.ResetPasswordAsync(id, dto, actorId, ip);
@@ -92,9 +92,24 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// UC 1.5: Lấy số liệu thống kê nhân sự (Tổng nhân sự, Active, Inactive, Phân loại vai trò)
+    /// Độc lập hoàn toàn với từ khóa tìm kiếm (search), chỉ phụ thuộc chi nhánh để đảm bảo số liệu dashboard ổn định.
+    /// </summary>
+    [HttpGet("employees/stats")]
+    [HttpGet("/api/v1/users/employees/stats")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER,OperationsAdmin,StoreManager,BusinessOwner,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<EmployeeStatsDto>>> GetEmployeeStats([FromQuery] ulong? branchId)
+    {
+        var (actorId, role, actorBranchId, _) = GetCurrentUserInfo();
+        var result = await _userService.GetEmployeeStatsAsync(branchId, actorId, role, actorBranchId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// UC 1.5: Xem chi tiết hồ sơ nhân sự
     /// </summary>
-    [HttpGet("employees/{id}")]
+    [HttpGet("employees/{id:long}")]
     [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER,OperationsAdmin,StoreManager,BusinessOwner,Admin,ADMIN")]
     public async Task<ActionResult<ApiResponse<EmployeeDetailDto>>> GetEmployeeById(ulong id)
     {
@@ -120,14 +135,56 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự
+    /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự (Đã bị khóa - Không cho phép chỉnh sửa hồ sơ sau khi tạo)
     /// </summary>
     [HttpPut("employees/{id}")]
-    [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER,OperationsAdmin,StoreManager,BusinessOwner,Admin,ADMIN")]
-    public async Task<ActionResult<ApiResponse<EmployeeDetailDto>>> UpdateEmployee(ulong id, [FromBody] UpdateEmployeeDto dto)
+    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
+    public Task<ActionResult<ApiResponse<EmployeeDetailDto>>> UpdateEmployee(ulong id, [FromBody] UpdateEmployeeDto dto)
     {
-        var (actorId, role, branchId, ip) = GetCurrentUserInfo();
-        var result = await _userService.UpdateEmployeeAsync(id, dto, actorId, role, branchId, ip);
+        return Task.FromResult<ActionResult<ApiResponse<EmployeeDetailDto>>>(
+            BadRequest(ApiResponse<EmployeeDetailDto>.Fail("Hệ thống không cho phép chỉnh sửa thông tin hồ sơ nhân sự sau khi đã khởi tạo. Quản trị viên chỉ có quyền cấp lại mật khẩu hoặc khóa/mở khóa tài khoản."))
+        );
+    }
+
+    /// <summary>
+    /// UC 1.5: Xóa tài khoản nhân sự (Chỉ thực hiện được khi tài khoản đã bị khóa)
+    /// </summary>
+    [HttpDelete("employees/{id:long}")]
+    [HttpDelete("{id:long}")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteEmployee(ulong id)
+    {
+        var (actorId, role, _, ip) = GetCurrentUserInfo();
+        var result = await _userService.DeleteUserAsync(id, actorId, role, ip);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// UC 1.5: Tải file mẫu Excel chuẩn để phục vụ import nhân sự hàng loạt (kèm danh mục mã chi nhánh & vai trò).
+    /// </summary>
+    [HttpGet("employees/import-template")]
+    [HttpGet("/api/v1/users/employees/import-template")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
+    public async Task<IActionResult> DownloadEmployeeImportTemplate([FromQuery] int count = 5)
+    {
+        var safeCount = Math.Clamp(count, 1, 500);
+        var (fileBytes, contentType, fileName) = await _userService.GenerateEmployeeImportTemplateAsync(safeCount);
+        return File(fileBytes, contentType, fileName);
+    }
+
+    /// <summary>
+    /// UC 1.5: Thêm nhân sự hàng loạt bằng tệp tin Excel (.xlsx / .xls / .csv).
+    /// Kiểm tra chặt chẽ định biên theo từng chi nhánh, kiểm tra trùng lặp danh tính và trả về báo cáo chi tiết.
+    /// </summary>
+    [HttpPost("employees/import")]
+    [HttpPost("/api/v1/users/employees/import")]
+    [Consumes("multipart/form-data")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
+    public async Task<ActionResult<ApiResponse<BulkImportResultDto>>> BulkImportEmployees([FromForm] BulkImportEmployeeRequestDto dto)
+    {
+        var (actorId, role, _, ip) = GetCurrentUserInfo();
+        var result = await _userService.BulkImportEmployeesAsync(dto, actorId, role, ip);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

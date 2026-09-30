@@ -181,27 +181,12 @@ public class BranchLockService : IBranchLockService
             });
         }
 
-        // 3d. HeadcountImportRequests (Đề xuất định biên)
-        var pendingHeadcount = await _context.HeadcountImportRequests
-            .AsNoTracking()
-            .Where(h => h.Status == "PENDING" && h.BranchId == branchId)
-            .ToListAsync(cancellationToken);
-
-        foreach (var h in pendingHeadcount)
-        {
-            pendingItems.Add(new BranchLockBlockerItemDto
-            {
-                Id = $"HEADCOUNT-{h.Id}",
-                Name = $"Đề xuất định biên #{h.Id} ({h.FileName})"
-            });
-        }
-
         if (pendingItems.Count > 0)
         {
             blockers.Add(new BranchLockBlockerDto
             {
                 Code = "PENDING_REQUESTS",
-                Message = $"Còn {pendingItems.Count} đơn chờ duyệt (nghỉ phép, đổi ca, tăng ca, điều động, định biên) thuộc chi nhánh.",
+                Message = $"Còn {pendingItems.Count} đơn chờ duyệt (nghỉ phép, đổi ca, tăng ca, điều động) thuộc chi nhánh.",
                 Count = pendingItems.Count,
                 Items = pendingItems
             });

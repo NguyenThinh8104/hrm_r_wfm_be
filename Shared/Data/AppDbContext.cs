@@ -25,6 +25,7 @@ public partial class AppDbContext : DbContext
     public DbSet<ShiftAssignment> ShiftAssignments { get; set; } = null!;
     public DbSet<ShiftSwapRequest> ShiftSwapRequests { get; set; } = null!;
     public DbSet<TemporaryDispatch> TemporaryDispatches { get; set; } = null!;
+    public DbSet<DispatchEmployee> DispatchEmployees { get; set; } = null!;
     public DbSet<AttendanceLog> AttendanceLogs { get; set; } = null!;
     public DbSet<OvertimeRequest> OvertimeRequests { get; set; } = null!;
     public DbSet<ShiftHandover> ShiftHandovers { get; set; } = null!;
@@ -32,7 +33,6 @@ public partial class AppDbContext : DbContext
     public DbSet<SecurityHandover> SecurityHandovers { get; set; } = null!;
     public DbSet<MonthlyTimesheet> MonthlyTimesheets { get; set; } = null!;
     public DbSet<SystemAuditLog> SystemAuditLogs { get; set; } = null!;
-    public DbSet<HeadcountImportRequest> HeadcountImportRequests { get; set; } = null!;
     public DbSet<BranchTierEntity> BranchTiers { get; set; } = null!;
     public DbSet<BranchLockLog> BranchLockLogs { get; set; } = null!;
 
@@ -143,6 +143,11 @@ public partial class AppDbContext : DbContext
             entity.HasOne(e => e.HomeBranch)
                 .WithMany(b => b.Users)
                 .HasForeignKey(e => e.HomeBranchId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.OriginalHomeBranch)
+                .WithMany()
+                .HasForeignKey(e => e.OriginalHomeBranchId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -337,6 +342,29 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
+        // 10b. dispatch_employees
+        modelBuilder.Entity<DispatchEmployee>(entity =>
+        {
+            entity.ToTable("dispatch_employees");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.DispatchId, e.UserId }).IsUnique();
+
+            entity.HasOne(e => e.Dispatch)
+                .WithMany(d => d.DispatchEmployees)
+                .HasForeignKey(e => e.DispatchId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.ApprovedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.ApprovedBy)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
         // 11. attendance_logs
         modelBuilder.Entity<AttendanceLog>(entity =>
         {
@@ -349,6 +377,25 @@ public partial class AppDbContext : DbContext
                 .HasConversion<byte>()
                 .HasColumnType("tinyint unsigned")
                 .HasDefaultValue(AttendanceLogStatus.PENDING);
+
+            entity.Property(e => e.CheckInStatus)
+                .HasConversion<byte>()
+                .HasColumnType("tinyint unsigned")
+                .HasDefaultValue(CheckInStatus.PENDING)
+                .HasSentinel(CheckInStatus.PENDING);
+
+            entity.Property(e => e.CheckOutStatus)
+                .HasConversion<byte>()
+                .HasColumnType("tinyint unsigned")
+                .IsRequired(false);
+
+            entity.Property(e => e.LateMinutes)
+                .HasColumnType("int")
+                .IsRequired(false);
+
+            entity.Property(e => e.EarlyLeaveMinutes)
+                .HasColumnType("int")
+                .IsRequired(false);
 
             entity.HasOne(e => e.Assignment)
                 .WithOne(sa => sa.AttendanceLog)
@@ -512,37 +559,6 @@ public partial class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.ScheduleId)
                 .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        // 19. headcount_import_requests
-        modelBuilder.Entity<HeadcountImportRequest>(entity =>
-        {
-            entity.ToTable("headcount_import_requests");
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.FilePath).HasMaxLength(500);
-            entity.Property(e => e.FileName).HasMaxLength(255);
-            entity.Property(e => e.Status).HasMaxLength(50).HasDefaultValue("PENDING");
-            entity.Property(e => e.Reason).HasMaxLength(1000);
-            entity.Property(e => e.AdminNotes).HasMaxLength(1000);
-
-            entity.HasIndex(e => e.BranchId);
-            entity.HasIndex(e => e.Status);
-            entity.HasIndex(e => new { e.BranchId, e.Status });
-
-            entity.HasOne(e => e.Branch)
-                .WithMany(b => b.HeadcountImportRequests)
-                .HasForeignKey(e => e.BranchId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.RequestedByUser)
-                .WithMany(u => u.HeadcountImportRequests)
-                .HasForeignKey(e => e.RequestedBy)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.ReviewedByUser)
-                .WithMany()
-                .HasForeignKey(e => e.ReviewedBy)
-                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

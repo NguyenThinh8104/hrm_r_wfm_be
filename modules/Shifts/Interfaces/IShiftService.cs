@@ -232,6 +232,18 @@ public interface IShiftService
     Task<ApiResponse<bool>> ReviewShiftSwapAsync(int managerEmployeeId, ReviewSwapRequestDto request);
 
     /// <summary>
+    /// Đồng nghiệp (TargetUser) xác nhận hoặc từ chối đơn đổi/chuyển ca (Bước 1 của luồng 2 bước).
+    /// Chỉ áp dụng cho đơn có Status = "PENDING_PEER".
+    /// </summary>
+    Task<ApiResponse<bool>> RespondToSwapRequestAsync(int peerEmployeeId, PeerReviewSwapRequestDto request);
+
+    /// <summary>
+    /// Nhân viên tạo đơn (RequesterUser) hủy đơn đổi/chuyển/nghỉ ca đang chờ xử lý.
+    /// Chỉ áp dụng cho đơn có Status = "PENDING" hoặc "PENDING_PEER".
+    /// </summary>
+    Task<ApiResponse<bool>> CancelSwapRequestAsync(int requesterEmployeeId, int swapRequestId);
+
+    /// <summary>
     /// Lấy danh sách danh mục các yêu cầu đổi ca trong cửa hàng.
     /// </summary>
     /// <param name="storeId">ID cửa hàng</param>
@@ -246,7 +258,7 @@ public interface IShiftService
     /// <summary>
     /// Lấy danh sách đồng nghiệp cùng chi nhánh đủ điều kiện để đổi/chuyển ca.
     /// </summary>
-    Task<ApiResponse<List<ColleagueDto>>> GetColleaguesForSwapAsync(int currentEmployeeId, int branchId);
+    Task<ApiResponse<List<ColleagueDto>>> GetColleaguesForSwapAsync(int currentEmployeeId, int branchId, DateOnly? workDate = null);
 
     /// <summary>
     /// Lấy danh sách các ca làm việc của một đồng nghiệp trong tương lai để chọn đổi (loại bỏ các ca mà nhân viên hiện tại đã có lịch, hỗ trợ đổi cùng ngày).

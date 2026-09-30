@@ -570,6 +570,55 @@ public class ShiftService : IShiftService
                 continue;
             }
 
+            // Kiểm tra phân quyền điều động nhân sự (UC 4 & UC 2.1)
+            if (user.HomeBranchId != dto.BranchId)
+            {
+                var incomingDispatch = await _context.TemporaryDispatches
+                    .Include(d => d.DispatchEmployees)
+                    .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                           && d.TargetBranchId == dto.BranchId 
+                                           && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                           && d.StartDate <= item.WorkDate 
+                                           && item.WorkDate <= d.EndDate);
+
+                if (incomingDispatch == null)
+                {
+                    var futureDispatch = await _context.TemporaryDispatches
+                        .Include(d => d.DispatchEmployees)
+                        .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                               && d.TargetBranchId == dto.BranchId 
+                                               && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                               && d.StartDate > item.WorkDate);
+
+                    if (futureDispatch != null)
+                    {
+                        errors.Add($"NV '{user.FullName}' được điều chuyển từ ngày {futureDispatch.StartDate:dd/MM/yyyy}. Không thể xếp ca trước ngày điều chuyển.");
+                    }
+                    else
+                    {
+                        errors.Add($"NV '{user.FullName}' không thuộc chi nhánh và không có lệnh điều động ngày {item.WorkDate:dd/MM/yyyy}.");
+                    }
+                    continue;
+                }
+            }
+            else
+            {
+                var outgoingDispatch = await _context.TemporaryDispatches
+                    .Include(d => d.TargetBranch)
+                    .Include(d => d.DispatchEmployees)
+                    .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                           && d.SourceBranchId == dto.BranchId 
+                                           && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                           && d.StartDate <= item.WorkDate 
+                                           && item.WorkDate <= d.EndDate);
+
+                if (outgoingDispatch != null)
+                {
+                    errors.Add($"NV '{user.FullName}' đã được điều chuyển sang '{outgoingDispatch.TargetBranch.Name}' ngày {item.WorkDate:dd/MM/yyyy}.");
+                    continue;
+                }
+            }
+
             var conflict = await _context.ShiftAssignments
                 .Include(sa => sa.Schedule)
                     .ThenInclude(s => s.ShiftTemplate)
@@ -913,9 +962,35 @@ public class ShiftService : IShiftService
             .Distinct()
             .ToListAsync();
 
+        // Lấy danh sách lệnh điều động nhân sự (Incoming Dispatches và Outgoing Dispatches) trong tuần
+        var incomingDispatches = await _context.TemporaryDispatches
+            .Include(d => d.SourceBranch)
+            .Include(d => d.DispatchEmployees)
+            .Where(d => d.TargetBranchId == branchId 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                     && d.StartDate <= weekEndDate 
+                     && d.EndDate >= weekStartDate)
+            .ToListAsync();
+
+        var outgoingDispatches = await _context.TemporaryDispatches
+            .Include(d => d.TargetBranch)
+            .Include(d => d.DispatchEmployees)
+            .Where(d => d.SourceBranchId == branchId 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                     && d.StartDate <= weekEndDate 
+                     && d.EndDate >= weekStartDate)
+            .ToListAsync();
+
+        var incomingUserIds = incomingDispatches
+            .SelectMany(d => d.DispatchEmployees.Any()
+                ? d.DispatchEmployees.Where(de => de.Status == "APPROVED").Select(de => de.UserId)
+                : (d.UserId > 0 ? new[] { d.UserId } : Array.Empty<ulong>()))
+            .Distinct()
+            .ToList();
+
         var storeUsers = await _context.Users
             .Include(u => u.Role)
-            .Where(u => (u.HomeBranchId == branchId || assignedUserIds.Contains(u.Id)) && u.Status == "ACTIVE")
+            .Where(u => (u.HomeBranchId == branchId || assignedUserIds.Contains(u.Id) || incomingUserIds.Contains(u.Id)) && u.Status == "ACTIVE")
             .OrderBy(u => u.Role.Id)
             .ThenBy(u => u.FullName)
             .ToListAsync();
@@ -941,6 +1016,9 @@ public class ShiftService : IShiftService
                 Status = sa.Status
             }).ToList();
 
+            var incoming = incomingDispatches.FirstOrDefault(d => d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"));
+            var outgoing = outgoingDispatches.FirstOrDefault(d => d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"));
+
             return new EmployeeMonthlyRosterDto
             {
                 UserId = user.Id,
@@ -948,6 +1026,16 @@ public class ShiftService : IShiftService
                 FullName = user.FullName,
                 RoleName = user.Role?.RoleName ?? string.Empty,
                 RoleCode = user.Role?.RoleCode ?? string.Empty,
+                EmploymentType = user.EmploymentType ?? "FULL_TIME",
+                IsDispatched = incoming != null,
+                DispatchStartDate = incoming?.StartDate,
+                DispatchEndDate = incoming?.EndDate,
+                OriginBranchId = incoming?.SourceBranchId,
+                OriginBranchName = incoming?.SourceBranch?.Name,
+                IsDispatchedAway = outgoing != null,
+                DispatchAwayStartDate = outgoing?.StartDate,
+                DispatchAwayEndDate = outgoing?.EndDate,
+                DestinationBranchName = outgoing?.TargetBranch?.Name,
                 AssignedShifts = rosterCells
             };
         }).ToList();
@@ -961,6 +1049,8 @@ public class ShiftService : IShiftService
                 weekStatus = "PARTIAL";
         }
 
+        var activeTemplatesRes = await GetAllShiftTemplatesAsync(false);
+
         var matrix = new WeeklyScheduleMatrixDto
         {
             BranchId = branchId,
@@ -970,7 +1060,8 @@ public class ShiftService : IShiftService
             WeekStatus = weekStatus,
             Days = days,
             Schedules = scheduleDtos,
-            EmployeeRosters = employeeRosters
+            EmployeeRosters = employeeRosters,
+            ActiveTemplates = activeTemplatesRes.Data ?? new List<ShiftDto>()
         };
 
         return ApiResponse<WeeklyScheduleMatrixDto>.Ok(matrix);
@@ -992,6 +1083,7 @@ public class ShiftService : IShiftService
 
         var shiftTemplate = await _context.ShiftTemplates.FindAsync(dto.ShiftTemplateId);
         if (shiftTemplate == null) return ApiResponse<List<ShiftAssignmentDto>>.Fail("Không tìm thấy mẫu ca làm việc.");
+        if (!shiftTemplate.IsActive) return ApiResponse<List<ShiftAssignmentDto>>.Fail($"Mẫu ca '{shiftTemplate.Name}' đã bị Quản trị viên vô hiệu hóa (INACTIVE), không thể phân công.");
 
         var daysOfWeek = (dto.DaysOfWeek != null && dto.DaysOfWeek.Any()) 
             ? dto.DaysOfWeek 
@@ -1021,6 +1113,55 @@ public class ShiftService : IShiftService
                 {
                     errors.Add($"Ngày {workDate:dd/MM/yyyy} là ngày trong quá khứ, không thể phân công ca.");
                     continue;
+                }
+
+                // Kiểm tra điều động nhân sự (UC 4 & UC 2.1)
+                if (user.HomeBranchId != dto.BranchId)
+                {
+                    var incomingDispatch = await _context.TemporaryDispatches
+                        .Include(d => d.DispatchEmployees)
+                        .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                               && d.TargetBranchId == dto.BranchId 
+                                               && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                               && d.StartDate <= workDate 
+                                               && workDate <= d.EndDate);
+
+                    if (incomingDispatch == null)
+                    {
+                        var futureDispatch = await _context.TemporaryDispatches
+                            .Include(d => d.DispatchEmployees)
+                            .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                                   && d.TargetBranchId == dto.BranchId 
+                                                   && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                                   && d.StartDate > workDate);
+
+                        if (futureDispatch != null)
+                        {
+                            errors.Add($"NV '{user.FullName}' được điều chuyển từ ngày {futureDispatch.StartDate:dd/MM}. Không thể xếp ca ngày {workDate:dd/MM}.");
+                        }
+                        else
+                        {
+                            errors.Add($"NV '{user.FullName}' không thuộc chi nhánh và không có lệnh điều động ngày {workDate:dd/MM}.");
+                        }
+                        continue;
+                    }
+                }
+                else
+                {
+                    var outgoingDispatch = await _context.TemporaryDispatches
+                        .Include(d => d.TargetBranch)
+                        .Include(d => d.DispatchEmployees)
+                        .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                               && d.SourceBranchId == dto.BranchId 
+                                               && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                               && d.StartDate <= workDate 
+                                               && workDate <= d.EndDate);
+
+                    if (outgoingDispatch != null)
+                    {
+                        errors.Add($"NV '{user.FullName}' đã được điều chuyển sang '{outgoingDispatch.TargetBranch.Name}' ngày {workDate:dd/MM}.");
+                        continue;
+                    }
                 }
 
                 // Tự động kiểm tra xung đột trùng ca trong ngày
@@ -1303,15 +1444,72 @@ public class ShiftService : IShiftService
             .Where(ws => ws.BranchId == dto.BranchId && ws.WorkDate >= dto.WeekStartDate && ws.WorkDate <= weekEndDate)
             .ToListAsync();
 
-        // 2. Lấy danh sách nhân viên chi nhánh
+        // 2. Lấy danh sách nhân viên chi nhánh (bao gồm nhân sự được điều động đến trong tuần)
+        var incomingDispatches = await _context.TemporaryDispatches
+            .Include(d => d.DispatchEmployees)
+            .Where(d => d.TargetBranchId == dto.BranchId 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                     && d.StartDate <= weekEndDate 
+                     && d.EndDate >= dto.WeekStartDate)
+            .ToListAsync();
+
+        var outgoingDispatches = await _context.TemporaryDispatches
+            .Include(d => d.DispatchEmployees)
+            .Where(d => d.SourceBranchId == dto.BranchId 
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                     && d.StartDate <= weekEndDate 
+                     && d.EndDate >= dto.WeekStartDate)
+            .ToListAsync();
+
+        var incomingUserIds = incomingDispatches
+            .SelectMany(d => d.DispatchEmployees.Any()
+                ? d.DispatchEmployees.Where(de => de.Status == "APPROVED").Select(de => de.UserId)
+                : (d.UserId > 0 ? new[] { d.UserId } : Array.Empty<ulong>()))
+            .Distinct()
+            .ToList();
+
         var employees = await _context.Users
             .Include(u => u.Role)
-            .Where(u => u.HomeBranchId == dto.BranchId && u.Status == "ACTIVE")
+            .Where(u => (u.HomeBranchId == dto.BranchId || incomingUserIds.Contains(u.Id)) && u.Status == "ACTIVE")
             .ToListAsync();
 
         if (!employees.Any())
         {
             return ApiResponse<AutoScheduleResultDto>.Fail("Không có nhân viên active tại chi nhánh để phân bổ.");
+        }
+
+        // Xây dựng tập ngày khả dụng cho từng nhân viên (đảm bảo nhân sự điều chuyển chỉ được xếp từ ngày bắt đầu đến kết thúc điều chuyển)
+        var employeeAvailableDates = new Dictionary<ulong, HashSet<DateOnly>>();
+        for (int d = 0; d < 7; d++)
+        {
+            var workDate = dto.WeekStartDate.AddDays(d);
+            foreach (var emp in employees)
+            {
+                if (!employeeAvailableDates.ContainsKey(emp.Id))
+                {
+                    employeeAvailableDates[emp.Id] = new HashSet<DateOnly>();
+                }
+
+                var inDisp = incomingDispatches.FirstOrDefault(x => x.UserId == emp.Id);
+                if (inDisp != null)
+                {
+                    // Nhân sự điều chuyển đến: Chỉ khả dụng từ ngày bắt đầu đến ngày kết thúc điều chuyển
+                    if (workDate >= inDisp.StartDate && workDate <= inDisp.EndDate)
+                    {
+                        employeeAvailableDates[emp.Id].Add(workDate);
+                    }
+                    continue;
+                }
+
+                var outDisp = outgoingDispatches.FirstOrDefault(x => x.UserId == emp.Id && x.StartDate <= workDate && workDate <= x.EndDate);
+                if (outDisp != null)
+                {
+                    // Ngày này đang làm việc ở cơ sở khác, không khả dụng ở đây
+                    continue;
+                }
+
+                employeeAvailableDates[emp.Id].Add(workDate);
+            }
         }
 
         // 3. Nếu cho phép ghi đè, xóa các phân công cũ trong tuần
@@ -1358,7 +1556,8 @@ public class ShiftService : IShiftService
             Templates = templates,
             Schedules = schedules,
             MaxShiftsPerWeekPerEmployee = dto.MaxShiftsPerWeekPerEmployee,
-            MinShiftsPerWeekForFullTime = dto.MinShiftsPerWeekForFullTime
+            MinShiftsPerWeekForFullTime = dto.MinShiftsPerWeekForFullTime,
+            EmployeeAvailableDates = employeeAvailableDates
         });
 
         if (!solverResult.IsSuccess)
@@ -1598,6 +1797,7 @@ public class ShiftService : IShiftService
 
         var shiftTemplate = await _context.ShiftTemplates.FindAsync((uint)request.ShiftId);
         if (shiftTemplate == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy khung ca làm việc.");
+        if (!shiftTemplate.IsActive) return ApiResponse<ShiftAssignmentDto>.Fail($"Mẫu ca '{shiftTemplate.Name}' đã bị Quản trị viên vô hiệu hóa (INACTIVE), không thể phân công.");
 
         var user = await _context.Users
             .Include(u => u.Role)
@@ -1606,6 +1806,58 @@ public class ShiftService : IShiftService
 
         var branch = await _context.Branches.FindAsync((ulong)request.StoreId);
         if (branch == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy cửa hàng.");
+
+        // Kiểm tra phân quyền điều động nhân sự (UC 4 & UC 2.1)
+        ulong targetBranchId = (ulong)request.StoreId;
+        if (user.HomeBranchId != targetBranchId)
+        {
+            var incomingDispatch = await _context.TemporaryDispatches
+                .Include(d => d.SourceBranch)
+                .Include(d => d.DispatchEmployees)
+                .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                       && d.TargetBranchId == targetBranchId 
+                                       && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                       && d.StartDate <= request.WorkDate 
+                                       && request.WorkDate <= d.EndDate);
+
+            if (incomingDispatch == null)
+            {
+                // Kiểm tra xem có lệnh điều chuyển nhưng chưa đến ngày bắt đầu không
+                var futureDispatch = await _context.TemporaryDispatches
+                    .Include(d => d.DispatchEmployees)
+                    .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                           && d.TargetBranchId == targetBranchId 
+                                           && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                           && d.StartDate > request.WorkDate);
+
+                if (futureDispatch != null)
+                {
+                    return ApiResponse<ShiftAssignmentDto>.Fail(
+                        $"Nhân viên '{user.FullName}' được điều chuyển từ ngày {futureDispatch.StartDate:dd/MM/yyyy}. Chỉ có thể xếp lịch cho nhân sự từ ngày điều chuyển trở đi!");
+                }
+
+                return ApiResponse<ShiftAssignmentDto>.Fail(
+                    $"Nhân viên '{user.FullName}' không thuộc biên chế chi nhánh này và không có lệnh điều động hợp lệ vào ngày {request.WorkDate:dd/MM/yyyy}.");
+            }
+        }
+        else
+        {
+            // Nhân sự thuộc chi nhánh gốc: Kiểm tra xem ngày này có bị điều chuyển đi cơ sở khác không
+            var outgoingDispatch = await _context.TemporaryDispatches
+                .Include(d => d.TargetBranch)
+                .Include(d => d.DispatchEmployees)
+                .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                       && d.SourceBranchId == targetBranchId 
+                                       && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                       && d.StartDate <= request.WorkDate 
+                                       && request.WorkDate <= d.EndDate);
+
+            if (outgoingDispatch != null)
+            {
+                return ApiResponse<ShiftAssignmentDto>.Fail(
+                    $"Nhân viên '{user.FullName}' đã được điều chuyển sang '{outgoingDispatch.TargetBranch.Name}' từ ngày {outgoingDispatch.StartDate:dd/MM/yyyy} đến {outgoingDispatch.EndDate:dd/MM/yyyy}. Không thể xếp lịch tại cơ sở gốc trong thời gian này!");
+            }
+        }
 
         var schedule = await _context.WorkSchedules
             .FirstOrDefaultAsync(ws => ws.BranchId == (ulong)request.StoreId 
@@ -1765,13 +2017,31 @@ public class ShiftService : IShiftService
             return ApiResponse<ShiftSwapRequestDto>.Fail("Đơn xin đổi/nghỉ ca phải được gửi trước ngày làm việc ít nhất 1 ngày. Không thể tạo đơn cho ca trực hôm nay hoặc trong quá khứ.");
         }
 
-        // Kiểm tra xem ca này đã có đơn chờ duyệt chưa
+        // Kiểm tra xem ca này đã có đơn chờ duyệt chưa (bao gồm cả đơn chờ đồng nghiệp xác nhận)
         var hasPending = await _context.ShiftSwapRequests
             .AnyAsync(r => (r.RequestingAssignmentId == requestingAssignment.Id || (r.TargetAssignmentId != null && r.TargetAssignmentId == requestingAssignment.Id))
-                        && r.Status == "PENDING");
+                        && (r.Status == "PENDING" || r.Status == "PENDING_PEER"));
         if (hasPending)
         {
-            return ApiResponse<ShiftSwapRequestDto>.Fail("Ca trực này hiện đang có đơn xin đổi/chuyển/nghỉ ca đang chờ Quản lý phê duyệt.");
+            return ApiResponse<ShiftSwapRequestDto>.Fail("Ca trực này hiện đang có đơn xin đổi/chuyển/nghỉ ca đang chờ xử lý.");
+        }
+
+        // VALIDATE BIÊN THỜI GIAN BIỆT PHÁI: Nếu ca trực thuộc chi nhánh khác HomeBranch,
+        // kiểm tra nhân viên có lệnh biệt phái hợp lệ bao phủ ngày ca trực không.
+        var requesterUser = requestingAssignment.User;
+        var assignmentBranchId = requestingAssignment.Schedule.BranchId;
+        if (requesterUser != null && assignmentBranchId != requesterUser.HomeBranchId)
+        {
+            var hasValidDispatch = await _context.Set<Domain.Entities.TemporaryDispatch>()
+                .AnyAsync(d => d.UserId == (ulong)requesterEmployeeId
+                            && d.TargetBranchId == assignmentBranchId
+                            && d.Status == "APPROVED"
+                            && d.StartDate <= requestingAssignment.Schedule.WorkDate
+                            && d.EndDate >= requestingAssignment.Schedule.WorkDate);
+            if (!hasValidDispatch)
+            {
+                return ApiResponse<ShiftSwapRequestDto>.Fail("Ngày ca trực nằm ngoài thời gian điều chuyển hợp lệ của bạn tại chi nhánh này.");
+            }
         }
 
         var reqType = (request.RequestType ?? "SWAP").ToUpper().Trim();
@@ -1941,6 +2211,9 @@ public class ShiftService : IShiftService
             }
         }
 
+        // LEAVE → PENDING (gửi thẳng Quản lý), SWAP/TRANSFER → PENDING_PEER (chờ đồng nghiệp xác nhận trước)
+        var initialStatus = reqType == "LEAVE" ? "PENDING" : "PENDING_PEER";
+
         var swap = new ShiftSwapRequest
         {
             RequestingAssignmentId = requestingAssignment.Id,
@@ -1950,7 +2223,7 @@ public class ShiftService : IShiftService
             TargetAssignmentId = targetAssignment?.Id,
             RequestType = reqType,
             Reason = request.Reason,
-            Status = "PENDING",
+            Status = initialStatus,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -1987,8 +2260,8 @@ public class ShiftService : IShiftService
         var successMsg = reqType == "LEAVE"
             ? "Đã gửi đơn xin nghỉ ca trực cho Cửa hàng trưởng phê duyệt và sắp xếp lại."
             : reqType == "TRANSFER"
-                ? "Đã gửi đơn xin chuyển ca (nhờ làm thay), chờ Cửa hàng trưởng phê duyệt."
-                : "Đã gửi đơn xin đổi ca với đồng nghiệp, chờ Cửa hàng trưởng phê duyệt.";
+                ? "Đã gửi đơn xin chuyển ca (nhờ làm thay), chờ đồng nghiệp xác nhận."
+                : "Đã gửi đơn xin đổi ca với đồng nghiệp, chờ đồng nghiệp xác nhận.";
 
         // Gửi thông báo email nếu là yêu cầu đổi ca / chuyển ca cho đồng nghiệp
         if (targetUser != null && !string.IsNullOrWhiteSpace(targetUser.Email))
@@ -1999,6 +2272,7 @@ public class ShiftService : IShiftService
                 {
                     var reqShiftInfo = $"{requestingAssignment.Schedule.ShiftTemplate?.Name} ({requestingAssignment.Schedule.WorkDate:dd/MM/yyyy} {requestingAssignment.Schedule.ShiftTemplate?.StartTime:hh\\:mm}-{requestingAssignment.Schedule.ShiftTemplate?.EndTime:hh\\:mm})";
                     var actionText = reqType == "TRANSFER" ? "Yêu cầu nhờ nhận ca làm việc" : "Yêu cầu đổi ca làm việc";
+                    // PENDING_PEER: Gửi email cho đồng nghiệp với trạng thái CHỜ BẠN XÁC NHẬN
                     await _emailService.SendShiftChangeNotificationEmailAsync(
                         targetUser.Email,
                         targetUser.FullName,
@@ -2006,7 +2280,7 @@ public class ShiftService : IShiftService
                         $"Ca của đồng nghiệp: {reqShiftInfo}" + (targetAssignment?.Schedule != null ? $" | Ca dự kiến của bạn: {targetAssignment.Schedule.ShiftTemplate?.Name} ({targetAssignment.Schedule.WorkDate:dd/MM/yyyy})" : ""),
                         requestingAssignment.Schedule.WorkDate.ToString("dd/MM/yyyy"),
                         request.Reason ?? "Không có ghi chú thêm",
-                        "CHỜ QUẢN LÝ DUYỆT"
+                        "CHỜ BẠN XÁC NHẬN"
                     );
                 }
                 catch (Exception ex)
@@ -2049,6 +2323,23 @@ public class ShiftService : IShiftService
         if (swap.Status != "PENDING")
         {
             return ApiResponse<bool>.Fail("Yêu cầu này đã được xử lý trước đó.");
+        }
+
+        // PHÂN QUYỀN CHI NHÁNH: Quản lý chỉ duyệt được đơn thuộc chi nhánh mình
+        var assignmentBranchId = swap.RequestingAssignment?.Schedule?.BranchId ?? swap.Schedule?.BranchId;
+        if (assignmentBranchId.HasValue)
+        {
+            var manager = await _context.Users.FindAsync((ulong)managerEmployeeId);
+            if (manager != null && manager.HomeBranchId != assignmentBranchId.Value)
+            {
+                // Kiểm tra thêm: Quản lý có thể là global role (OPERATIONS_ADMIN, BUSINESS_OWNER)
+                var managerRole = (await _context.Roles.FindAsync(manager.RoleId))?.RoleName?.ToUpperInvariant();
+                bool isGlobal = managerRole == "OPERATIONS_ADMIN" || managerRole == "BUSINESS_OWNER" || managerRole == "ADMIN";
+                if (!isGlobal)
+                {
+                    return ApiResponse<bool>.Fail("Bạn không phải quản lý của chi nhánh này. Không thể phê duyệt đơn.");
+                }
+            }
         }
 
         var today = DateOnly.FromDateTime(DateTime.Today);
@@ -2256,10 +2547,242 @@ public class ShiftService : IShiftService
     }
 
     /// <summary>
+    /// Đồng nghiệp (TargetUser) xác nhận hoặc từ chối đơn đổi/chuyển ca (Bước 1 của luồng 2 bước).
+    /// Chỉ đơn có Status = "PENDING_PEER" mới được xử lý.
+    /// </summary>
+    public async Task<ApiResponse<bool>> RespondToSwapRequestAsync(int peerEmployeeId, PeerReviewSwapRequestDto request)
+    {
+        var swap = await _context.ShiftSwapRequests
+            .Include(s => s.RequesterUser)
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.Schedule)
+                    .ThenInclude(ws => ws.ShiftTemplate)
+            .Include(s => s.TargetUser)
+            .Include(s => s.TargetAssignment)
+                .ThenInclude(sa => sa.Schedule)
+                    .ThenInclude(ws => ws.ShiftTemplate)
+            .FirstOrDefaultAsync(s => s.Id == (ulong)request.SwapRequestId);
+
+        if (swap == null)
+        {
+            return ApiResponse<bool>.Fail("Yêu cầu đổi/chuyển ca không tồn tại.");
+        }
+
+        // Chỉ TargetUser mới được phản hồi
+        if (swap.TargetUserId != (ulong)peerEmployeeId)
+        {
+            return ApiResponse<bool>.Fail("Bạn không phải là người được yêu cầu xác nhận đơn này.");
+        }
+
+        if (swap.Status != "PENDING_PEER")
+        {
+            return ApiResponse<bool>.Fail("Đơn này không ở trạng thái chờ bạn xác nhận.");
+        }
+
+        // Lazy expiry: Kiểm tra nếu WorkDate đã qua hoặc bằng hôm nay → auto EXPIRED
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var workDate = swap.RequestingAssignment?.Schedule?.WorkDate;
+        if (workDate.HasValue && workDate.Value <= today)
+        {
+            swap.Status = "EXPIRED";
+            await _context.SaveChangesAsync();
+            return ApiResponse<bool>.Fail("Đơn đã hết hạn vì ngày ca trực đã qua hoặc quá gần.");
+        }
+
+        if (request.IsAccepted)
+        {
+            // Re-validate xung đột ca trực (lịch có thể thay đổi trong lúc chờ peer review)
+            if (swap.RequestType == "TRANSFER" && swap.RequestingAssignment != null)
+            {
+                var targetHasConflict = await _context.ShiftAssignments
+                    .AnyAsync(sa => sa.UserId == swap.TargetUserId.Value
+                                 && sa.Status != "CANCELLED"
+                                 && sa.Schedule.WorkDate == swap.RequestingAssignment.Schedule.WorkDate);
+                if (targetHasConflict)
+                {
+                    return ApiResponse<bool>.Fail("Không thể xác nhận: Bạn đã có ca trực khác trong ngày này kể từ khi đơn được tạo.");
+                }
+            }
+            else if (swap.RequestType == "SWAP" && swap.TargetAssignment != null && swap.RequestingAssignment != null)
+            {
+                bool isSameDay = swap.RequestingAssignment.Schedule.WorkDate == swap.TargetAssignment.Schedule.WorkDate;
+                if (!isSameDay)
+                {
+                    // Kiểm tra requester có ca vào ngày ca target
+                    var requesterConflict = await _context.ShiftAssignments
+                        .AnyAsync(sa => sa.UserId == swap.RequesterUserId.Value
+                                     && sa.Id != swap.RequestingAssignmentId
+                                     && sa.Status != "CANCELLED"
+                                     && sa.Schedule.WorkDate == swap.TargetAssignment.Schedule.WorkDate);
+                    if (requesterConflict)
+                    {
+                        return ApiResponse<bool>.Fail("Không thể xác nhận: Nhân viên xin đổi đã có ca trực mới trong ngày ca của bạn.");
+                    }
+
+                    // Kiểm tra target có ca vào ngày ca requester
+                    var targetConflict = await _context.ShiftAssignments
+                        .AnyAsync(sa => sa.UserId == swap.TargetUserId.Value
+                                     && sa.Id != swap.TargetAssignmentId
+                                     && sa.Status != "CANCELLED"
+                                     && sa.Schedule.WorkDate == swap.RequestingAssignment.Schedule.WorkDate);
+                    if (targetConflict)
+                    {
+                        return ApiResponse<bool>.Fail("Không thể xác nhận: Bạn đã có ca trực khác trong ngày ca của đồng nghiệp.");
+                    }
+                }
+            }
+
+            swap.Status = "PENDING";
+            await _context.SaveChangesAsync();
+
+            // Gửi email cho người tạo đơn: Đồng nghiệp đã đồng ý
+            if (swap.RequesterUser != null && !string.IsNullOrWhiteSpace(swap.RequesterUser.Email))
+            {
+                var peerName = swap.TargetUser?.FullName ?? "Đồng nghiệp";
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var shiftInfo = $"{swap.RequestingAssignment?.Schedule?.ShiftTemplate?.Name} ({swap.RequestingAssignment?.Schedule?.WorkDate:dd/MM/yyyy})";
+                        await _emailService.SendShiftChangeNotificationEmailAsync(
+                            swap.RequesterUser.Email,
+                            swap.RequesterUser.FullName,
+                            $"{peerName} đã đồng ý đơn {(swap.RequestType == "TRANSFER" ? "chuyển ca" : "đổi ca")} của bạn",
+                            $"Ca trực: {shiftInfo}. Đơn đang chờ Quản lý chi nhánh phê duyệt.",
+                            swap.RequestingAssignment?.Schedule?.WorkDate.ToString("dd/MM/yyyy") ?? "",
+                            swap.Reason ?? "",
+                            "CHỜ QUẢN LÝ DUYỆT"
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi gửi email thông báo peer accept");
+                    }
+                });
+            }
+
+            return ApiResponse<bool>.Ok(true, $"Bạn đã đồng ý đơn. Đơn chuyển sang Quản lý chi nhánh phê duyệt.");
+        }
+        else
+        {
+            swap.Status = "REJECTED";
+            await _context.SaveChangesAsync();
+
+            // Gửi email cho người tạo đơn: Đồng nghiệp đã từ chối
+            if (swap.RequesterUser != null && !string.IsNullOrWhiteSpace(swap.RequesterUser.Email))
+            {
+                var peerName = swap.TargetUser?.FullName ?? "Đồng nghiệp";
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var shiftInfo = $"{swap.RequestingAssignment?.Schedule?.ShiftTemplate?.Name} ({swap.RequestingAssignment?.Schedule?.WorkDate:dd/MM/yyyy})";
+                        await _emailService.SendShiftChangeNotificationEmailAsync(
+                            swap.RequesterUser.Email,
+                            swap.RequesterUser.FullName,
+                            $"{peerName} đã từ chối đơn {(swap.RequestType == "TRANSFER" ? "chuyển ca" : "đổi ca")} của bạn",
+                            $"Ca trực: {shiftInfo}. Bạn có thể tạo đơn mới với đồng nghiệp khác.",
+                            swap.RequestingAssignment?.Schedule?.WorkDate.ToString("dd/MM/yyyy") ?? "",
+                            swap.Reason ?? "",
+                            "ĐÃ BỊ TỪ CHỐI"
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi gửi email thông báo peer reject");
+                    }
+                });
+            }
+
+            return ApiResponse<bool>.Ok(true, "Bạn đã từ chối đơn đổi/chuyển ca.");
+        }
+    }
+
+    /// <summary>
+    /// Nhân viên tạo đơn (RequesterUser) hủy đơn đổi/chuyển/nghỉ ca đang chờ xử lý.
+    /// Chỉ áp dụng cho đơn có Status = "PENDING" hoặc "PENDING_PEER".
+    /// </summary>
+    public async Task<ApiResponse<bool>> CancelSwapRequestAsync(int requesterEmployeeId, int swapRequestId)
+    {
+        var swap = await _context.ShiftSwapRequests
+            .Include(s => s.TargetUser)
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.Schedule)
+                    .ThenInclude(ws => ws.ShiftTemplate)
+            .FirstOrDefaultAsync(s => s.Id == (ulong)swapRequestId);
+
+        if (swap == null)
+        {
+            return ApiResponse<bool>.Fail("Yêu cầu đổi/chuyển/nghỉ ca không tồn tại.");
+        }
+
+        if (swap.RequesterUserId != (ulong)requesterEmployeeId)
+        {
+            return ApiResponse<bool>.Fail("Bạn không phải là người tạo đơn này.");
+        }
+
+        if (swap.Status != "PENDING" && swap.Status != "PENDING_PEER")
+        {
+            return ApiResponse<bool>.Fail("Đơn này đã được xử lý, không thể hủy.");
+        }
+
+        swap.Status = "CANCELLED";
+        await _context.SaveChangesAsync();
+
+        // Gửi email cho TargetUser (nếu có) thông báo đơn bị hủy
+        if (swap.TargetUser != null && !string.IsNullOrWhiteSpace(swap.TargetUser.Email))
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var shiftInfo = $"{swap.RequestingAssignment?.Schedule?.ShiftTemplate?.Name} ({swap.RequestingAssignment?.Schedule?.WorkDate:dd/MM/yyyy})";
+                    await _emailService.SendShiftChangeNotificationEmailAsync(
+                        swap.TargetUser.Email,
+                        swap.TargetUser.FullName,
+                        $"Đơn {(swap.RequestType == "TRANSFER" ? "chuyển ca" : "đổi ca")} đã bị hủy bởi người tạo",
+                        $"Ca trực: {shiftInfo}",
+                        swap.RequestingAssignment?.Schedule?.WorkDate.ToString("dd/MM/yyyy") ?? "",
+                        swap.Reason ?? "",
+                        "ĐÃ BỊ HỦY"
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Lỗi gửi email thông báo hủy đơn swap");
+                }
+            });
+        }
+
+        return ApiResponse<bool>.Ok(true, "Đã hủy đơn thành công.");
+    }
+
+    /// <summary>
     /// Lấy danh sách các yêu cầu đổi/chuyển/nghỉ ca của toàn chi nhánh (cho Quản lý cửa hàng duyệt).
     /// </summary>
     public async Task<ApiResponse<List<ShiftSwapRequestDto>>> GetSwapRequestsByStoreAsync(int storeId)
     {
+        // LAZY AUTO-EXPIRY: Tự động hết hạn các đơn chờ mà ngày ca trực đã qua hoặc bằng hôm nay
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var expiredRequests = await _context.ShiftSwapRequests
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.Schedule)
+            .Include(s => s.Schedule)
+            .Where(s => (s.Status == "PENDING" || s.Status == "PENDING_PEER")
+                     && ((s.RequestingAssignment != null && s.RequestingAssignment.Schedule.WorkDate <= today)
+                      || (s.Schedule != null && s.Schedule.WorkDate <= today))
+                     && ((s.Schedule != null && s.Schedule.BranchId == (ulong)storeId)
+                      || (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.BranchId == (ulong)storeId)))
+            .ToListAsync();
+
+        if (expiredRequests.Any())
+        {
+            foreach (var r in expiredRequests)
+            {
+                r.Status = "EXPIRED";
+            }
+            await _context.SaveChangesAsync();
+        }
         var requests = await _context.ShiftSwapRequests
             .Include(s => s.RequesterUser)
                 .ThenInclude(u => u.Role)
@@ -2333,6 +2856,28 @@ public class ShiftService : IShiftService
     /// </summary>
     public async Task<ApiResponse<List<ShiftSwapRequestDto>>> GetMySwapRequestsAsync(int employeeId)
     {
+        // LAZY AUTO-EXPIRY: Tự động hết hạn các đơn chờ mà ngày ca trực đã qua hoặc bằng hôm nay
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var expiredRequests = await _context.ShiftSwapRequests
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.Schedule)
+            .Include(s => s.Schedule)
+            .Where(s => (s.Status == "PENDING" || s.Status == "PENDING_PEER")
+                     && ((s.RequesterUserId != null && s.RequesterUserId == (ulong)employeeId)
+                      || (s.TargetUserId != null && s.TargetUserId == (ulong)employeeId))
+                     && ((s.RequestingAssignment != null && s.RequestingAssignment.Schedule.WorkDate <= today)
+                      || (s.Schedule != null && s.Schedule.WorkDate <= today)))
+            .ToListAsync();
+
+        if (expiredRequests.Any())
+        {
+            foreach (var r in expiredRequests)
+            {
+                r.Status = "EXPIRED";
+            }
+            await _context.SaveChangesAsync();
+        }
+
         var requests = await _context.ShiftSwapRequests
             .Include(s => s.RequesterUser)
                 .ThenInclude(u => u.Role)
@@ -2403,9 +2948,34 @@ public class ShiftService : IShiftService
     }
 
     /// <summary>
-    /// Lấy danh sách đồng nghiệp cùng chi nhánh để nhân viên chọn khi đổi/chuyển ca.
+    /// Helper: Xác định chi nhánh làm việc thực tế của nhân viên vào một ngày cụ thể.
+    /// Nếu nhân viên đang có lệnh điều chuyển (TemporaryDispatch APPROVED) bao phủ ngày workDate → trả về TargetBranchId.
+    /// Ngược lại → trả về HomeBranchId.
     /// </summary>
-    public async Task<ApiResponse<List<ColleagueDto>>> GetColleaguesForSwapAsync(int currentEmployeeId, int branchId)
+    private async Task<ulong> GetEffectiveBranchIdAsync(ulong userId, DateOnly workDate)
+    {
+        var dispatch = await _context.Set<Domain.Entities.TemporaryDispatch>()
+            .Where(d => d.UserId == userId
+                     && d.Status == "APPROVED"
+                     && d.StartDate <= workDate
+                     && d.EndDate >= workDate)
+            .FirstOrDefaultAsync();
+
+        if (dispatch != null)
+        {
+            return dispatch.TargetBranchId;
+        }
+
+        var user = await _context.Users.FindAsync(userId);
+        return user?.HomeBranchId ?? 0;
+    }
+
+    /// <summary>
+    /// Lấy danh sách đồng nghiệp đang thực sự làm việc tại chi nhánh vào ngày cụ thể để nhân viên chọn khi đổi/chuyển ca.
+    /// Bao gồm: (1) NV gốc chi nhánh không bị biệt phái đi nơi khác, (2) NV từ chi nhánh khác được biệt phái đến.
+    /// Ràng buộc: Cùng RoleId, loại trừ chính mình.
+    /// </summary>
+    public async Task<ApiResponse<List<ColleagueDto>>> GetColleaguesForSwapAsync(int currentEmployeeId, int branchId, DateOnly? workDate = null)
     {
         var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == (ulong)currentEmployeeId);
         if (currentUser == null)
@@ -2413,13 +2983,25 @@ public class ShiftService : IShiftService
             return ApiResponse<List<ColleagueDto>>.Fail("Không tìm thấy thông tin nhân viên yêu cầu.");
         }
 
-        var colleagues = await _context.Users
+        var effectiveWorkDate = workDate ?? DateOnly.FromDateTime(DateTime.Today).AddDays(1);
+
+        // === NHÓM 1: NV gốc của chi nhánh, KHÔNG bị biệt phái đi nơi khác vào workDate ===
+        // Lấy danh sách ID nhân viên gốc chi nhánh đang bị dispatch đi chỗ khác
+        var dispatchedAwayUserIds = await _context.Set<Domain.Entities.TemporaryDispatch>()
+            .Where(d => d.Status == "APPROVED"
+                     && d.StartDate <= effectiveWorkDate
+                     && d.EndDate >= effectiveWorkDate
+                     && d.SourceBranchId == (ulong)branchId)
+            .Select(d => d.UserId)
+            .ToListAsync();
+
+        var nativeColleagues = await _context.Users
             .Include(u => u.Role)
-            .Where(u => u.Id != (ulong)currentEmployeeId 
-                     && u.HomeBranchId == (ulong)branchId 
+            .Where(u => u.Id != (ulong)currentEmployeeId
+                     && u.HomeBranchId == (ulong)branchId
                      && u.Status == "ACTIVE"
-                     && u.RoleId == currentUser.RoleId) // RÀNG BUỘC: Cùng role mới được đổi lịch cho nhau
-            .OrderBy(u => u.FullName)
+                     && u.RoleId == currentUser.RoleId
+                     && !dispatchedAwayUserIds.Contains(u.Id))
             .Select(u => new ColleagueDto
             {
                 EmployeeId = (int)u.Id,
@@ -2428,6 +3010,41 @@ public class ShiftService : IShiftService
                 PhoneNumber = u.Phone ?? ""
             })
             .ToListAsync();
+
+        // === NHÓM 2: NV từ chi nhánh khác được biệt phái ĐẾN chi nhánh này vào workDate ===
+        var dispatchedInUserIds = await _context.Set<Domain.Entities.TemporaryDispatch>()
+            .Where(d => d.Status == "APPROVED"
+                     && d.StartDate <= effectiveWorkDate
+                     && d.EndDate >= effectiveWorkDate
+                     && d.TargetBranchId == (ulong)branchId)
+            .Select(d => d.UserId)
+            .ToListAsync();
+
+        // Loại bỏ chính mình và lọc cùng role
+        var dispatchedInColleagues = dispatchedInUserIds.Contains((ulong)currentEmployeeId)
+            ? new List<ColleagueDto>()
+            : await _context.Users
+                .Include(u => u.Role)
+                .Where(u => dispatchedInUserIds.Contains(u.Id)
+                         && u.Id != (ulong)currentEmployeeId
+                         && u.Status == "ACTIVE"
+                         && u.RoleId == currentUser.RoleId)
+                .Select(u => new ColleagueDto
+                {
+                    EmployeeId = (int)u.Id,
+                    FullName = u.FullName,
+                    RoleName = u.Role != null ? u.Role.RoleName : "",
+                    PhoneNumber = u.Phone ?? ""
+                })
+                .ToListAsync();
+
+        // Gộp 2 nhóm, loại trùng, sắp xếp theo tên
+        var colleagues = nativeColleagues
+            .Concat(dispatchedInColleagues)
+            .GroupBy(c => c.EmployeeId)
+            .Select(g => g.First())
+            .OrderBy(c => c.FullName)
+            .ToList();
 
         return ApiResponse<List<ColleagueDto>>.Ok(colleagues);
     }
@@ -2489,38 +3106,51 @@ public class ShiftService : IShiftService
             .ThenBy(sa => sa.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
 
-        // Lọc ca:
-        // 1. Loại bỏ ca cùng ScheduleId với ca của chính nhân viên (không trực chung 1 ca)
-        // 2. Nếu ca đồng nghiệp ở CÙNG NGÀY với ca xin đổi (requestingWorkDate): Cho phép hiển thị!
-        // 3. Nếu ca đồng nghiệp ở KHÁC NGÀY: Nhân viên không được bận ca nào trong ngày đó.
-        var availableShifts = colleagueShifts.Where(sa =>
+        var availableShifts = new List<ColleagueShiftDto>();
+
+        foreach (var sa in colleagueShifts)
         {
             // Trùng khung giờ trực chung
             if (myActiveScheduleIds.Contains(sa.ScheduleId))
             {
-                return false;
+                continue;
+            }
+
+            // FILTER THEO CHI NHÁNH: Ca của đồng nghiệp phải thuộc chi nhánh mà nhân viên hiện tại được phép làm việc vào ngày đó
+            var myEffectiveBranchId = await GetEffectiveBranchIdAsync((ulong)currentEmployeeId, sa.Schedule.WorkDate);
+            if (sa.Schedule.BranchId != myEffectiveBranchId)
+            {
+                continue;
             }
 
             // Nếu là ca cùng ngày với ca đem ra đổi
             if (requestingWorkDate.HasValue && sa.Schedule.WorkDate == requestingWorkDate.Value)
             {
                 // Cho phép đổi cùng ngày miễn là nhân viên không có ca thứ 3 bận trong ngày đó
-                return !myBusyDates.Contains(sa.Schedule.WorkDate);
+                if (myBusyDates.Contains(sa.Schedule.WorkDate))
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                // Khác ngày: Nhân viên không được có ca trực trong ngày đó
+                if (myBusyDates.Contains(sa.Schedule.WorkDate))
+                {
+                    continue;
+                }
             }
 
-            // Khác ngày: Nhân viên không được có ca trực trong ngày đó
-            return !myBusyDates.Contains(sa.Schedule.WorkDate);
-        })
-        .Select(sa => new ColleagueShiftDto
-        {
-            AssignmentId = (int)sa.Id,
-            ScheduleId = (int)sa.ScheduleId,
-            ShiftName = sa.Schedule.ShiftTemplate.Name,
-            WorkDate = sa.Schedule.WorkDate.ToString("yyyy-MM-dd"),
-            TimeRange = $"{sa.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {sa.Schedule.ShiftTemplate.EndTime:hh\\:mm}",
-            BranchName = sa.Schedule.Branch.Name
-        })
-        .ToList();
+            availableShifts.Add(new ColleagueShiftDto
+            {
+                AssignmentId = (int)sa.Id,
+                ScheduleId = (int)sa.ScheduleId,
+                ShiftName = sa.Schedule.ShiftTemplate.Name,
+                WorkDate = sa.Schedule.WorkDate.ToString("yyyy-MM-dd"),
+                TimeRange = $"{sa.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {sa.Schedule.ShiftTemplate.EndTime:hh\\:mm}",
+                BranchName = sa.Schedule.Branch.Name
+            });
+        }
 
         return ApiResponse<List<ColleagueShiftDto>>.Ok(availableShifts);
     }

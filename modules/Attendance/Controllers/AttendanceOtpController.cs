@@ -48,8 +48,9 @@ public class AttendanceOtpController : ControllerBase
         // 1. Kiểm tra xem nhân viên có lệnh điều động tạm thời có hiệu lực hôm nay hay không
         var activeDispatch = await _context.TemporaryDispatches
             .Include(td => td.TargetBranch)
-            .FirstOrDefaultAsync(td => td.UserId == userId &&
-                                       td.Status == "APPROVED" &&
+            .Include(td => td.DispatchEmployees)
+            .FirstOrDefaultAsync(td => (td.UserId == userId || td.DispatchEmployees.Any(de => de.UserId == userId && de.Status == "APPROVED")) &&
+                                       (td.Status == "APPROVED" || td.Status == "PARTIAL") &&
                                        td.StartDate <= today &&
                                        today <= td.EndDate);
 

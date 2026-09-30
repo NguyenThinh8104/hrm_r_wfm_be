@@ -2,7 +2,8 @@ namespace Modules.Dispatch.DTOs;
 
 public class CreateDispatchRequestDto
 {
-    public int EmployeeId { get; set; }
+    public List<int> EmployeeIds { get; set; } = new();
+    public int? EmployeeId { get; set; } // Backward compatibility
     public int FromStoreId { get; set; }
     public int ToStoreId { get; set; }
     public DateOnly StartDate { get; set; }
@@ -12,7 +13,8 @@ public class CreateDispatchRequestDto
 
 public class UpdateDispatchRequestDto
 {
-    public int EmployeeId { get; set; }
+    public List<int> EmployeeIds { get; set; } = new();
+    public int? EmployeeId { get; set; }
     public int FromStoreId { get; set; }
     public int ToStoreId { get; set; }
     public DateOnly StartDate { get; set; }
@@ -20,12 +22,32 @@ public class UpdateDispatchRequestDto
     public string? Reason { get; set; }
 }
 
+public class EmployeeReviewItem
+{
+    public int EmployeeId { get; set; }
+    public bool IsApproved { get; set; }
+    public string? Note { get; set; }
+}
+
 public class ReviewDispatchRequestDto
 {
     public int DispatchId { get; set; }
-    public bool IsApproved { get; set; }
-    public int? AssignedEmployeeId { get; set; }
+    public List<EmployeeReviewItem>? EmployeeReviews { get; set; }
+    public bool? IsApproved { get; set; } // Backward compatibility: duyệt/từ chối toàn bộ phiếu
+    public int? AssignedEmployeeId { get; set; } // Backward compatibility
     public string? ApprovalNotes { get; set; }
+}
+
+public class DispatchEmployeeDto
+{
+    public int Id { get; set; }
+    public int EmployeeId { get; set; }
+    public string EmployeeName { get; set; } = string.Empty;
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string PositionName { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string? ApprovedByName { get; set; }
+    public string? Note { get; set; }
 }
 
 public class DispatchRecordDto
@@ -46,6 +68,7 @@ public class DispatchRecordDto
     public string RequestedByName { get; set; } = string.Empty;
     public string? ApprovedByName { get; set; }
     public DateTime CreatedAt { get; set; }
+    public List<DispatchEmployeeDto> Employees { get; set; } = new();
 }
 
 public class DispatchNetworkMetricsDto
@@ -68,4 +91,17 @@ public class StorePairDispatchMatrixDto
     public string ToStoreName { get; set; } = string.Empty;
     public int DispatchCount { get; set; }
     public double TotalHours { get; set; }
+}
+
+public class DispatchEmployeeOptionDto
+{
+    public ulong Id { get; set; }
+    public ulong EmployeeId => Id;
+    public ulong UserId => Id;
+    public string EmployeeCode { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string RoleName { get; set; } = string.Empty;
+    public string PositionName { get; set; } = string.Empty;
+    public string RoleCode { get; set; } = string.Empty;
+    public ulong HomeBranchId { get; set; }
 }

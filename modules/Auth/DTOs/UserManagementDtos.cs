@@ -35,12 +35,17 @@ public class EmployeeDetailDto
     public string RoleCode { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
     public string EmploymentType { get; set; } = "FULL_TIME";
+    public string ContractType { get; set; } = "FULL_TIME";
     public ulong? HomeBranchId { get; set; }
     public string? BranchCode { get; set; }
     public string? BranchName { get; set; }
     public string Status { get; set; } = "ACTIVE";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public bool IsDispatched { get; set; }
+    public ulong? OriginalHomeBranchId { get; set; }
+    public string? OriginalBranchName { get; set; }
+    public DateOnly? DispatchEndDate { get; set; }
 }
 
 public class CreateEmployeeDto
@@ -51,17 +56,14 @@ public class CreateEmployeeDto
     public string Phone { get; set; } = string.Empty;
     public byte RoleId { get; set; }
     public string EmploymentType { get; set; } = "FULL_TIME";
+    public string? ContractType { get; set; }
     public ulong HomeBranchId { get; set; }
     public string? Password { get; set; }
 
-    /// <summary>
-    /// ID đơn đề xuất mở rộng định biên (bắt buộc khi chi nhánh đã đạt giới hạn định biên chuẩn Tier Quota).
-    /// </summary>
+    [Obsolete("Luồng đề xuất mở rộng định biên đã được thay thế bằng StaffCount trên Chi nhánh.")]
     public ulong? ImportRequestId { get; set; }
 
-    /// <summary>
-    /// Lý do mở rộng định biên (bắt buộc khi chi nhánh đã đạt giới hạn định biên chuẩn Tier Quota).
-    /// </summary>
+    [Obsolete("Luồng đề xuất mở rộng định biên đã được thay thế bằng StaffCount trên Chi nhánh.")]
     public string? ExpansionReason { get; set; }
 }
 
@@ -71,6 +73,7 @@ public class UpdateEmployeeDto
     public string Phone { get; set; } = string.Empty;
     public byte RoleId { get; set; }
     public string EmploymentType { get; set; } = "FULL_TIME";
+    public string? ContractType { get; set; }
     public ulong HomeBranchId { get; set; }
     public string? Status { get; set; }
 }
@@ -78,11 +81,21 @@ public class UpdateEmployeeDto
 public class UpdateStatusDto
 {
     public string Status { get; set; } = "ACTIVE";
+    public string? Reason { get; set; }
 }
 
 public class ResetPasswordDto
 {
     public string? NewPassword { get; set; }
+    public string? Reason { get; set; }
+}
+
+public class ResetPasswordResultDto
+{
+    public string NewPassword { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public bool EmailSent { get; set; }
+    public string Message { get; set; } = string.Empty;
 }
 
 public class RoleDto
@@ -107,8 +120,28 @@ public class EmployeeFilterDto
 {
     public ulong? BranchId { get; set; }
     public byte? RoleId { get; set; }
+    public string? RoleCode { get; set; }
     public string? EmploymentType { get; set; }
+    public string? ContractType { get; set; }
     public string? Status { get; set; }
     public string? Search { get; set; }
     public bool? ExcludeStoreManager { get; set; }
 }
+
+public class EmployeeStatsDto
+{
+    public int TotalEmployees { get; set; }
+    public int ActiveCount { get; set; }
+    public int InactiveCount { get; set; }
+    public EmployeeRoleStatsDto RoleStats { get; set; } = new();
+}
+
+public class EmployeeRoleStatsDto
+{
+    public int ShiftLeader { get; set; }
+    public int Cashier { get; set; }
+    public int Sales { get; set; }
+    public int Security { get; set; }
+    public int Manager { get; set; }
+}
+

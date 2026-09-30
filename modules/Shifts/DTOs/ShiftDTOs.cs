@@ -268,6 +268,25 @@ public class EmployeeMonthlyRosterDto
     public string FullName { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
     public string RoleCode { get; set; } = string.Empty;
+    public string EmploymentType { get; set; } = "FULL_TIME";
+    
+    /// <summary>
+    /// Đánh dấu nhân sự được điều chuyển từ chi nhánh khác đến.
+    /// </summary>
+    public bool IsDispatched { get; set; } = false;
+    public DateOnly? DispatchStartDate { get; set; }
+    public DateOnly? DispatchEndDate { get; set; }
+    public ulong? OriginBranchId { get; set; }
+    public string? OriginBranchName { get; set; }
+
+    /// <summary>
+    /// Đánh dấu nhân sự của cơ sở hiện tại bị điều chuyển đi cơ sở khác.
+    /// </summary>
+    public bool IsDispatchedAway { get; set; } = false;
+    public DateOnly? DispatchAwayStartDate { get; set; }
+    public DateOnly? DispatchAwayEndDate { get; set; }
+    public string? DestinationBranchName { get; set; }
+
     public List<EmployeeRosterCellDto> AssignedShifts { get; set; } = new List<EmployeeRosterCellDto>();
 }
 
@@ -354,6 +373,15 @@ public class ReviewSwapRequestDto
     public string? Remarks { get; set; }
 }
 
+/// <summary>
+/// DTO cho nhân viên đồng nghiệp (TargetUser) xác nhận hoặc từ chối đơn đổi/chuyển ca (Bước 1 của luồng 2 bước).
+/// </summary>
+public class PeerReviewSwapRequestDto
+{
+    public int SwapRequestId { get; set; }
+    public bool IsAccepted { get; set; }
+}
+
 public class ColleagueDto
 {
     public int EmployeeId { get; set; }
@@ -397,6 +425,7 @@ public class WeeklyScheduleMatrixDto
     public List<DateOnly> Days { get; set; } = new List<DateOnly>();
     public List<WorkScheduleDto> Schedules { get; set; } = new List<WorkScheduleDto>();
     public List<EmployeeMonthlyRosterDto> EmployeeRosters { get; set; } = new List<EmployeeMonthlyRosterDto>();
+    public List<ShiftDto> ActiveTemplates { get; set; } = new List<ShiftDto>();
 }
 
 /// <summary>

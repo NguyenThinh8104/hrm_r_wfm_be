@@ -19,6 +19,11 @@ public class ShiftSchedulerSolver
         public List<WorkSchedule> Schedules { get; set; } = new List<WorkSchedule>();
         public int MaxShiftsPerWeekPerEmployee { get; set; } = 6;
         public int MinShiftsPerWeekForFullTime { get; set; } = 5;
+        /// <summary>
+        /// Danh sách ngày khả dụng của từng nhân sự (xử lý giới hạn điều chuyển nhân sự).
+        /// Nếu nhân sự có ngày không nằm trong tập này, solver sẽ không xếp ca cho nhân sự vào ngày đó.
+        /// </summary>
+        public Dictionary<ulong, HashSet<DateOnly>>? EmployeeAvailableDates { get; set; }
     }
 
     public class SolverResult
@@ -84,6 +89,30 @@ public class ShiftSchedulerSolver
                     dailyShifts.Add(x[(e, d, s)]);
                 }
                 model.Add(LinearExpr.Sum(dailyShifts) <= 1);
+            }
+        }
+
+        // Ràng buộc 1.1: Giới hạn ngày khả dụng của nhân sự điều động (Chỉ được xếp lịch từ ngày bắt đầu đến ngày kết thúc điều chuyển)
+        if (input.EmployeeAvailableDates != null)
+        {
+            for (int e = 0; e < numEmployees; e++)
+            {
+                var emp = employees[e];
+                if (input.EmployeeAvailableDates.TryGetValue(emp.Id, out var availableDates))
+                {
+                    for (int d = 0; d < numDays; d++)
+                    {
+                        var workDate = input.WeekStartDate.AddDays(d);
+                        if (!availableDates.Contains(workDate))
+                        {
+                            // Ngày này nhân sự không khả dụng tại chi nhánh (chưa đến ngày điều chuyển hoặc đã điều chuyển đi nơi khác)
+                            for (int s = 0; s < numShifts; s++)
+                            {
+                                model.Add(x[(e, d, s)] == 0);
+                            }
+                        }
+                    }
+                }
             }
         }
 

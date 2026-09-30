@@ -84,3 +84,28 @@ public enum AttendanceLogStatus : byte
     COMPLETED_LATE = 5    // Đã hoàn tất check-out ra ca (vào ca đi muộn)
 }
 
+/// <summary>
+/// Trạng thái chuyên cần chi tiết lúc Check-in.
+/// Lưu dưới dạng TINYINT UNSIGNED (1 byte).
+/// </summary>
+public enum CheckInStatus : byte
+{
+    PENDING = 1,          // Vừa xác thực OTP, chờ chụp ảnh xác thực
+    ON_TIME = 2,          // Vào ca đúng giờ (trong 5p ân hạn)
+    LATE = 3,             // Đi muộn (> 5p ân hạn)
+    EARLY = 4             // Đến sớm (trước giờ bắt đầu ca)
+}
+
+/// <summary>
+/// Trạng thái chuyên cần chi tiết lúc Check-out.
+/// Lưu dưới dạng TINYINT UNSIGNED (1 byte).
+/// </summary>
+public enum CheckOutStatus : byte
+{
+    PENDING = 1,          // Vừa xác thực OTP ra ca, chờ chụp ảnh xác thực
+    ON_TIME = 2,          // Ra ca đúng giờ
+    EARLY_LEAVE = 3,      // Về sớm (> 5p trước giờ kết thúc ca)
+    LATE_LEAVE = 4        // Ra ca muộn / Tăng ca (> 15p sau giờ kết thúc ca)
+}
+
+

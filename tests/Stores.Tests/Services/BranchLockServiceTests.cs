@@ -207,19 +207,18 @@ public class BranchLockServiceTests : IDisposable
         };
         _context.ShiftSwapRequests.Add(swapRequest);
 
-        // Đề xuất import định biên đang chờ duyệt (PENDING)
-        var headcountReq = new HeadcountImportRequest
+        // Đơn điều động đang chờ duyệt (PENDING)
+        var dispatchReq = new TemporaryDispatch
         {
             Id = 99,
-            BranchId = branch.Id,
-            RequestedBy = user.Id,
-            FileName = "quota_q4.xlsx",
-            FilePath = "/uploads/quota_q4.xlsx",
-            Reason = "Tăng biên chế quý 4",
-            TotalRequested = 5,
+            UserId = user.Id,
+            SourceBranchId = branch.Id,
+            TargetBranchId = 999,
+            StartDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            EndDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
             Status = "PENDING"
         };
-        _context.HeadcountImportRequests.Add(headcountReq);
+        _context.TemporaryDispatches.Add(dispatchReq);
         await _context.SaveChangesAsync();
 
         // Act

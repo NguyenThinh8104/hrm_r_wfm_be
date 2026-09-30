@@ -420,9 +420,20 @@ public class UserService : IUserService
                 UpdatedAt = u.UpdatedAt,
                 IsDispatched = u.OriginalHomeBranchId != null,
                 OriginalHomeBranchId = u.OriginalHomeBranchId,
-                OriginalBranchName = u.OriginalHomeBranch != null ? u.OriginalHomeBranch.Name : null
+                OriginalBranchName = u.OriginalHomeBranch != null ? u.OriginalHomeBranch.Name : null,
+                LockedAt = u.Status == "INACTIVE" ? u.UpdatedAt : null
             })
             .ToListAsync();
+
+        var now = DateTime.UtcNow;
+        foreach (var emp in employees)
+        {
+            if (emp.Status == "INACTIVE" && emp.LockedAt.HasValue)
+            {
+                var daysPassed = (int)Math.Floor((now - emp.LockedAt.Value).TotalDays);
+                emp.DaysUntilDeletable = Math.Max(0, 14 - daysPassed);
+            }
+        }
 
         return ApiResponse<List<EmployeeDetailDto>>.Ok(employees, "Lấy danh sách hồ sơ nhân sự thành công.");
     }
@@ -523,7 +534,11 @@ public class UserService : IUserService
             UpdatedAt = user.UpdatedAt,
             IsDispatched = user.OriginalHomeBranchId != null,
             OriginalHomeBranchId = user.OriginalHomeBranchId,
-            OriginalBranchName = user.OriginalHomeBranch?.Name
+            OriginalBranchName = user.OriginalHomeBranch?.Name,
+            LockedAt = user.Status == "INACTIVE" ? user.UpdatedAt : null,
+            DaysUntilDeletable = user.Status == "INACTIVE"
+                ? Math.Max(0, 14 - (int)Math.Floor((DateTime.UtcNow - user.UpdatedAt).TotalDays))
+                : null
         });
     }
 
@@ -804,30 +819,140 @@ public class UserService : IUserService
         if (user.Id == actorId)
             return ApiResponse<bool>.Fail("Không thể tự xóa tài khoản của chính mình.");
 
-        // Điều kiện tiên quyết: Tài khoản phải ở trạng thái ĐÃ KHÓA (INACTIVE)
+        // Điều kiện 1: Tài khoản phải ở trạng thái ĐÃ KHÓA (INACTIVE)
         if (user.Status != "INACTIVE")
         {
             return ApiResponse<bool>.Fail("Tài khoản đang hoạt động. Bạn phải khóa tài khoản trước khi thực hiện xóa.");
         }
 
+        // Điều kiện 2: Bắt buộc tuân thủ thời hạn lưu trữ đối soát 14 ngày (Áp dụng tuyệt đối cho mọi cấp quản trị, bao gồm cả Chủ doanh nghiệp)
+        var lastLockedLog = await _context.SystemAuditLogs
+            .Where(l => l.TargetTable == "users" && l.TargetId == userId && l.Action == "UPDATE_USER_STATUS" && l.NewValues != null && l.NewValues.Contains("\"INACTIVE\""))
+            .OrderByDescending(l => l.Timestamp)
+            .FirstOrDefaultAsync();
+
+        var lockedTime = lastLockedLog?.Timestamp ?? user.UpdatedAt;
+        const int RetentionDays = 14;
+        var lockedDuration = DateTime.UtcNow - lockedTime;
+
+        if (lockedDuration.TotalDays < RetentionDays)
+        {
+            var remainingDays = (int)Math.Ceiling(RetentionDays - lockedDuration.TotalDays);
+            var remainingHours = (int)Math.Ceiling((RetentionDays * 24) - lockedDuration.TotalHours);
+            var timeText = remainingDays > 1 ? $"{remainingDays} ngày" : $"{remainingHours} giờ";
+
+            return ApiResponse<bool>.Fail(
+                $"Tài khoản này mới bị khóa được {(int)lockedDuration.TotalDays} ngày (từ {lockedTime.AddHours(7):dd/MM/yyyy HH:mm}). " +
+                $"Theo chính sách đối soát bảng công và tiền lương (bắt buộc áp dụng cho mọi cấp quản trị), tài khoản chỉ có thể xóa vĩnh viễn sau đủ 14 ngày kể từ khi bị khóa (còn {timeText} nữa).");
+        }
+
+        // Lưu thông tin audit trước khi xóa khỏi CSDL
+        var userAuditInfo = new 
+        { 
+            user.FullName, 
+            user.EmployeeCode, 
+            user.Email, 
+            user.Status,
+            DeletedByRole = actorRole,
+            Note = "Xóa hoàn toàn sau khi tuân thủ thời hạn lưu trữ đối soát 14 ngày"
+        };
+
+        using var transaction = await _context.Database.BeginTransactionAsync();
         try
         {
+            // 1. Dọn dẹp phân ca (ShiftAssignments) và các bản ghi phụ thuộc
+            var assignmentIds = await _context.ShiftAssignments
+                .Where(sa => sa.UserId == userId)
+                .Select(sa => sa.Id)
+                .ToListAsync();
+
+            if (assignmentIds.Count > 0)
+            {
+                var logIds = await _context.AttendanceLogs
+                    .Where(al => assignmentIds.Contains(al.AssignmentId))
+                    .Select(al => al.Id)
+                    .ToListAsync();
+
+                if (logIds.Count > 0)
+                {
+                    await _context.OvertimeRequests
+                        .Where(o => logIds.Contains(o.AttendanceLogId))
+                        .ExecuteDeleteAsync();
+
+                    await _context.AttendanceLogs
+                        .Where(al => logIds.Contains(al.Id))
+                        .ExecuteDeleteAsync();
+                }
+
+                await _context.ShiftSwapRequests
+                    .Where(ssr => (ssr.RequestingAssignmentId != null && assignmentIds.Contains(ssr.RequestingAssignmentId.Value))
+                               || (ssr.TargetAssignmentId != null && assignmentIds.Contains(ssr.TargetAssignmentId.Value)))
+                    .ExecuteDeleteAsync();
+
+                await _context.ShiftAssignments
+                    .Where(sa => assignmentIds.Contains(sa.Id))
+                    .ExecuteDeleteAsync();
+            }
+
+            // 2. Dọn dẹp đơn xin đổi ca (ShiftSwapRequests) mà user tham gia
+            await _context.ShiftSwapRequests
+                .Where(ssr => ssr.RequesterUserId == userId || ssr.TargetUserId == userId)
+                .ExecuteDeleteAsync();
+
+            // 3. Dọn dẹp điều động nhân sự (DispatchEmployees & TemporaryDispatches)
+            await _context.DispatchEmployees.Where(de => de.UserId == userId).ExecuteDeleteAsync();
+            await _context.TemporaryDispatches.Where(td => td.UserId == userId).ExecuteDeleteAsync();
+
+            // 4. Dọn dẹp bàn giao (Handovers)
+            await _context.CashHandovers.Where(ch => ch.CashierId == userId).ExecuteDeleteAsync();
+            await _context.SecurityHandovers.Where(sh => sh.SecurityGuardId == userId).ExecuteDeleteAsync();
+            await _context.ShiftHandovers.Where(sh => sh.ShiftLeaderId == userId).ExecuteDeleteAsync();
+
+            // 5. Cập nhật các trường khóa ngoại non-nullable sang Admin (actorId) để tránh lỗi ràng buộc
+            await _context.WorkSchedules.Where(ws => ws.CreatedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.CreatedBy, actorId));
+            await _context.KioskActivationCodes.Where(k => k.GeneratedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.GeneratedBy, actorId));
+            await _context.TemporaryDispatches.Where(td => td.RequestedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.RequestedBy, actorId));
+
+            // 6. Cập nhật các trường khóa ngoại nullable về NULL
+            await _context.AttendanceLogs.Where(al => al.FraudFlaggedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.FraudFlaggedBy, (ulong?)null));
+            await _context.OvertimeRequests.Where(o => o.VerifiedByLeader == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.VerifiedByLeader, (ulong?)null));
+            await _context.OvertimeRequests.Where(o => o.ApprovedByManager == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.ApprovedByManager, (ulong?)null));
+            await _context.MonthlyTimesheets.Where(m => m.LockedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.LockedBy, (ulong?)null));
+            await _context.TemporaryDispatches.Where(td => td.ApprovedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.ApprovedBy, (ulong?)null));
+            await _context.DispatchEmployees.Where(de => de.ApprovedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.ApprovedBy, (ulong?)null));
+            await _context.ShiftSwapRequests.Where(ssr => ssr.ReviewedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.ReviewedBy, (ulong?)null));
+
+            // 7. Dọn dẹp log kiểm toán do user này thực hiện (Actor)
+            await _context.SystemAuditLogs.Where(a => a.ActorId == userId).ExecuteDeleteAsync();
+
+            // 8. Xóa triệt để dòng người dùng khỏi bảng users trong MySQL CSDL
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
+
+            await transaction.CommitAsync();
         }
-        catch (DbUpdateException)
+        catch (Exception ex)
         {
-            _context.Entry(user).State = EntityState.Unchanged;
-            user.Status = "DELETED";
-            user.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "Lỗi khi xóa triệt để tài khoản {FullName} (UserId={UserId}) khỏi CSDL", user.FullName, userId);
+            return ApiResponse<bool>.Fail($"Không thể xóa hoàn toàn tài khoản khỏi CSDL: {ex.Message}");
         }
 
-        await LogAuditAsync(actorId, "DELETE_USER", "users", user.Id,
-            new { user.FullName, user.EmployeeCode, user.Email, user.Status },
-            new { Action = "DELETED" }, ipAddress);
+        await LogAuditAsync(actorId, "DELETE_USER", "users", userId,
+            userAuditInfo,
+            new { Action = "HARD_DELETED_FROM_DB" }, ipAddress);
 
-        return ApiResponse<bool>.Ok(true, $"Đã xóa tài khoản '{user.FullName}' ({user.EmployeeCode}) thành công.");
+        return ApiResponse<bool>.Ok(true, $"Đã xóa hoàn toàn tài khoản '{user.FullName}' ({user.EmployeeCode}) khỏi hệ thống và CSDL thành công.");
     }
 
     #endregion

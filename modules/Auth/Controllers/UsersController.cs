@@ -166,9 +166,10 @@ public class UsersController : ControllerBase
     [HttpGet("employees/import-template")]
     [HttpGet("/api/v1/users/employees/import-template")]
     [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
-    public async Task<IActionResult> DownloadEmployeeImportTemplate()
+    public async Task<IActionResult> DownloadEmployeeImportTemplate([FromQuery] int count = 5)
     {
-        var (fileBytes, contentType, fileName) = await _userService.GenerateEmployeeImportTemplateAsync();
+        var safeCount = Math.Clamp(count, 1, 500);
+        var (fileBytes, contentType, fileName) = await _userService.GenerateEmployeeImportTemplateAsync(safeCount);
         return File(fileBytes, contentType, fileName);
     }
 

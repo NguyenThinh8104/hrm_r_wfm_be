@@ -873,8 +873,10 @@ public class UserService : IUserService
 
     #region UC 1.5 - Bổ Sung: Import Nhân Sự Hàng Loạt Bằng File Excel
 
-    public async Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync()
+    public async Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync(int count = 5)
     {
+        count = Math.Clamp(count, 1, 500);
+
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("Danh_Sach_Nhan_Su");
 
@@ -902,26 +904,61 @@ public class UserService : IUserService
         headerRange.Style.Font.FontColor = XLColor.White;
         headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-        // Dữ liệu mẫu minh họa
-        worksheet.Cell(2, 1).Value = 1;
-        worksheet.Cell(2, 2).Value = "NV101";
-        worksheet.Cell(2, 3).Value = "Nguyễn Văn An";
-        worksheet.Cell(2, 4).Value = "an.nguyen@example.com";
-        worksheet.Cell(2, 5).Value = "0901234567";
-        worksheet.Cell(2, 6).Value = "CASHIER";
-        worksheet.Cell(2, 7).Value = "FULL_TIME";
-        worksheet.Cell(2, 8).Value = "CH01";
-        worksheet.Cell(2, 9).Value = "Password@123";
+        // Sinh N mã nhân viên tự động không trùng lặp dựa trên dữ liệu DB hiện có
+        var existingCodes = await _context.Users
+            .AsNoTracking()
+            .Select(u => u.EmployeeCode)
+            .ToListAsync();
+        var existingSet = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
 
-        worksheet.Cell(3, 1).Value = 2;
-        worksheet.Cell(3, 2).Value = "NV102";
-        worksheet.Cell(3, 3).Value = "Trần Thị Bình";
-        worksheet.Cell(3, 4).Value = "binh.tran@example.com";
-        worksheet.Cell(3, 5).Value = "0908765432";
-        worksheet.Cell(3, 6).Value = "SALES_STAFF";
-        worksheet.Cell(3, 7).Value = "PART_TIME";
-        worksheet.Cell(3, 8).Value = "CH01";
-        worksheet.Cell(3, 9).Value = "Password@123";
+        int maxNumber = 0;
+        foreach (var code in existingCodes)
+        {
+            if (string.IsNullOrWhiteSpace(code)) continue;
+            var trimmed = code.Trim().ToUpper();
+            string numPart = "";
+            if (trimmed.StartsWith("NV-"))
+            {
+                numPart = trimmed.Substring(3);
+            }
+            else if (trimmed.StartsWith("NV"))
+            {
+                numPart = trimmed.Substring(2);
+            }
+
+            if (int.TryParse(numPart, out var parsedNum))
+            {
+                if (parsedNum > maxNumber) maxNumber = parsedNum;
+            }
+        }
+
+        int currentNum = maxNumber > 0 ? maxNumber : 1000;
+        var generatedCodes = new List<string>();
+        while (generatedCodes.Count < count)
+        {
+            currentNum++;
+            var candidate = $"NV{currentNum:D4}";
+            if (!existingSet.Contains(candidate))
+            {
+                generatedCodes.Add(candidate);
+                existingSet.Add(candidate);
+            }
+        }
+
+        // Tạo sẵn các hàng tương ứng với số lượng nhân viên Admin đã chọn
+        for (int i = 0; i < generatedCodes.Count; i++)
+        {
+            int rowIdx = i + 2;
+            worksheet.Cell(rowIdx, 1).Value = i + 1; // STT
+            worksheet.Cell(rowIdx, 2).Value = generatedCodes[i]; // Mã Nhân Viên sinh tự động
+            // Cột 3 (Họ Và Tên), 4 (Email), 5 (SĐT), 6 (Mã Vai Trò), 8 (Mã Chi Nhánh) để trống cho Admin điền
+            worksheet.Cell(rowIdx, 7).Value = "FULL_TIME";
+            worksheet.Cell(rowIdx, 9).Value = "Password@123";
+
+            worksheet.Cell(rowIdx, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            worksheet.Cell(rowIdx, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            worksheet.Cell(rowIdx, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        }
 
         worksheet.Columns().AdjustToContents();
 

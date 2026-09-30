@@ -43,11 +43,11 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             return HeadcountValidationResult.Fail($"Chi nhánh '{branch.Name}' đã ngừng hoạt động, không thể tiếp nhận nhân sự.");
         }
 
-        // Đếm số lượng nhân sự đang hoạt động thực tế (Status == 'ACTIVE')
-        // Lưu ý cơ chế bù đắp định biên (Headcount Compensation): Khi nhân viên nghỉ việc (INACTIVE), 
-        // currentActiveCount tự động giảm, mở ra vị trí trống trong hạn mức.
+        // Đếm số lượng nhân sự cơ hữu (chính thức) đang hoạt động thực tế (Status == 'ACTIVE')
+        // Lưu ý cơ chế định biên: Định biên chi nhánh chỉ quản lý quân số cơ hữu thuộc biên chế chi nhánh.
+        // Nhân sự từ nơi khác được điều chuyển/chi viện sang hỗ trợ tạm thời KHÔNG tính vào định biên này.
         var currentActiveCount = await _context.Users
-            .CountAsync(u => u.HomeBranchId == branchId && u.Status == "ACTIVE");
+            .CountAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && u.Status == "ACTIVE");
 
         var standardQuota = HeadcountConstants.GetStandardQuota(branch.BranchTier);
         var totalProjectedCount = currentActiveCount + additionalBatchCount;
@@ -78,6 +78,7 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
 
     /// <summary>
     /// Tra cứu chi tiết thông tin định biên chi nhánh theo phân cấp Tier (Quy mô Tier, Định biên chuẩn, Quân số, Vị trí trống).
+    /// Tách bạch rõ ràng giữa nhân sự cơ hữu (biên chế) và nhân sự được điều chuyển đến hỗ trợ tạm thời.
     /// </summary>
     public async Task<ApiResponse<BranchHeadcountStatusDto>> GetBranchHeadcountStatusAsync(ulong branchId)
     {
@@ -87,14 +88,29 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             return ApiResponse<BranchHeadcountStatusDto>.Fail("Không tìm thấy chi nhánh cửa hàng.");
         }
 
-        var currentHeadcount = await _context.Users
+        // 1. Quân số cơ hữu chính thức thuộc biên chế của chi nhánh (Status == 'ACTIVE')
+        var officialHeadcount = await _context.Users
+            .CountAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && u.Status == "ACTIVE");
+
+        // 2. Số lượng nhân sự từ chi nhánh khác sang hỗ trợ tạm thời (chi viện)
+        var dispatchedInCount = await _context.Users
+            .CountAsync(u => u.HomeBranchId == branchId && u.OriginalHomeBranchId != null && u.OriginalHomeBranchId != branchId && u.Status == "ACTIVE");
+
+        // 3. Số lượng nhân sự cơ hữu của chi nhánh đang đi điều động hỗ trợ nơi khác
+        var dispatchedOutCount = await _context.Users
+            .CountAsync(u => u.OriginalHomeBranchId == branchId && u.HomeBranchId != branchId && u.Status == "ACTIVE");
+
+        // 4. Tổng số nhân sự thực tế đang có mặt làm việc tại cửa hàng hôm nay
+        var actualWorkingCount = await _context.Users
             .CountAsync(u => u.HomeBranchId == branchId && u.Status == "ACTIVE");
 
         var inactiveCount = await _context.Users
-            .CountAsync(u => u.HomeBranchId == branchId && u.Status == "INACTIVE");
+            .CountAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && u.Status == "INACTIVE");
 
         var standardQuota = HeadcountConstants.GetStandardQuota(branch.BranchTier);
-        var availableQuotaSlots = Math.Max(0, standardQuota - currentHeadcount);
+
+        // Định biên CHỈ áp dụng đối với nhân sự cơ hữu, tránh việc điều động làm sai lệch trần định biên
+        var availableQuotaSlots = Math.Max(0, standardQuota - officialHeadcount);
 
         var result = new BranchHeadcountStatusDto
         {
@@ -106,11 +122,15 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             StandardQuota = standardQuota,
             StaffCount = 0,
             EffectiveQuota = standardQuota,
-            CurrentHeadcount = currentHeadcount,
+            CurrentHeadcount = officialHeadcount, // Nhân sự cơ hữu chính thức áp vào định biên
+            OfficialHeadcount = officialHeadcount,
+            DispatchedInCount = dispatchedInCount,
+            DispatchedOutCount = dispatchedOutCount,
+            ActualWorkingCount = actualWorkingCount,
             InactiveCount = inactiveCount,
             AvailableQuotaSlots = availableQuotaSlots,
-            IsQuotaReached = currentHeadcount >= standardQuota,
-            CanCreateDirectly = currentHeadcount < standardQuota,
+            IsQuotaReached = officialHeadcount >= standardQuota,
+            CanCreateDirectly = officialHeadcount < standardQuota,
         };
 
         return ApiResponse<BranchHeadcountStatusDto>.Ok(result);

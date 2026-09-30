@@ -83,7 +83,39 @@ public class Branch
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Thời điểm chi nhánh bị khóa.
+    /// </summary>
+    public DateTime? LockedAt { get; set; }
+
+    /// <summary>
+    /// Định danh / Tên người thực hiện khóa chi nhánh.
+    /// </summary>
+    public string? LockedBy { get; set; }
+
+    /// <summary>
+    /// Lý do thực hiện khóa chi nhánh.
+    /// </summary>
+    public string? LockReason { get; set; }
+
+    /// <summary>
+    /// Thời điểm chi nhánh được mở khóa trở lại.
+    /// </summary>
+    public DateTime? UnlockedAt { get; set; }
+
+    /// <summary>
+    /// Định danh / Tên người thực hiện mở khóa chi nhánh.
+    /// </summary>
+    public string? UnlockedBy { get; set; }
+
+    /// <summary>
+    /// Token kiểm soát xung đột dữ liệu (Concurrency Token chống Race Condition).
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
+    public Guid RowVersion { get; set; } = Guid.NewGuid();
+
     public ICollection<User> Users { get; set; } = new List<User>();
     public ICollection<KioskDevice> Kiosks { get; set; } = new List<KioskDevice>();
     public ICollection<WorkSchedule> WorkSchedules { get; set; } = new List<WorkSchedule>();
+    public ICollection<BranchLockLog> LockLogs { get; set; } = new List<BranchLockLog>();
 }

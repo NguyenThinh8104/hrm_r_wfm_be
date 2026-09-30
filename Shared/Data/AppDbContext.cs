@@ -34,6 +34,7 @@ public partial class AppDbContext : DbContext
     public DbSet<MonthlyTimesheet> MonthlyTimesheets { get; set; } = null!;
     public DbSet<SystemAuditLog> SystemAuditLogs { get; set; } = null!;
     public DbSet<BranchTierEntity> BranchTiers { get; set; } = null!;
+    public DbSet<BranchLockLog> BranchLockLogs { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,6 +56,12 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.TierId).HasColumnName("TierId");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
+            entity.Property(e => e.LockedAt).HasColumnName("LockedAt");
+            entity.Property(e => e.LockedBy).HasColumnName("LockedBy").HasMaxLength(255);
+            entity.Property(e => e.LockReason).HasColumnName("LockReason").HasMaxLength(1000);
+            entity.Property(e => e.UnlockedAt).HasColumnName("UnlockedAt");
+            entity.Property(e => e.UnlockedBy).HasColumnName("UnlockedBy").HasMaxLength(255);
+            entity.Property(e => e.RowVersion).HasColumnName("RowVersion").IsConcurrencyToken();
             entity.HasIndex(e => e.BranchCode).IsUnique();
             entity.Property(e => e.Location).HasColumnType("POINT");
 
@@ -62,6 +69,35 @@ public partial class AppDbContext : DbContext
                 .WithMany(t => t.Branches)
                 .HasForeignKey(e => e.TierId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // 1c. branch_lock_logs
+        modelBuilder.Entity<BranchLockLog>(entity =>
+        {
+            entity.ToTable("branch_lock_logs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.BranchId).HasColumnName("BranchId");
+            entity.Property(e => e.Action).HasColumnName("Action").HasMaxLength(50).IsRequired();
+            entity.Property(e => e.Reason).HasColumnName("Reason").HasMaxLength(1000);
+            entity.Property(e => e.PerformedBy).HasColumnName("PerformedBy").HasMaxLength(255);
+            entity.Property(e => e.PerformedAt).HasColumnName("PerformedAt");
+            entity.Property(e => e.AffectedEmployeeCount).HasColumnName("AffectedEmployeeCount");
+            entity.Property(e => e.StaffHandlingMode).HasColumnName("StaffHandlingMode").HasMaxLength(100);
+            entity.Property(e => e.FutureShiftHandling).HasColumnName("FutureShiftHandling").HasMaxLength(100);
+            entity.Property(e => e.TransferredToBranchId).HasColumnName("TransferredToBranchId");
+
+            entity.HasOne(e => e.Branch)
+                .WithMany(b => b.LockLogs)
+                .HasForeignKey(e => e.BranchId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.TransferredToBranch)
+                .WithMany()
+                .HasForeignKey(e => e.TransferredToBranchId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.BranchId);
+            entity.HasIndex(e => e.PerformedAt);
         });
 
         // 1b. branch_tiers

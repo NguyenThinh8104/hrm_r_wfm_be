@@ -375,6 +375,13 @@ public class AttendanceService : IAttendanceService
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.KioskNotActive);
         }
 
+        if (kiosk.Branch == null || !string.Equals(kiosk.Branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail(
+                $"Chi nhánh '{kiosk.Branch?.Name ?? "của Kiosk"}' đã bị khóa. Không thể thực hiện chấm công.",
+                new List<string> { "BRANCH_LOCKED" });
+        }
+
         // 2. Xác thực OTP & bóc tách userId từ Redis (không tin tưởng payload)
         var otpResult = await _redisOtpService.VerifyAndConsumeAttendanceOtpAsync(request.OtpCode);
         if (otpResult == null)
@@ -570,6 +577,13 @@ public class AttendanceService : IAttendanceService
         if (kiosk == null)
         {
             return ApiResponse<AttendanceRecordDto>.Fail(AttendanceMessages.KioskNotActive);
+        }
+
+        if (kiosk.Branch == null || !string.Equals(kiosk.Branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<AttendanceRecordDto>.Fail(
+                $"Chi nhánh '{kiosk.Branch?.Name ?? "của Kiosk"}' đã bị khóa. Không thể thực hiện chấm công.",
+                new List<string> { "BRANCH_LOCKED" });
         }
 
         // 2. Xác thực OTP & bóc tách userId từ Redis

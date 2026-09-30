@@ -104,6 +104,13 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
         var actualWorkingCount = await _context.Users
             .CountAsync(u => u.HomeBranchId == branchId && u.Status == "ACTIVE");
 
+        // 5. Kiểm tra Cửa hàng trưởng đang hoạt động tại chi nhánh
+        var activeStoreManager = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId))
+                                   && u.Role.RoleCode == "STORE_MANAGER"
+                                   && u.Status == "ACTIVE");
+
         var inactiveCount = await _context.Users
             .CountAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && u.Status == "INACTIVE");
 
@@ -131,6 +138,10 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             AvailableQuotaSlots = availableQuotaSlots,
             IsQuotaReached = officialHeadcount >= standardQuota,
             CanCreateDirectly = officialHeadcount < standardQuota,
+            HasActiveStoreManager = activeStoreManager != null,
+            ActiveStoreManagerId = activeStoreManager?.Id,
+            ActiveStoreManagerName = activeStoreManager?.FullName,
+            ActiveStoreManagerCode = activeStoreManager?.EmployeeCode,
         };
 
         return ApiResponse<BranchHeadcountStatusDto>.Ok(result);

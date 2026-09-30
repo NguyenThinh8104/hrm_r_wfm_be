@@ -120,4 +120,24 @@ public class BranchHeadcountStatusDto
     /// Tổng số lượng vị trí nhân sự còn khả dụng của chi nhánh.
     /// </summary>
     public int TotalAvailableSlots => AvailableQuotaSlots;
+
+    /// <summary>
+    /// Đánh dấu chi nhánh hiện đã có Cửa hàng trưởng đang hoạt động.
+    /// </summary>
+    public bool HasActiveStoreManager { get; set; }
+
+    /// <summary>
+    /// ID của Cửa hàng trưởng hiện tại (nếu có).
+    /// </summary>
+    public ulong? ActiveStoreManagerId { get; set; }
+
+    /// <summary>
+    /// Họ tên Cửa hàng trưởng hiện tại (nếu có).
+    /// </summary>
+    public string? ActiveStoreManagerName { get; set; }
+
+    /// <summary>
+    /// Mã nhân viên của Cửa hàng trưởng hiện tại (nếu có).
+    /// </summary>
+    public string? ActiveStoreManagerCode { get; set; }
 }

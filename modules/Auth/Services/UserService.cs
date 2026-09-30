@@ -91,6 +91,18 @@ public class UserService : IUserService
         if (storeManagerRole == null)
             return ApiResponse<StoreManagerDto>.Fail("Không tìm thấy vai trò STORE_MANAGER trong hệ thống.");
 
+        // Ràng buộc duy nhất: Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng đang hoạt động
+        var existingActiveManager = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.HomeBranchId == dto.HomeBranchId 
+                                   && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == storeManagerRole.Id)
+                                   && u.Status == "ACTIVE");
+        if (existingActiveManager != null)
+        {
+            return ApiResponse<StoreManagerDto>.Fail(
+                $"Chi nhánh '{branch.Name}' hiện đã có Cửa hàng trưởng đang hoạt động ({existingActiveManager.FullName} - {existingActiveManager.EmployeeCode}). Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng.");
+        }
+
         var plainPassword = string.IsNullOrWhiteSpace(dto.Password) ? "Password@123" : dto.Password.Trim();
         var passwordHash = _passwordHasher.Hash(plainPassword);
 
@@ -561,6 +573,21 @@ public class UserService : IUserService
             return ApiResponse<EmployeeDetailDto>.Fail("Chi nhánh chỉ định không tồn tại hoặc đã ngừng hoạt động.");
         }
 
+        // Kiểm tra ràng buộc duy nhất 1 Cửa hàng trưởng trên mỗi chi nhánh
+        if (targetRole.RoleCode == "STORE_MANAGER")
+        {
+            var existingActiveManager = await _context.Users
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.HomeBranchId == branchIdToAssign 
+                                       && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == targetRole.Id)
+                                       && u.Status == "ACTIVE");
+            if (existingActiveManager != null)
+            {
+                return ApiResponse<EmployeeDetailDto>.Fail(
+                    $"Chi nhánh '{branch.Name}' hiện đã có Cửa hàng trưởng đang hoạt động ({existingActiveManager.FullName} - {existingActiveManager.EmployeeCode}). Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng.");
+            }
+        }
+
         // 4. Thẩm định định biên nhân sự theo Effective Quota (ưu tiên StaffCount > 0, mặc định theo BranchTier)
         var quotaResult = await _headcountService.ValidateHeadcountAsync(branchIdToAssign);
 
@@ -677,6 +704,27 @@ public class UserService : IUserService
         var normalizedPhone = dto.Phone.Trim();
         if (normalizedPhone != user.Phone && await _context.Users.AnyAsync(u => u.Phone == normalizedPhone && u.Id != user.Id))
             return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{normalizedPhone}' đã được sử dụng bởi người khác.");
+
+        ulong targetBranchId = (normalizedActorRole != "STORE_MANAGER" && normalizedActorRole != "STOREMANAGER" && dto.HomeBranchId > 0)
+            ? dto.HomeBranchId
+            : user.HomeBranchId ?? 0;
+
+        // Kiểm tra ràng buộc duy nhất 1 Cửa hàng trưởng trên mỗi chi nhánh khi cập nhật
+        if (targetRole.RoleCode == "STORE_MANAGER")
+        {
+            var existingManager = await _context.Users
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.HomeBranchId == targetBranchId 
+                                       && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == targetRole.Id)
+                                       && u.Status == "ACTIVE"
+                                       && u.Id != user.Id);
+            if (existingManager != null)
+            {
+                var targetBranch = await _context.Branches.FindAsync(targetBranchId);
+                return ApiResponse<EmployeeDetailDto>.Fail(
+                    $"Chi nhánh '{targetBranch?.Name ?? $"#{targetBranchId}"}' hiện đã có Cửa hàng trưởng đang hoạt động ({existingManager.FullName} - {existingManager.EmployeeCode}). Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng.");
+            }
+        }
 
         var oldValues = new
         {
@@ -1200,12 +1248,37 @@ public class UserService : IUserService
             validRowsToProcess.Add((r, targetRole, targetBranch));
         }
 
+        // Danh sách các chi nhánh đã có Cửa hàng trưởng ACTIVE
+        var branchesWithActiveManagerList = await _context.Users
+            .Include(u => u.Role)
+            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && u.HomeBranchId != null)
+            .Select(u => u.HomeBranchId!.Value)
+            .ToListAsync();
+        var branchesWithActiveManager = branchesWithActiveManagerList.ToHashSet();
+
         // 4. Thẩm định định biên (Effective Quota) và tạo nhân sự cho các dòng hợp lệ
         var newUsersToInsert = new List<User>();
         var branchBatchCounter = new Dictionary<ulong, int>();
 
         foreach (var (row, role, branch) in validRowsToProcess)
         {
+            // Kiểm tra ràng buộc duy nhất 1 Cửa hàng trưởng trên mỗi chi nhánh
+            if (role.RoleCode == "STORE_MANAGER")
+            {
+                if (branchesWithActiveManager.Contains(branch.Id))
+                {
+                    result.Errors.Add(new ImportRowErrorDto
+                    {
+                        RowNumber = row.RowNumber,
+                        EmployeeCode = row.EmployeeCode,
+                        FullName = row.FullName,
+                        ErrorMessage = $"Chi nhánh '{branch.Name}' hiện đã có Cửa hàng trưởng đang hoạt động. Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng."
+                    });
+                    continue;
+                }
+                branchesWithActiveManager.Add(branch.Id);
+            }
+
             branchBatchCounter.TryGetValue(branch.Id, out var currentBatchCount);
             var quotaCheck = await _headcountService.ValidateHeadcountAsync(branch.Id, currentBatchCount);
 

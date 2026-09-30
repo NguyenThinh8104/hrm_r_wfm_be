@@ -91,6 +91,18 @@ public class UserService : IUserService
         if (storeManagerRole == null)
             return ApiResponse<StoreManagerDto>.Fail("Không tìm thấy vai trò STORE_MANAGER trong hệ thống.");
 
+        // Ràng buộc duy nhất: Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng đang hoạt động
+        var existingActiveManager = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.HomeBranchId == dto.HomeBranchId 
+                                   && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == storeManagerRole.Id)
+                                   && u.Status == "ACTIVE");
+        if (existingActiveManager != null)
+        {
+            return ApiResponse<StoreManagerDto>.Fail(
+                $"Chi nhánh '{branch.Name}' hiện đã có Cửa hàng trưởng đang hoạt động ({existingActiveManager.FullName} - {existingActiveManager.EmployeeCode}). Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng.");
+        }
+
         var plainPassword = string.IsNullOrWhiteSpace(dto.Password) ? "Password@123" : dto.Password.Trim();
         var passwordHash = _passwordHasher.Hash(plainPassword);
 
@@ -160,15 +172,75 @@ public class UserService : IUserService
 
     public async Task<ApiResponse<bool>> ToggleUserStatusAsync(ulong userId, UpdateStatusDto dto, ulong actorId, string? ipAddress)
     {
-        var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == userId);
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null)
             return ApiResponse<bool>.Fail("Không tìm thấy tài khoản người dùng.");
 
         if (user.Id == actorId)
             return ApiResponse<bool>.Fail("Không thể tự khóa tài khoản của chính mình.");
 
+        // Bắt buộc phải có lý do
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return ApiResponse<bool>.Fail("Bắt buộc phải nhập lý do khi thay đổi trạng thái tài khoản.");
+
         var oldStatus = user.Status;
         var newStatus = string.IsNullOrWhiteSpace(dto.Status) ? (user.Status == "ACTIVE" ? "INACTIVE" : "ACTIVE") : dto.Status.ToUpper();
+
+        // RÀNG BUỘC KHI KHÓA TÀI KHOẢN: Kiểm tra các dịch vụ đang hoạt động
+        if (newStatus == "INACTIVE")
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+            // 1. Kiểm tra lịch làm việc (Work Schedules & Shift Assignments sắp tới hoặc hôm nay)
+            var activeShifts = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule)
+                    .ThenInclude(s => s.ShiftTemplate)
+                .Include(sa => sa.Schedule)
+                    .ThenInclude(s => s.Branch)
+                .Where(sa => sa.UserId == userId 
+                          && sa.Schedule.WorkDate >= today 
+                          && sa.Schedule.Status != "CANCELLED"
+                          && sa.Status != "CANCELLED")
+                .OrderBy(sa => sa.Schedule.WorkDate)
+                .Take(5)
+                .ToListAsync();
+
+            if (activeShifts.Any())
+            {
+                var shiftListStr = string.Join("; ", activeShifts.Select(s => 
+                    $"{s.Schedule.WorkDate:dd/MM/yyyy} ({s.Schedule.ShiftTemplate?.Name ?? "Ca làm việc"} - {s.Schedule.Branch?.Name ?? "Chi nhánh"})"));
+                return ApiResponse<bool>.Fail(
+                    $"Không thể khóa tài khoản: Nhân viên đang có {activeShifts.Count} ca làm việc sắp tới [{shiftListStr}]. " +
+                    "Vui lòng hủy lịch phân ca hoặc điều chuyển người thay thế trước khi khóa tài khoản.");
+            }
+
+            // 2. Kiểm tra ca trực đang hoạt động hiện tại (Đã Check-in và chưa Check-out)
+            var isCurrentlyWorking = await _context.AttendanceLogs
+                .AnyAsync(a => a.Assignment.UserId == userId && a.CheckOutTime == null && (a.Status == Domain.Enums.AttendanceLogStatus.PRESENT || a.Status == Domain.Enums.AttendanceLogStatus.LATE));
+            if (isCurrentlyWorking)
+            {
+                return ApiResponse<bool>.Fail("Không thể khóa tài khoản: Nhân viên hiện đang trong ca trực làm việc (đã điểm danh vào ca và chưa hoàn tất Check-out).");
+            }
+
+            // 3. Kiểm tra điều động nhân sự đang có hiệu lực
+            if (user.OriginalHomeBranchId != null)
+            {
+                return ApiResponse<bool>.Fail("Không thể khóa tài khoản: Nhân viên đang trong thời gian điều động chi viện tại chi nhánh khác. Vui lòng hoàn tất điều động trước khi khóa.");
+            }
+
+            var activeDispatch = await _context.DispatchEmployees
+                .Include(de => de.Dispatch)
+                .AnyAsync(de => de.UserId == userId 
+                             && (de.Dispatch.Status == "PENDING" || de.Dispatch.Status == "APPROVED")
+                             && de.Dispatch.EndDate >= today);
+            if (activeDispatch)
+            {
+                return ApiResponse<bool>.Fail("Không thể khóa tài khoản: Nhân viên đang có đơn điều động nhân sự đang chờ duyệt hoặc đang có hiệu lực.");
+            }
+        }
 
         user.Status = newStatus;
         user.UpdatedAt = DateTime.UtcNow;
@@ -177,16 +249,42 @@ public class UserService : IUserService
 
         await LogAuditAsync(actorId, "UPDATE_USER_STATUS", "users", user.Id,
             new { Status = oldStatus },
-            new { Status = newStatus }, ipAddress);
+            new { Status = newStatus, Reason = dto.Reason.Trim() }, ipAddress);
 
-        return ApiResponse<bool>.Ok(true, $"Cập nhật trạng thái tài khoản '{user.FullName}' thành '{newStatus}' thành công.");
+        // Gửi email thông báo về email của hồ sơ nhân sự
+        bool emailSent = false;
+        try
+        {
+            emailSent = await _emailService.SendAccountStatusChangeEmailAsync(
+                user.Email,
+                user.FullName,
+                user.EmployeeCode,
+                newStatus,
+                dto.Reason.Trim()
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi email thông báo trạng thái cho {Email}", user.Email);
+        }
+
+        var actionText = newStatus == "INACTIVE" ? "Đã khóa tạm thời" : "Đã kích hoạt lại";
+        var statusMsg = emailSent
+            ? $"{actionText} tài khoản '{user.FullName}' thành công. Email thông báo kèm lý do đã được gửi tới '{user.Email}'."
+            : $"{actionText} tài khoản '{user.FullName}' thành công. (Lưu ý: Không gửi được email thông báo tới '{user.Email}' do giới hạn máy chủ Gmail SMTP hoặc địa chỉ email không hợp lệ).";
+
+        return ApiResponse<bool>.Ok(true, statusMsg);
     }
 
-    public async Task<ApiResponse<bool>> ResetPasswordAsync(ulong userId, ResetPasswordDto dto, ulong actorId, string? ipAddress)
+    public async Task<ApiResponse<ResetPasswordResultDto>> ResetPasswordAsync(ulong userId, ResetPasswordDto dto, ulong actorId, string? ipAddress)
     {
         var user = await _context.Users.FindAsync(userId);
         if (user == null)
-            return ApiResponse<bool>.Fail("Không tìm thấy người dùng.");
+            return ApiResponse<ResetPasswordResultDto>.Fail("Không tìm thấy người dùng.");
+
+        // Bắt buộc phải có lý do
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return ApiResponse<ResetPasswordResultDto>.Fail("Bắt buộc phải nhập lý do khi cấp lại mật khẩu cho nhân sự.");
 
         var newPassword = string.IsNullOrWhiteSpace(dto.NewPassword) ? "Password@123" : dto.NewPassword.Trim();
         user.PasswordHash = _passwordHasher.Hash(newPassword);
@@ -194,9 +292,38 @@ public class UserService : IUserService
 
         await _context.SaveChangesAsync();
 
-        await LogAuditAsync(actorId, "RESET_PASSWORD", "users", user.Id, null, new { Message = "Đã đặt lại mật khẩu" }, ipAddress);
+        await LogAuditAsync(actorId, "RESET_PASSWORD", "users", user.Id, null, new { Message = "Đã đặt lại mật khẩu", Reason = dto.Reason.Trim() }, ipAddress);
 
-        return ApiResponse<bool>.Ok(true, $"Đặt lại mật khẩu thành công. Mật khẩu mới là: {newPassword}");
+        // Gửi email thông báo mật khẩu mới về email của hồ sơ nhân sự
+        bool resetEmailSent = false;
+        try
+        {
+            resetEmailSent = await _emailService.SendPasswordResetNotificationEmailAsync(
+                user.Email,
+                user.FullName,
+                user.EmployeeCode,
+                newPassword,
+                dto.Reason.Trim()
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi email cấp lại mật khẩu cho {Email}", user.Email);
+        }
+
+        var resetMsg = resetEmailSent
+            ? $"Đặt lại mật khẩu thành công. Mật khẩu mới là: {newPassword}. Email thông báo đã được gửi về '{user.Email}'."
+            : $"Đặt lại mật khẩu thành công. Mật khẩu mới là: {newPassword}. (Lưu ý: Không gửi được email tới '{user.Email}' do giới hạn máy chủ Gmail SMTP hoặc địa chỉ email không hợp lệ).";
+
+        var resultDto = new ResetPasswordResultDto
+        {
+            NewPassword = newPassword,
+            Email = user.Email,
+            EmailSent = resetEmailSent,
+            Message = resetMsg
+        };
+
+        return ApiResponse<ResetPasswordResultDto>.Ok(resultDto, resetMsg);
     }
 
     #endregion
@@ -210,6 +337,11 @@ public class UserService : IUserService
             .Include(u => u.HomeBranch)
             .Include(u => u.OriginalHomeBranch)
             .Where(u => u.Status != "DELETED")
+            .Where(u => u.Role.RoleCode != "OPERATIONS_ADMIN"
+                     && u.Role.RoleCode != "OPERATIONSADMIN"
+                     && u.Role.RoleCode != "ADMIN"
+                     && u.Role.RoleCode != "BUSINESS_OWNER"
+                     && u.Role.RoleCode != "BUSINESSOWNER")
             .AsQueryable();
 
         // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì chỉ xem nhân viên chi nhánh mình và loại trừ Cửa hàng trưởng
@@ -279,6 +411,7 @@ public class UserService : IUserService
                 RoleCode = u.Role.RoleCode,
                 RoleName = u.Role.RoleName,
                 EmploymentType = u.EmploymentType,
+                ContractType = u.EmploymentType,
                 HomeBranchId = u.HomeBranchId,
                 BranchCode = u.HomeBranch != null ? u.HomeBranch.BranchCode : "HQ",
                 BranchName = u.HomeBranch != null ? u.HomeBranch.Name : "Trụ sở chính (HQ)",
@@ -299,6 +432,11 @@ public class UserService : IUserService
         var query = _context.Users
             .Include(u => u.Role)
             .Where(u => u.Status != "DELETED")
+            .Where(u => u.Role.RoleCode != "OPERATIONS_ADMIN"
+                     && u.Role.RoleCode != "OPERATIONSADMIN"
+                     && u.Role.RoleCode != "ADMIN"
+                     && u.Role.RoleCode != "BUSINESS_OWNER"
+                     && u.Role.RoleCode != "BUSINESSOWNER")
             .AsQueryable();
 
         var normalizedRole = actorRole.ToUpper();
@@ -376,6 +514,7 @@ public class UserService : IUserService
             RoleCode = user.Role.RoleCode,
             RoleName = user.Role.RoleName,
             EmploymentType = user.EmploymentType,
+            ContractType = user.EmploymentType,
             HomeBranchId = user.HomeBranchId,
             BranchCode = user.HomeBranch?.BranchCode,
             BranchName = user.HomeBranch?.Name,
@@ -434,6 +573,21 @@ public class UserService : IUserService
             return ApiResponse<EmployeeDetailDto>.Fail("Chi nhánh chỉ định không tồn tại hoặc đã ngừng hoạt động.");
         }
 
+        // Kiểm tra ràng buộc duy nhất 1 Cửa hàng trưởng trên mỗi chi nhánh
+        if (targetRole.RoleCode == "STORE_MANAGER")
+        {
+            var existingActiveManager = await _context.Users
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.HomeBranchId == branchIdToAssign 
+                                       && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == targetRole.Id)
+                                       && u.Status == "ACTIVE");
+            if (existingActiveManager != null)
+            {
+                return ApiResponse<EmployeeDetailDto>.Fail(
+                    $"Chi nhánh '{branch.Name}' hiện đã có Cửa hàng trưởng đang hoạt động ({existingActiveManager.FullName} - {existingActiveManager.EmployeeCode}). Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng.");
+            }
+        }
+
         // 4. Thẩm định định biên nhân sự theo Effective Quota (ưu tiên StaffCount > 0, mặc định theo BranchTier)
         var quotaResult = await _headcountService.ValidateHeadcountAsync(branchIdToAssign);
 
@@ -460,7 +614,7 @@ public class UserService : IUserService
             Phone = normalizedPhone,
             PasswordHash = _passwordHasher.Hash(plainPassword),
             RoleId = dto.RoleId,
-            EmploymentType = string.Equals(dto.EmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME",
+            EmploymentType = string.Equals(!string.IsNullOrWhiteSpace(dto.ContractType) ? dto.ContractType : dto.EmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME",
             HomeBranchId = branchIdToAssign,
             Status = "ACTIVE",
             CreatedAt = DateTime.UtcNow,
@@ -515,6 +669,7 @@ public class UserService : IUserService
             RoleCode = targetRole.RoleCode,
             RoleName = targetRole.RoleName,
             EmploymentType = newUser.EmploymentType,
+            ContractType = newUser.EmploymentType,
             HomeBranchId = newUser.HomeBranchId,
             BranchCode = branch.BranchCode,
             BranchName = branch.Name,
@@ -550,6 +705,27 @@ public class UserService : IUserService
         if (normalizedPhone != user.Phone && await _context.Users.AnyAsync(u => u.Phone == normalizedPhone && u.Id != user.Id))
             return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{normalizedPhone}' đã được sử dụng bởi người khác.");
 
+        ulong targetBranchId = (normalizedActorRole != "STORE_MANAGER" && normalizedActorRole != "STOREMANAGER" && dto.HomeBranchId > 0)
+            ? dto.HomeBranchId
+            : user.HomeBranchId ?? 0;
+
+        // Kiểm tra ràng buộc duy nhất 1 Cửa hàng trưởng trên mỗi chi nhánh khi cập nhật
+        if (targetRole.RoleCode == "STORE_MANAGER")
+        {
+            var existingManager = await _context.Users
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.HomeBranchId == targetBranchId 
+                                       && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == targetRole.Id)
+                                       && u.Status == "ACTIVE"
+                                       && u.Id != user.Id);
+            if (existingManager != null)
+            {
+                var targetBranch = await _context.Branches.FindAsync(targetBranchId);
+                return ApiResponse<EmployeeDetailDto>.Fail(
+                    $"Chi nhánh '{targetBranch?.Name ?? $"#{targetBranchId}"}' hiện đã có Cửa hàng trưởng đang hoạt động ({existingManager.FullName} - {existingManager.EmployeeCode}). Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng.");
+            }
+        }
+
         var oldValues = new
         {
             user.FullName,
@@ -563,7 +739,8 @@ public class UserService : IUserService
         user.FullName = dto.FullName.Trim();
         user.Phone = normalizedPhone;
         user.RoleId = dto.RoleId;
-        user.EmploymentType = string.Equals(dto.EmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME";
+        var effectiveEmploymentType = !string.IsNullOrWhiteSpace(dto.ContractType) ? dto.ContractType : dto.EmploymentType;
+        user.EmploymentType = string.Equals(effectiveEmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME";
 
         if (normalizedActorRole != "STORE_MANAGER" && normalizedActorRole != "STOREMANAGER")
         {
@@ -602,6 +779,7 @@ public class UserService : IUserService
             RoleCode = targetRole.RoleCode,
             RoleName = targetRole.RoleName,
             EmploymentType = user.EmploymentType,
+            ContractType = user.EmploymentType,
             HomeBranchId = user.HomeBranchId,
             BranchCode = user.HomeBranch?.BranchCode,
             BranchName = user.HomeBranch?.Name,
@@ -695,8 +873,10 @@ public class UserService : IUserService
 
     #region UC 1.5 - Bổ Sung: Import Nhân Sự Hàng Loạt Bằng File Excel
 
-    public async Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync()
+    public async Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync(int count = 5)
     {
+        count = Math.Clamp(count, 1, 500);
+
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("Danh_Sach_Nhan_Su");
 
@@ -724,26 +904,61 @@ public class UserService : IUserService
         headerRange.Style.Font.FontColor = XLColor.White;
         headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
-        // Dữ liệu mẫu minh họa
-        worksheet.Cell(2, 1).Value = 1;
-        worksheet.Cell(2, 2).Value = "NV101";
-        worksheet.Cell(2, 3).Value = "Nguyễn Văn An";
-        worksheet.Cell(2, 4).Value = "an.nguyen@example.com";
-        worksheet.Cell(2, 5).Value = "0901234567";
-        worksheet.Cell(2, 6).Value = "CASHIER";
-        worksheet.Cell(2, 7).Value = "FULL_TIME";
-        worksheet.Cell(2, 8).Value = "CH01";
-        worksheet.Cell(2, 9).Value = "Password@123";
+        // Sinh N mã nhân viên tự động không trùng lặp dựa trên dữ liệu DB hiện có
+        var existingCodes = await _context.Users
+            .AsNoTracking()
+            .Select(u => u.EmployeeCode)
+            .ToListAsync();
+        var existingSet = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
 
-        worksheet.Cell(3, 1).Value = 2;
-        worksheet.Cell(3, 2).Value = "NV102";
-        worksheet.Cell(3, 3).Value = "Trần Thị Bình";
-        worksheet.Cell(3, 4).Value = "binh.tran@example.com";
-        worksheet.Cell(3, 5).Value = "0908765432";
-        worksheet.Cell(3, 6).Value = "SALES_STAFF";
-        worksheet.Cell(3, 7).Value = "PART_TIME";
-        worksheet.Cell(3, 8).Value = "CH01";
-        worksheet.Cell(3, 9).Value = "Password@123";
+        int maxNumber = 0;
+        foreach (var code in existingCodes)
+        {
+            if (string.IsNullOrWhiteSpace(code)) continue;
+            var trimmed = code.Trim().ToUpper();
+            string numPart = "";
+            if (trimmed.StartsWith("NV-"))
+            {
+                numPart = trimmed.Substring(3);
+            }
+            else if (trimmed.StartsWith("NV"))
+            {
+                numPart = trimmed.Substring(2);
+            }
+
+            if (int.TryParse(numPart, out var parsedNum))
+            {
+                if (parsedNum > maxNumber) maxNumber = parsedNum;
+            }
+        }
+
+        int currentNum = maxNumber > 0 ? maxNumber : 1000;
+        var generatedCodes = new List<string>();
+        while (generatedCodes.Count < count)
+        {
+            currentNum++;
+            var candidate = $"NV{currentNum:D4}";
+            if (!existingSet.Contains(candidate))
+            {
+                generatedCodes.Add(candidate);
+                existingSet.Add(candidate);
+            }
+        }
+
+        // Tạo sẵn các hàng tương ứng với số lượng nhân viên Admin đã chọn
+        for (int i = 0; i < generatedCodes.Count; i++)
+        {
+            int rowIdx = i + 2;
+            worksheet.Cell(rowIdx, 1).Value = i + 1; // STT
+            worksheet.Cell(rowIdx, 2).Value = generatedCodes[i]; // Mã Nhân Viên sinh tự động
+            // Cột 3 (Họ Và Tên), 4 (Email), 5 (SĐT), 6 (Mã Vai Trò), 8 (Mã Chi Nhánh) để trống cho Admin điền
+            worksheet.Cell(rowIdx, 7).Value = "FULL_TIME";
+            worksheet.Cell(rowIdx, 9).Value = "Password@123";
+
+            worksheet.Cell(rowIdx, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            worksheet.Cell(rowIdx, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            worksheet.Cell(rowIdx, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        }
 
         worksheet.Columns().AdjustToContents();
 
@@ -1070,12 +1285,37 @@ public class UserService : IUserService
             validRowsToProcess.Add((r, targetRole, targetBranch));
         }
 
+        // Danh sách các chi nhánh đã có Cửa hàng trưởng ACTIVE
+        var branchesWithActiveManagerList = await _context.Users
+            .Include(u => u.Role)
+            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && u.HomeBranchId != null)
+            .Select(u => u.HomeBranchId!.Value)
+            .ToListAsync();
+        var branchesWithActiveManager = branchesWithActiveManagerList.ToHashSet();
+
         // 4. Thẩm định định biên (Effective Quota) và tạo nhân sự cho các dòng hợp lệ
         var newUsersToInsert = new List<User>();
         var branchBatchCounter = new Dictionary<ulong, int>();
 
         foreach (var (row, role, branch) in validRowsToProcess)
         {
+            // Kiểm tra ràng buộc duy nhất 1 Cửa hàng trưởng trên mỗi chi nhánh
+            if (role.RoleCode == "STORE_MANAGER")
+            {
+                if (branchesWithActiveManager.Contains(branch.Id))
+                {
+                    result.Errors.Add(new ImportRowErrorDto
+                    {
+                        RowNumber = row.RowNumber,
+                        EmployeeCode = row.EmployeeCode,
+                        FullName = row.FullName,
+                        ErrorMessage = $"Chi nhánh '{branch.Name}' hiện đã có Cửa hàng trưởng đang hoạt động. Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng."
+                    });
+                    continue;
+                }
+                branchesWithActiveManager.Add(branch.Id);
+            }
+
             branchBatchCounter.TryGetValue(branch.Id, out var currentBatchCount);
             var quotaCheck = await _headcountService.ValidateHeadcountAsync(branch.Id, currentBatchCount);
 

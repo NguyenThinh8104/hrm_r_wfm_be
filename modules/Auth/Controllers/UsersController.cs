@@ -66,7 +66,7 @@ public class UsersController : ControllerBase
     /// </summary>
     [HttpPost("{id}/reset-password")]
     [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
-    public async Task<ActionResult<ApiResponse<bool>>> ResetPassword(ulong id, [FromBody] ResetPasswordDto dto)
+    public async Task<ActionResult<ApiResponse<ResetPasswordResultDto>>> ResetPassword(ulong id, [FromBody] ResetPasswordDto dto)
     {
         var (actorId, _, _, ip) = GetCurrentUserInfo();
         var result = await _userService.ResetPasswordAsync(id, dto, actorId, ip);
@@ -135,16 +135,15 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự
+    /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự (Đã bị khóa - Không cho phép chỉnh sửa hồ sơ sau khi tạo)
     /// </summary>
     [HttpPut("employees/{id}")]
-    [Authorize(Roles = "OPERATIONS_ADMIN,STORE_MANAGER,BUSINESS_OWNER,OperationsAdmin,StoreManager,BusinessOwner,Admin,ADMIN")]
-    public async Task<ActionResult<ApiResponse<EmployeeDetailDto>>> UpdateEmployee(ulong id, [FromBody] UpdateEmployeeDto dto)
+    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
+    public Task<ActionResult<ApiResponse<EmployeeDetailDto>>> UpdateEmployee(ulong id, [FromBody] UpdateEmployeeDto dto)
     {
-        var (actorId, role, branchId, ip) = GetCurrentUserInfo();
-        var result = await _userService.UpdateEmployeeAsync(id, dto, actorId, role, branchId, ip);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
+        return Task.FromResult<ActionResult<ApiResponse<EmployeeDetailDto>>>(
+            BadRequest(ApiResponse<EmployeeDetailDto>.Fail("Hệ thống không cho phép chỉnh sửa thông tin hồ sơ nhân sự sau khi đã khởi tạo. Quản trị viên chỉ có quyền cấp lại mật khẩu hoặc khóa/mở khóa tài khoản."))
+        );
     }
 
     /// <summary>
@@ -167,9 +166,10 @@ public class UsersController : ControllerBase
     [HttpGet("employees/import-template")]
     [HttpGet("/api/v1/users/employees/import-template")]
     [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
-    public async Task<IActionResult> DownloadEmployeeImportTemplate()
+    public async Task<IActionResult> DownloadEmployeeImportTemplate([FromQuery] int count = 5)
     {
-        var (fileBytes, contentType, fileName) = await _userService.GenerateEmployeeImportTemplateAsync();
+        var safeCount = Math.Clamp(count, 1, 500);
+        var (fileBytes, contentType, fileName) = await _userService.GenerateEmployeeImportTemplateAsync(safeCount);
         return File(fileBytes, contentType, fileName);
     }
 

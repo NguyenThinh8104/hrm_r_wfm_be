@@ -56,15 +56,21 @@ public class EmailService : IEmailService
 
             using var client = new SmtpClient(smtpServer, smtpPort)
             {
-                Credentials = new NetworkCredential(senderEmail, senderPassword),
                 EnableSsl = enableSsl,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(senderEmail, senderPassword),
                 DeliveryMethod = SmtpDeliveryMethod.Network,
-                Timeout = 10000 // 10s timeout chống nghẽn
+                Timeout = 15000
             };
 
             await client.SendMailAsync(message);
             _logger.LogInformation("Gửi email OTP thành công tới: {Email}", recipientEmail);
             return true;
+        }
+        catch (SmtpException ex)
+        {
+            _logger.LogError(ex, ">>> [SMTP ERROR] Lỗi SMTP ({StatusCode}) khi gửi email OTP tới {Email}: {Message}", ex.StatusCode, recipientEmail, ex.Message);
+            return false;
         }
         catch (Exception ex)
         {
@@ -262,6 +268,186 @@ public class EmailService : IEmailService
         catch (Exception ex)
         {
             _logger.LogError(ex, ">>> [ERROR] Lỗi khi gửi Email thông báo đổi lịch tới: {Email} | Chi tiết: {Message}", recipientEmail, ex.Message);
+            return false;
+        }
+    }
+
+    public async Task<bool> SendAccountStatusChangeEmailAsync(string recipientEmail, string recipientName, string employeeCode, string status, string reason)
+    {
+        try
+        {
+            var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
+            var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
+            var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
+            var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
+            var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
+
+            using var message = new MailMessage();
+            message.From = new MailAddress(senderEmail, senderName);
+            message.To.Add(new MailAddress(recipientEmail, recipientName));
+            bool isLocked = status == "INACTIVE";
+            message.Subject = isLocked 
+                ? $"[RWFM] Thông báo khóa tài khoản nhân sự ({employeeCode})" 
+                : $"[RWFM] Thông báo kích hoạt lại tài khoản nhân sự ({employeeCode})";
+            message.IsBodyHtml = true;
+            message.Priority = MailPriority.High;
+
+            var statusBadge = isLocked 
+                ? "<span style='background-color: #fee2e2; color: #dc2626; padding: 4px 10px; border-radius: 4px; font-weight: bold;'>ĐÃ KHÓA (TẠM NGỪNG)</span>"
+                : "<span style='background-color: #dcfce7; color: #16a34a; padding: 4px 10px; border-radius: 4px; font-weight: bold;'>ĐANG HOẠT ĐỘNG</span>";
+
+            message.Body = $@"
+            <div style='font-family: Arial, sans-serif; max-width: 580px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
+                <div style='text-align: center; padding-bottom: 16px; border-bottom: 2px solid {(isLocked ? "#dc2626" : "#16a34a")};'>
+                    <h2 style='color: #1e3a8a; margin: 0; font-size: 22px;'>R-WFM RETAIL PLATFORM</h2>
+                    <p style='color: #64748b; font-size: 13px; margin-top: 4px;'>Hệ thống Quản trị Nhân sự & Lập lịch Vận hành Chuỗi</p>
+                </div>
+                
+                <div style='margin-top: 20px;'>
+                    <p style='font-size: 15px; color: #1e293b;'>Kính gửi <strong>{recipientName}</strong> (Mã NV: <strong>{employeeCode}</strong>),</p>
+                    <p style='color: #475569; line-height: 1.6;'>
+                        Hệ thống xin thông báo về việc thay đổi trạng thái hoạt động tài khoản nhân sự của bạn:
+                    </p>
+                </div>
+
+                <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0;'>
+                    <table style='width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;'>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: bold; width: 35%;'>Trạng thái tài khoản:</td>
+                            <td style='padding: 6px 0;'>{statusBadge}</td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: bold;'>Lý do thực hiện:</td>
+                            <td style='padding: 6px 0; color: #b91c1c; font-weight: 600;'>{System.Net.WebUtility.HtmlEncode(reason)}</td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: bold;'>Thời gian cập nhật:</td>
+                            <td style='padding: 6px 0;'>{DateTime.UtcNow.AddHours(7):dd/MM/yyyy HH:mm:ss} (Giờ VN)</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <p style='font-size: 13px; color: #64748b; line-height: 1.5;'>
+                    {(isLocked ? "Tài khoản của bạn hiện không thể đăng nhập hoặc điểm danh. Nếu có bất kỳ thắc mắc hoặc cần khiếu nại, vui lòng liên hệ ngay Quản lý Chi nhánh hoặc Bộ phận Nhân sự." : "Tài khoản của bạn đã được mở khóa bình thường. Bạn có thể đăng nhập vào ứng dụng để xem lịch ca làm việc.")}
+                </p>
+                <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
+                <p style='font-size: 12px; color: #94a3b8; text-align: center;'>Email được gửi tự động từ Hệ thống Quản trị Nhân sự R-WFM. Vui lòng không phản hồi thư này.</p>
+            </div>";
+
+            using var client = new SmtpClient(smtpServer, smtpPort)
+            {
+                EnableSsl = enableSsl,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(senderEmail, senderPassword),
+                DeliveryMethod = SmtpDeliveryMethod.Network,
+                Timeout = 15000
+            };
+
+            await client.SendMailAsync(message);
+            _logger.LogInformation("Gửi email thay đổi trạng thái thành công tới {Email}", recipientEmail);
+            return true;
+        }
+        catch (SmtpException ex)
+        {
+            _logger.LogError(ex, ">>> [SMTP ERROR] Lỗi SMTP ({StatusCode}) khi gửi email đổi trạng thái tới {Email}: {Message}", ex.StatusCode, recipientEmail, ex.Message);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi email thay đổi trạng thái tới {Email}", recipientEmail);
+            return false;
+        }
+    }
+
+    public async Task<bool> SendPasswordResetNotificationEmailAsync(string recipientEmail, string recipientName, string employeeCode, string newPassword, string reason)
+    {
+        try
+        {
+            var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
+            var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
+            var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
+            var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
+            var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
+            var loginUrl = _configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/login";
+
+            using var message = new MailMessage();
+            message.From = new MailAddress(senderEmail, senderName);
+            message.To.Add(new MailAddress(recipientEmail, recipientName));
+            message.Subject = $"[RWFM] Thông báo cấp lại mật khẩu tài khoản ({employeeCode})";
+            message.IsBodyHtml = true;
+            message.Priority = MailPriority.High;
+
+            var safePassword = System.Net.WebUtility.HtmlEncode(newPassword);
+
+            message.Body = $@"
+            <div style='font-family: Arial, sans-serif; max-width: 580px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
+                <div style='text-align: center; padding-bottom: 16px; border-bottom: 2px solid #3b82f6;'>
+                    <h2 style='color: #1e3a8a; margin: 0; font-size: 22px;'>R-WFM RETAIL PLATFORM</h2>
+                    <p style='color: #64748b; font-size: 13px; margin-top: 4px;'>Hệ thống Quản trị Nhân sự & Lập lịch Vận hành Chuỗi</p>
+                </div>
+                
+                <div style='margin-top: 20px;'>
+                    <p style='font-size: 15px; color: #1e293b;'>Kính gửi <strong>{recipientName}</strong> (Mã NV: <strong>{employeeCode}</strong>),</p>
+                    <p style='color: #475569; line-height: 1.6;'>
+                        Mật khẩu tài khoản nhân sự của bạn vừa được Quản trị viên cấp lại. Chi tiết thông tin như sau:
+                    </p>
+                </div>
+
+                <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0;'>
+                    <table style='width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;'>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: bold; width: 35%;'>Tài khoản đăng nhập:</td>
+                            <td style='padding: 6px 0; font-weight: bold; color: #2563eb;'>{employeeCode}</td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: bold;'>Mật khẩu mới:</td>
+                            <td style='padding: 6px 0;'><code style='background-color: #e2e8f0; color: #dc2626; padding: 3px 8px; border-radius: 4px; font-size: 15px; font-weight: bold;'>{safePassword}</code></td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: bold;'>Lý do cấp lại:</td>
+                            <td style='padding: 6px 0; color: #334155;'>{System.Net.WebUtility.HtmlEncode(reason)}</td>
+                        </tr>
+                        <tr>
+                            <td style='padding: 6px 0; font-weight: bold;'>Thời gian cấp lại:</td>
+                            <td style='padding: 6px 0;'>{DateTime.UtcNow.AddHours(7):dd/MM/yyyy HH:mm:ss} (Giờ VN)</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div style='text-align: center; margin: 20px 0;'>
+                    <a href='{loginUrl}' style='background-color: #2563eb; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>Đăng Nhập Lại</a>
+                </div>
+
+                <p style='font-size: 12.5px; color: #dc2626; line-height: 1.5;'>
+                    ⚠️ <strong>Lưu ý bảo mật:</strong> Để đảm bảo an toàn, vui lòng đăng nhập và thực hiện đổi mật khẩu cá nhân ngay sau khi nhận được thông báo này.
+                </p>
+                <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
+                <p style='font-size: 12px; color: #94a3b8; text-align: center;'>Email được gửi tự động từ Hệ thống Quản trị Nhân sự R-WFM.</p>
+            </div>";
+
+            using var client = new SmtpClient(smtpServer, smtpPort)
+            {
+                EnableSsl = enableSsl,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(senderEmail, senderPassword),
+                DeliveryMethod = SmtpDeliveryMethod.Network,
+                Timeout = 15000
+            };
+
+            await client.SendMailAsync(message);
+            _logger.LogInformation("Gửi email cấp lại mật khẩu thành công tới {Email}", recipientEmail);
+            return true;
+        }
+        catch (SmtpException ex)
+        {
+            _logger.LogError(ex, ">>> [SMTP ERROR] Lỗi SMTP ({StatusCode}) khi gửi email cấp lại mật khẩu tới {Email}: {Message}", ex.StatusCode, recipientEmail, ex.Message);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi email cấp lại mật khẩu tới {Email}", recipientEmail);
             return false;
         }
     }

@@ -37,9 +37,29 @@ public class BranchHeadcountStatusDto
     public int Quota => EffectiveQuota > 0 ? EffectiveQuota : StandardQuota;
 
     /// <summary>
-    /// Số lượng nhân sự đang hoạt động thực tế (Status == 'ACTIVE').
+    /// Số lượng nhân sự đang hoạt động thực tế (Status == 'ACTIVE'). Tính vào định biên là nhân sự cơ hữu.
     /// </summary>
     public int CurrentHeadcount { get; set; }
+
+    /// <summary>
+    /// Số lượng nhân sự cơ hữu chính thức (Official / Permanent Staff) thuộc biên chế chi nhánh.
+    /// </summary>
+    public int OfficialHeadcount { get; set; }
+
+    /// <summary>
+    /// Số lượng nhân sự từ chi nhánh khác đang được điều động sang HỖ TRỢ chi nhánh này.
+    /// </summary>
+    public int DispatchedInCount { get; set; }
+
+    /// <summary>
+    /// Số lượng nhân sự cơ hữu của chi nhánh đang đi điều động hỗ trợ chi nhánh khác.
+    /// </summary>
+    public int DispatchedOutCount { get; set; }
+
+    /// <summary>
+    /// Tổng số lượng nhân sự thực tế đang có mặt làm việc tại chi nhánh (Cơ hữu có mặt + Điều động đến).
+    /// </summary>
+    public int ActualWorkingCount { get; set; }
 
     /// <summary>
     /// Số lượng nhân sự đã nghỉ việc (Status == 'INACTIVE').
@@ -52,7 +72,7 @@ public class BranchHeadcountStatusDto
     public int AvailableQuotaSlots { get; set; }
 
     /// <summary>
-    /// Đánh dấu chi nhánh đã đạt hoặc vượt định biên chuẩn Tier.
+    /// Đánh dấu chi nhánh đã đạt hoặc vượt định biên chuẩn Tier (chỉ tính nhân sự cơ hữu).
     /// </summary>
     public bool IsQuotaReached { get; set; }
 
@@ -100,4 +120,24 @@ public class BranchHeadcountStatusDto
     /// Tổng số lượng vị trí nhân sự còn khả dụng của chi nhánh.
     /// </summary>
     public int TotalAvailableSlots => AvailableQuotaSlots;
+
+    /// <summary>
+    /// Đánh dấu chi nhánh hiện đã có Cửa hàng trưởng đang hoạt động.
+    /// </summary>
+    public bool HasActiveStoreManager { get; set; }
+
+    /// <summary>
+    /// ID của Cửa hàng trưởng hiện tại (nếu có).
+    /// </summary>
+    public ulong? ActiveStoreManagerId { get; set; }
+
+    /// <summary>
+    /// Họ tên Cửa hàng trưởng hiện tại (nếu có).
+    /// </summary>
+    public string? ActiveStoreManagerName { get; set; }
+
+    /// <summary>
+    /// Mã nhân viên của Cửa hàng trưởng hiện tại (nếu có).
+    /// </summary>
+    public string? ActiveStoreManagerCode { get; set; }
 }

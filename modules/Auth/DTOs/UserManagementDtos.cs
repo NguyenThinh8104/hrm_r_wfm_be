@@ -35,6 +35,7 @@ public class EmployeeDetailDto
     public string RoleCode { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
     public string EmploymentType { get; set; } = "FULL_TIME";
+    public string ContractType { get; set; } = "FULL_TIME";
     public ulong? HomeBranchId { get; set; }
     public string? BranchCode { get; set; }
     public string? BranchName { get; set; }
@@ -55,6 +56,7 @@ public class CreateEmployeeDto
     public string Phone { get; set; } = string.Empty;
     public byte RoleId { get; set; }
     public string EmploymentType { get; set; } = "FULL_TIME";
+    public string? ContractType { get; set; }
     public ulong HomeBranchId { get; set; }
     public string? Password { get; set; }
 
@@ -71,6 +73,7 @@ public class UpdateEmployeeDto
     public string Phone { get; set; } = string.Empty;
     public byte RoleId { get; set; }
     public string EmploymentType { get; set; } = "FULL_TIME";
+    public string? ContractType { get; set; }
     public ulong HomeBranchId { get; set; }
     public string? Status { get; set; }
 }
@@ -78,11 +81,21 @@ public class UpdateEmployeeDto
 public class UpdateStatusDto
 {
     public string Status { get; set; } = "ACTIVE";
+    public string? Reason { get; set; }
 }
 
 public class ResetPasswordDto
 {
     public string? NewPassword { get; set; }
+    public string? Reason { get; set; }
+}
+
+public class ResetPasswordResultDto
+{
+    public string NewPassword { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public bool EmailSent { get; set; }
+    public string Message { get; set; } = string.Empty;
 }
 
 public class RoleDto

@@ -15,6 +15,7 @@ public static class StoresModuleExtensions
         services.AddScoped<BranchHeadcountService>();
         services.AddScoped<IStoreHeadcountService>(sp => sp.GetRequiredService<BranchHeadcountService>());
         services.AddScoped<Shared.Interfaces.IBranchHeadcountService>(sp => sp.GetRequiredService<BranchHeadcountService>());
+        services.AddScoped<IBranchLockService, BranchLockService>();
         return services;
     }
 }

@@ -1,5 +1,6 @@
 using Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Modules.Stores.DTOs;
 using Modules.Stores.Interfaces;
@@ -16,10 +17,12 @@ namespace Modules.Stores.Controllers;
 public class BranchesController : ControllerBase
 {
     private readonly IBranchService _branchService;
+    private readonly IBranchLockService _branchLockService;
 
-    public BranchesController(IBranchService branchService)
+    public BranchesController(IBranchService branchService, IBranchLockService branchLockService)
     {
         _branchService = branchService;
+        _branchLockService = branchLockService;
     }
 
     /// <summary>
@@ -110,6 +113,121 @@ public class BranchesController : ControllerBase
         var result = await _branchService.UpdateBranchStatusAsync(id, dto);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// [Operations Admin] Kiểm tra các điều kiện chặn trước khi khóa chi nhánh (Không thay đổi dữ liệu).
+    /// </summary>
+    /// <param name="id">Mã ID chi nhánh cần kiểm tra.</param>
+    /// <returns>Đối tượng BranchLockCheckResponseDto gồm canLock, blockers và affectedEmployeeCount.</returns>
+    [HttpGet("{id}/lock-check")]
+    [Authorize(Policy = "branch.lock")]
+    public async Task<ActionResult<BranchLockCheckResponseDto>> CheckBranchLock(ulong id, CancellationToken cancellationToken)
+    {
+        var checkResult = await _branchLockService.CheckLockConditionsAsync(id, cancellationToken);
+        return Ok(checkResult);
+    }
+
+    /// <summary>
+    /// [Operations Admin] Thực hiện khóa chi nhánh (kiểm tra blocker trong transaction, xử lý nhân sự và ca làm việc).
+    /// </summary>
+    /// <param name="id">Mã ID chi nhánh cần khóa.</param>
+    /// <param name="request">DTO chứa lý do (10-500 ký tự), mã xác nhận, chế độ xử lý nhân sự và ca tương lai.</param>
+    [HttpPost("{id}/lock")]
+    [Authorize(Policy = "branch.lock")]
+    public async Task<IActionResult> LockBranch(
+        ulong id, 
+        [FromBody] LockBranchRequestDto request, 
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+        {
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Dữ liệu yêu cầu không hợp lệ",
+                Status = StatusCodes.Status400BadRequest,
+                Detail = string.Join("; ", errors),
+                Type = "https://tools.ietf.org/html/rfc7231#section-6.5.1"
+            });
+        }
+
+        var currentUserName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value 
+            ?? User.FindFirst("EmployeeCode")?.Value 
+            ?? User.Identity?.Name 
+            ?? "Admin";
+
+        var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 
+            ?? User.FindFirst("EmployeeId")?.Value;
+        ulong.TryParse(userIdStr, out var currentUserId);
+
+        var result = await _branchLockService.LockBranchAsync(
+            id, 
+            request, 
+            currentUserName, 
+            currentUserId > 0 ? currentUserId : null, 
+            cancellationToken);
+
+        if (!result.Success)
+        {
+            if (result.ProblemDetails != null)
+            {
+                return StatusCode(result.StatusCode, result.ProblemDetails);
+            }
+            return StatusCode(result.StatusCode, new ProblemDetails
+            {
+                Status = result.StatusCode,
+                Title = "Lỗi xử lý khóa chi nhánh",
+                Detail = result.Message
+            });
+        }
+
+        return Ok(ApiResponse<BranchDto>.Ok(result.Data!, result.Message));
+    }
+
+    /// <summary>
+    /// [Operations Admin] Thực hiện mở khóa chi nhánh và khôi phục hoạt động cho trạm Kiosk và nhân sự.
+    /// </summary>
+    /// <param name="id">Mã ID chi nhánh cần mở khóa.</param>
+    /// <param name="request">DTO chứa lý do mở khóa (tùy chọn).</param>
+    [HttpPost("{id}/unlock")]
+    [Authorize(Policy = "branch.lock")]
+    public async Task<IActionResult> UnlockBranch(
+        ulong id, 
+        [FromBody] UnlockBranchRequestDto? request, 
+        CancellationToken cancellationToken)
+    {
+        var currentUserName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value 
+            ?? User.FindFirst("EmployeeCode")?.Value 
+            ?? User.Identity?.Name 
+            ?? "Admin";
+
+        var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 
+            ?? User.FindFirst("EmployeeId")?.Value;
+        ulong.TryParse(userIdStr, out var currentUserId);
+
+        var result = await _branchLockService.UnlockBranchAsync(
+            id, 
+            request ?? new UnlockBranchRequestDto(), 
+            currentUserName, 
+            currentUserId > 0 ? currentUserId : null, 
+            cancellationToken);
+
+        if (!result.Success)
+        {
+            if (result.ProblemDetails != null)
+            {
+                return StatusCode(result.StatusCode, result.ProblemDetails);
+            }
+            return StatusCode(result.StatusCode, new ProblemDetails
+            {
+                Status = result.StatusCode,
+                Title = "Lỗi xử lý mở khóa chi nhánh",
+                Detail = result.Message
+            });
+        }
+
+        return Ok(ApiResponse<BranchDto>.Ok(result.Data!, result.Message));
     }
 
     /// <summary>

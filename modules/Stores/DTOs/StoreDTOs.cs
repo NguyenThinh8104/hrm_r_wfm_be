@@ -38,6 +38,11 @@ public class BranchDto
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
+    public DateTime? LockedAt { get; set; }
+    public string? LockedBy { get; set; }
+    public string? LockReason { get; set; }
+    public DateTime? UnlockedAt { get; set; }
+    public string? UnlockedBy { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public int TotalKiosks { get; set; }

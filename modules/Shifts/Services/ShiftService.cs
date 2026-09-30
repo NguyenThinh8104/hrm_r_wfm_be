@@ -341,6 +341,11 @@ public class ShiftService : IShiftService
             return ApiResponse<List<WorkScheduleDto>>.Fail("Không tìm thấy chi nhánh cửa hàng.");
         }
 
+        if (!string.Equals(branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<List<WorkScheduleDto>>.Fail($"Chi nhánh '{branch.Name}' đã bị khóa. Không thể tạo ca làm việc mới.");
+        }
+
         if (dto.Year < 2020 || dto.Month < 1 || dto.Month > 12)
         {
             return ApiResponse<List<WorkScheduleDto>>.Fail("Tháng hoặc năm không hợp lệ.");
@@ -428,6 +433,11 @@ public class ShiftService : IShiftService
         if (schedule == null)
         {
             return ApiResponse<WorkScheduleDto>.Fail("Không tìm thấy ca trực trong lịch làm việc.");
+        }
+
+        if (schedule.Branch != null && !string.Equals(schedule.Branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<WorkScheduleDto>.Fail($"Chi nhánh '{schedule.Branch.Name}' đã bị khóa. Không thể điều chỉnh ca làm việc.");
         }
 
         var today = DateOnly.FromDateTime(DateTime.Today);
@@ -1741,6 +1751,11 @@ public class ShiftService : IShiftService
         if (requestingAssignment == null)
         {
             return ApiResponse<ShiftSwapRequestDto>.Fail("Không tìm thấy ca trực của bạn để yêu cầu đổi/chuyển/nghỉ.");
+        }
+
+        if (requestingAssignment.Schedule?.Branch != null && !string.Equals(requestingAssignment.Schedule.Branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        {
+            return ApiResponse<ShiftSwapRequestDto>.Fail($"Chi nhánh '{requestingAssignment.Schedule.Branch.Name}' đã bị khóa. Không thể tạo đơn mới.");
         }
 
         var today = DateOnly.FromDateTime(DateTime.Today);

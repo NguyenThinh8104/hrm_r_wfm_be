@@ -41,6 +41,16 @@ public class JwtTokenService
             new("StoreId", user.HomeBranchId?.ToString() ?? "")
         };
 
+        if (roleCode.Equals("OPERATIONS_ADMIN", StringComparison.OrdinalIgnoreCase) ||
+            roleCode.Equals("OperationsAdmin", StringComparison.OrdinalIgnoreCase) ||
+            roleCode.Equals("BUSINESS_OWNER", StringComparison.OrdinalIgnoreCase) ||
+            roleCode.Equals("BusinessOwner", StringComparison.OrdinalIgnoreCase) ||
+            roleCode.Equals("ADMIN", StringComparison.OrdinalIgnoreCase) ||
+            roleCode.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            claims.Add(new Claim("permission", "branch.lock"));
+        }
+
         var tokenDescriptor = new JwtSecurityToken(
             issuer: issuer,
             audience: audience,

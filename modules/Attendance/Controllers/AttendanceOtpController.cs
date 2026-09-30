@@ -93,6 +93,13 @@ public class AttendanceOtpController : ControllerBase
             branch = regularShift.Schedule.Branch;
         }
 
+        if (branch == null || !string.Equals(branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(ApiResponse<RequestAttendanceOtpResponseDto>.Fail(
+                $"Chi nhánh '{branch?.Name ?? "hiện tại"}' đã bị khóa. Không thể thực hiện chấm công.",
+                new List<string> { "BRANCH_LOCKED" }));
+        }
+
         if (request.Latitude == 0 || request.Longitude == 0)
         {
             return BadRequest(ApiResponse<RequestAttendanceOtpResponseDto>.Fail(AttendanceMessages.LocationRequired));

@@ -72,7 +72,17 @@ public static class SharedModuleExtensions
             };
         });
 
-        services.AddAuthorization();
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy("branch.lock", policy =>
+            {
+                policy.RequireAssertion(ctx =>
+                    ctx.User.HasClaim(c => (c.Type == "permission" || c.Type == "scope" || c.Type == "Policy" || c.Type == "policy") && c.Value == "branch.lock") ||
+                    ctx.User.IsInRole("OperationsAdmin") || ctx.User.IsInRole("OPERATIONS_ADMIN") ||
+                    ctx.User.IsInRole("BusinessOwner") || ctx.User.IsInRole("BUSINESS_OWNER") ||
+                    ctx.User.IsInRole("Admin") || ctx.User.IsInRole("ADMIN"));
+            });
+        });
         services.AddMemoryCache();
 
         // 4. Redis Distributed Cache & Shared Services

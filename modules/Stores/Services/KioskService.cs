@@ -155,7 +155,15 @@ public class KioskService : IKioskService
             .Include(k => k.Branch)
             .FirstOrDefaultAsync(k => k.DeviceToken == deviceToken.Trim());
 
-        if (kiosk == null || kiosk.Status != "ACTIVE")
+        if (kiosk == null || kiosk.Status == "DELETED")
+        {
+            return ApiResponse<KioskActivationResponseDto>.Fail(KioskMessages.DeviceNotFound);
+        }
+
+        var isBranchLocked = kiosk.Branch != null && !string.Equals(kiosk.Branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase);
+        var kioskStatus = isBranchLocked ? "suspended" : kiosk.Status;
+
+        if (kiosk.Status != "ACTIVE" && !isBranchLocked)
         {
             return ApiResponse<KioskActivationResponseDto>.Fail(KioskMessages.DeviceNotFound);
         }
@@ -169,14 +177,14 @@ public class KioskService : IKioskService
         {
             KioskId = (int)kiosk.Id,
             StoreId = (int)kiosk.BranchId,
-            StoreCode = kiosk.Branch.BranchCode,
-            StoreName = kiosk.Branch.Name,
+            StoreCode = kiosk.Branch?.BranchCode ?? string.Empty,
+            StoreName = kiosk.Branch?.Name ?? string.Empty,
             KioskCode = kiosk.KioskCode,
             KioskName = kiosk.Name,
             DeviceToken = kiosk.DeviceToken,
-            Status = kiosk.Status,
+            Status = kioskStatus,
             ActivatedAt = kiosk.CreatedAt
-        }, KioskMessages.TokenValid);
+        }, isBranchLocked ? "Chi nhánh đang tạm khóa. Trạm Kiosk ở trạng thái suspended." : KioskMessages.TokenValid);
     }
 
     /// <summary>

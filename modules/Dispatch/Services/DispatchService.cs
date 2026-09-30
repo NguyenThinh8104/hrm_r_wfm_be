@@ -153,9 +153,7 @@ public class DispatchService : IDispatchService
                 Status = "PENDING",
                 CreatedAt = dispatch.CreatedAt
             };
-            _context.DispatchEmployees.Add(fallbackDe);
             dispatch.DispatchEmployees.Add(fallbackDe);
-            await _context.SaveChangesAsync();
         }
 
         // TRƯỜNG HỢP 1: Duyệt theo danh sách từng nhân sự (EmployeeReviews)
@@ -629,7 +627,22 @@ public class DispatchService : IDispatchService
             return ApiResponse<bool>.Fail("Bạn không có quyền hủy đơn điều động của chi nhánh khác.");
         }
 
-        _context.DispatchEmployees.RemoveRange(dispatch.DispatchEmployees);
+        // CASCADE CANCEL: Hủy tất cả đơn chuyển/đổi ca đang chờ duyệt của nhân viên tại chi nhánh đích
+        var pendingSwaps = await _context.Set<Domain.Entities.ShiftSwapRequest>()
+            .Include(s => s.RequestingAssignment)
+                .ThenInclude(sa => sa.Schedule)
+            .Where(s => s.RequesterUserId == dispatch.UserId
+                     && (s.Status == "PENDING" || s.Status == "PENDING_PEER")
+                     && s.RequestingAssignment != null
+                     && s.RequestingAssignment.Schedule.BranchId == dispatch.TargetBranchId)
+            .ToListAsync();
+
+        foreach (var swap in pendingSwaps)
+        {
+            swap.Status = "CANCELLED";
+            // TODO: Thông báo qua email/notification cho các bên liên quan nếu cần
+        }
+
         _context.TemporaryDispatches.Remove(dispatch);
         await _context.SaveChangesAsync();
 

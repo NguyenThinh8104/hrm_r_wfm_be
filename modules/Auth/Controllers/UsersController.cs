@@ -189,6 +189,19 @@ public class UsersController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Xuất tệp tin Excel (.xlsx) báo cáo chi tiết các lỗi phát sinh trong quá trình import nhân sự.
+    /// File được định dạng bảng chuẩn, có màu sắc rõ ràng cho từng dòng lỗi.
+    /// </summary>
+    [HttpPost("employees/export-errors")]
+    [HttpPost("/api/v1/users/employees/export-errors")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
+    public async Task<IActionResult> ExportEmployeeImportErrors([FromBody] ExportImportErrorsRequestDto dto)
+    {
+        var (fileBytes, contentType, fileName) = await _userService.GenerateImportErrorReportAsync(dto.Errors, dto.SourceFileName);
+        return File(fileBytes, contentType, fileName);
+    }
+
     #endregion
 
     #region Metadata & Dropdowns

@@ -21,6 +21,7 @@ public interface IUserService
     // UC 1.5 - Bổ sung: Import nhân sự hàng loạt bằng file Excel
     Task<ApiResponse<BulkImportResultDto>> BulkImportEmployeesAsync(BulkImportEmployeeRequestDto dto, ulong actorId, string actorRole, string? ipAddress);
     Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync(int count = 5);
+    Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateImportErrorReportAsync(List<ImportRowErrorDto> errors, string? sourceFileName);
 
     // UC 1.5 - Xóa tài khoản nhân sự (Chỉ xóa khi đã khóa)
     Task<ApiResponse<bool>> DeleteUserAsync(ulong userId, ulong actorId, string actorRole, string? ipAddress);

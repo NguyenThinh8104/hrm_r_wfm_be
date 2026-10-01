@@ -28,6 +28,50 @@ SET @sql = IF(@col_exists = 0,
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
+-- 2b. Add LockReason if not exists
+SET @col_exists = (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'branches' AND COLUMN_NAME = 'LockReason'
+);
+SET @sql = IF(@col_exists = 0,
+  'ALTER TABLE branches ADD COLUMN LockReason varchar(1000) NULL',
+  'SELECT ''LockReason already exists'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2c. Add LockedAt if not exists
+SET @col_exists = (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'branches' AND COLUMN_NAME = 'LockedAt'
+);
+SET @sql = IF(@col_exists = 0,
+  'ALTER TABLE branches ADD COLUMN LockedAt datetime(6) NULL',
+  'SELECT ''LockedAt already exists'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2d. Add LockedBy if not exists
+SET @col_exists = (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'branches' AND COLUMN_NAME = 'LockedBy'
+);
+SET @sql = IF(@col_exists = 0,
+  'ALTER TABLE branches ADD COLUMN LockedBy varchar(255) NULL',
+  'SELECT ''LockedBy already exists'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2e. Add RowVersion if not exists
+SET @col_exists = (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'branches' AND COLUMN_NAME = 'RowVersion'
+);
+SET @sql = IF(@col_exists = 0,
+  'ALTER TABLE branches ADD COLUMN RowVersion char(36) NOT NULL DEFAULT ''00000000-0000-0000-0000-000000000000''',
+  'SELECT ''RowVersion already exists'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- 3. Create branch_lock_logs if not exists
 CREATE TABLE IF NOT EXISTS branch_lock_logs (
   Id bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -137,6 +181,7 @@ INSERT IGNORE INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES
   ('20260920110000_AddBranchTierToBranches',                          '8.0.0'),
   ('20260921142834_AddAttendanceLogStatus',                           '8.0.0'),
   ('20260922072855_ConsolidateAttendanceStatusAndDropUnusedColumns',  '8.0.0'),
+  ('20260924085500_AddCheckInAndCheckOutStatusToAttendanceLogs',      '8.0.0'),
   ('20260930101245_AddBranchLockAndLogSchema',                        '8.0.0');
 
 -- Verify

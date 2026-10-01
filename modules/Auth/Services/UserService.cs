@@ -1140,6 +1140,114 @@ public class UserService : IUserService
         return (ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Mau_Import_Nhan_Su.xlsx");
     }
 
+    public async Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateImportErrorReportAsync(List<ImportRowErrorDto> errors, string? sourceFileName)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Bao_Cao_Loi");
+
+        // Tiêu đề báo cáo
+        worksheet.Cell(1, 1).Value = "BÁO CÁO CHI TIẾT LỖI IMPORT NHÂN SỰ";
+        worksheet.Cell(1, 1).Style.Font.Bold = true;
+        worksheet.Cell(1, 1).Style.Font.FontSize = 14;
+        worksheet.Cell(1, 1).Style.Font.FontColor = XLColor.FromHtml("#DC2626");
+
+        var cleanSource = string.IsNullOrWhiteSpace(sourceFileName) ? "Danh_sach_nhan_su.xlsx" : sourceFileName;
+        worksheet.Cell(2, 1).Value = $"Tệp tin gốc: {cleanSource}   |   Thời gian xuất: {DateTime.Now:dd/MM/yyyy HH:mm:ss}   |   Tổng số lỗi: {errors?.Count ?? 0} dòng vi phạm";
+        worksheet.Cell(2, 1).Style.Font.Italic = true;
+        worksheet.Cell(2, 1).Style.Font.FontSize = 10;
+        worksheet.Cell(2, 1).Style.Font.FontColor = XLColor.FromHtml("#4B5563");
+
+        // Headers
+        var headers = new[]
+        {
+            "STT",
+            "Dòng Excel",
+            "Mã Nhân Viên",
+            "Họ Và Tên",
+            "Email",
+            "Chi Tiết Lý Do Lỗi",
+            "Thời Gian Ghi Nhận"
+        };
+
+        int headerRow = 4;
+        for (int i = 0; i < headers.Length; i++)
+        {
+            worksheet.Cell(headerRow, i + 1).Value = headers[i];
+        }
+
+        var headerRange = worksheet.Range(headerRow, 1, headerRow, headers.Length);
+        headerRange.Style.Font.Bold = true;
+        headerRange.Style.Font.FontColor = XLColor.White;
+        headerRange.Style.Fill.BackgroundColor = XLColor.FromHtml("#DC2626");
+        headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        headerRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        headerRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        headerRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+
+        int currentRow = headerRow + 1;
+        int stt = 1;
+        var currentTime = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
+
+        if (errors != null && errors.Count > 0)
+        {
+            foreach (var err in errors)
+            {
+                worksheet.Cell(currentRow, 1).Value = stt;
+                worksheet.Cell(currentRow, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                worksheet.Cell(currentRow, 2).Value = $"Dòng {err.RowNumber}";
+                worksheet.Cell(currentRow, 2).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                worksheet.Cell(currentRow, 2).Style.Font.Bold = true;
+
+                worksheet.Cell(currentRow, 3).Value = !string.IsNullOrWhiteSpace(err.EmployeeCode) ? err.EmployeeCode : "—";
+                worksheet.Cell(currentRow, 3).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                worksheet.Cell(currentRow, 3).Style.Font.Bold = true;
+
+                worksheet.Cell(currentRow, 4).Value = !string.IsNullOrWhiteSpace(err.FullName) ? err.FullName : "—";
+
+                worksheet.Cell(currentRow, 5).Value = !string.IsNullOrWhiteSpace(err.Email) ? err.Email : "—";
+
+                worksheet.Cell(currentRow, 6).Value = err.ErrorMessage;
+                worksheet.Cell(currentRow, 6).Style.Font.FontColor = XLColor.FromHtml("#B91C1C");
+                worksheet.Cell(currentRow, 6).Style.Alignment.WrapText = true;
+
+                worksheet.Cell(currentRow, 7).Value = currentTime;
+                worksheet.Cell(currentRow, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+                // Tô màu so le zebra striping
+                if (stt % 2 == 0)
+                {
+                    worksheet.Range(currentRow, 1, currentRow, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#FEF2F2");
+                }
+
+                currentRow++;
+                stt++;
+            }
+
+            var dataRange = worksheet.Range(headerRow + 1, 1, currentRow - 1, headers.Length);
+            dataRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            dataRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            dataRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+
+        // Độ rộng cột
+        worksheet.Column(1).Width = 8;
+        worksheet.Column(2).Width = 14;
+        worksheet.Column(3).Width = 18;
+        worksheet.Column(4).Width = 24;
+        worksheet.Column(5).Width = 28;
+        worksheet.Column(6).Width = 72;
+        worksheet.Column(7).Width = 22;
+
+        using var ms = new MemoryStream();
+        workbook.SaveAs(ms);
+
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var outFileName = $"Bao_Cao_Loi_Import_{timestamp}.xlsx";
+
+        return (ms.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", outFileName);
+    }
+
     public async Task<ApiResponse<BulkImportResultDto>> BulkImportEmployeesAsync(
         BulkImportEmployeeRequestDto dto,
         ulong actorId,
@@ -1298,31 +1406,31 @@ public class UserService : IUserService
         {
             if (string.IsNullOrWhiteSpace(r.EmployeeCode))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, FullName = r.FullName, ErrorMessage = "Mã nhân viên không được để trống." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, FullName = r.FullName, Email = r.Email, ErrorMessage = "Mã nhân viên không được để trống." });
                 continue;
             }
 
             if (string.IsNullOrWhiteSpace(r.FullName))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, ErrorMessage = "Họ và tên không được để trống." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, Email = r.Email, ErrorMessage = "Họ và tên không được để trống." });
                 continue;
             }
 
             if (string.IsNullOrWhiteSpace(r.Email))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, ErrorMessage = "Email không được để trống." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, Email = r.Email, ErrorMessage = "Email không được để trống." });
                 continue;
             }
 
             if (!r.Email.Contains("@") || !r.Email.Contains("."))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, ErrorMessage = $"Email '{r.Email}' không đúng định dạng." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{r.Email}' không đúng định dạng." });
                 continue;
             }
 
             if (string.IsNullOrWhiteSpace(r.Phone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, ErrorMessage = "Số điện thoại không được để trống." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, Email = r.Email, ErrorMessage = "Số điện thoại không được để trống." });
                 continue;
             }
 
@@ -1333,34 +1441,34 @@ public class UserService : IUserService
             // Kiểm tra trùng lặp trong tệp tin
             if (seenCodesInFile.Contains(normalizedCode))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Mã nhân viên '{normalizedCode}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Mã nhân viên '{normalizedCode}' bị trùng lặp trong tệp tin." });
                 continue;
             }
             if (seenEmailsInFile.Contains(normalizedEmail))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Email '{normalizedEmail}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{normalizedEmail}' bị trùng lặp trong tệp tin." });
                 continue;
             }
             if (seenPhonesInFile.Contains(normalizedPhone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Số điện thoại '{normalizedPhone}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Số điện thoại '{normalizedPhone}' bị trùng lặp trong tệp tin." });
                 continue;
             }
 
             // Kiểm tra trùng lặp với CSDL
             if (existingCodes.Contains(normalizedCode))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống." });
                 continue;
             }
             if (existingEmails.Contains(normalizedEmail))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Email '{normalizedEmail}' đã được sử dụng trong hệ thống." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{normalizedEmail}' đã được sử dụng trong hệ thống." });
                 continue;
             }
             if (existingPhones.Contains(normalizedPhone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Số điện thoại '{normalizedPhone}' đã được sử dụng trong hệ thống." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Số điện thoại '{normalizedPhone}' đã được sử dụng trong hệ thống." });
                 continue;
             }
 
@@ -1368,7 +1476,7 @@ public class UserService : IUserService
             var normalizedRoleCode = r.RoleCode.Trim().ToUpper();
             if (!validStoreRoles.Contains(normalizedRoleCode) || !rolesByCode.TryGetValue(normalizedRoleCode, out var targetRole))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Vai trò '{r.RoleCode}' không hợp lệ. Chỉ chấp nhận: STORE_MANAGER, SHIFT_LEADER, CASHIER, SALES_STAFF, SECURITY_GUARD." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Vai trò '{r.RoleCode}' không hợp lệ. Chỉ chấp nhận: STORE_MANAGER, SHIFT_LEADER, CASHIER, SALES_STAFF, SECURITY_GUARD." });
                 continue;
             }
 
@@ -1393,13 +1501,13 @@ public class UserService : IUserService
 
             if (targetBranch == null)
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Không tìm thấy chi nhánh '{r.BranchIdentifier}'." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Không tìm thấy chi nhánh '{r.BranchIdentifier}'." });
                 continue;
             }
 
             if (targetBranch.Status != "ACTIVE")
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, ErrorMessage = $"Chi nhánh '{targetBranch.Name}' đã ngừng hoạt động." });
+                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Chi nhánh '{targetBranch.Name}' đã ngừng hoạt động." });
                 continue;
             }
 
@@ -1434,6 +1542,7 @@ public class UserService : IUserService
                         RowNumber = row.RowNumber,
                         EmployeeCode = row.EmployeeCode,
                         FullName = row.FullName,
+                        Email = row.Email,
                         ErrorMessage = $"Chi nhánh '{branch.Name}' hiện đã có Cửa hàng trưởng đang hoạt động. Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng."
                     });
                     continue;
@@ -1451,6 +1560,7 @@ public class UserService : IUserService
                     RowNumber = row.RowNumber,
                     EmployeeCode = row.EmployeeCode,
                     FullName = row.FullName,
+                    Email = row.Email,
                     ErrorMessage = quotaCheck.ErrorMessage ?? $"Chi nhánh '{branch.Name}' đã đạt trần định biên nhân sự."
                 });
                 continue;

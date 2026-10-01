@@ -36,4 +36,30 @@ public static class HeadcountConstants
         BranchTier.Tier3 => Tier3StandardQuota,
         _ => Tier2StandardQuota
     };
+
+    // ==========================================
+    // 2. Quy định thời giờ làm việc (Bộ Luật Lao Động)
+    // ==========================================
+
+    /// <summary>
+    /// Điều 110 BLLĐ: Khoảng nghỉ tối thiểu giữa 2 ca liên tiếp = 12 giờ liên tục.
+    /// Áp dụng kiểm tra khi đổi ca / chuyển ca (shift swap/transfer).
+    /// </summary>
+    public const int MinRestBetweenShiftsHours = 12;
+
+    /// <summary>
+    /// Điều 105 &amp; 107 BLLĐ: Tổng số giờ làm việc tối đa trong một ngày = 12 giờ
+    /// (bao gồm giờ thường và giờ làm thêm OT, làm thêm ≤ 50% giờ chuẩn 8h).
+    /// </summary>
+    public const int MaxWorkingHoursPerDay = 12;
+
+    /// <summary>
+    /// Điều 111 BLLĐ: Mỗi tuần người lao động phải được nghỉ ít nhất 24 giờ liên tục.
+    /// </summary>
+    public const int MinWeeklyRestHours = 24;
+
+    /// <summary>
+    /// Chu kỳ kiểm tra nghỉ tuần = 7 ngày liên tiếp tính từ ngày ca mới.
+    /// </summary>
+    public const int WeeklyRestWindowDays = 7;
 }

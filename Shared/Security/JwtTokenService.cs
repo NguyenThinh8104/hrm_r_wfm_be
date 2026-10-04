@@ -16,17 +16,18 @@ public class JwtTokenService
         _configuration = configuration;
     }
 
-    public (string token, DateTime expiresAt) GenerateToken(User user)
+    public (string token, DateTime expiresAt) GenerateAccessToken(User user)
     {
         var secretKey = _configuration["Jwt:Key"] ?? "RetailWorkforceManagementSecretKey_FPT_SWP391_2026_KeyMustBeLongEnough!";
         var issuer = _configuration["Jwt:Issuer"] ?? "API";
         var audience = _configuration["Jwt:Audience"] ?? "CLIENT";
-        var expirationHours = int.TryParse(_configuration["Jwt:ExpiresInHours"], out var hours) ? hours : 24;
+        // Access token có thời hạn ngắn (15 phút) để bảo mật chống XSS
+        var expirationMinutes = int.TryParse(_configuration["Jwt:ExpiresInMinutes"], out var mins) ? mins : 15;
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var expiresAt = DateTime.UtcNow.AddHours(expirationHours);
+        var expiresAt = DateTime.UtcNow.AddMinutes(expirationMinutes);
 
         var roleCode = user.Role?.RoleCode ?? "STORE_MANAGER";
 
@@ -63,5 +64,17 @@ public class JwtTokenService
         var tokenString = tokenHandler.WriteToken(tokenDescriptor);
 
         return (tokenString, expiresAt);
+    }
+
+    public (string token, DateTime expiresAt) GenerateToken(User user) => GenerateAccessToken(user);
+
+    public (string refreshToken, DateTime expiresAt) GenerateRefreshToken()
+    {
+        var randomNumber = new byte[64];
+        using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+        rng.GetBytes(randomNumber);
+        var refreshToken = Convert.ToBase64String(randomNumber);
+        var expiresAt = DateTime.UtcNow.AddDays(7); // Refresh token có hạn 7 ngày
+        return (refreshToken, expiresAt);
     }
 }

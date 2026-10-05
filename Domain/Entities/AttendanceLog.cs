@@ -52,6 +52,4 @@ public class AttendanceLog
     public User? FraudFlaggedByUser { get; set; }
     public string? FraudReason { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-    public ICollection<OvertimeRequest> OvertimeRequests { get; set; } = new List<OvertimeRequest>();
 }

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Domain.Constants;
 using Domain.Entities;
 using Modules.Shifts.DTOs;
 using Modules.Shifts.Interfaces;
@@ -66,9 +67,6 @@ public class ShiftService : IShiftService
         {
             TemplateCode = normalizedCode,
             Name = dto.Name.Trim(),
-            Description = string.IsNullOrWhiteSpace(dto.Description) 
-                ? $"Khung ca từ {dto.StartTime:HH\\:mm} đến {dto.EndTime:HH\\:mm}" 
-                : dto.Description.Trim(),
             StartTime = dto.StartTime,
             EndTime = dto.EndTime,
             IsOvernight = validation.IsOvernight,
@@ -108,10 +106,6 @@ public class ShiftService : IShiftService
         }
 
         template.Name = dto.Name.Trim();
-        if (dto.Description != null)
-        {
-            template.Description = dto.Description.Trim();
-        }
         template.StartTime = dto.StartTime;
         template.EndTime = dto.EndTime;
         template.IsOvernight = validation.IsOvernight;
@@ -309,7 +303,7 @@ public class ShiftService : IShiftService
             Id = st.Id,
             TemplateCode = st.TemplateCode,
             Name = st.Name,
-            Description = st.Description,
+            Description = null,
             StartTime = st.StartTime.ToString("HH\\:mm\\:ss"),
             EndTime = st.EndTime.ToString("HH\\:mm\\:ss"),
             BreakMinutes = st.BreakDurationMinutes,
@@ -2211,6 +2205,29 @@ public class ShiftService : IShiftService
             }
         }
 
+        // ── KIỂM TRA LUẬT LAO ĐỘNG (Điều 110, 105/107, 111 BLLĐ) ──────────────────
+        if (reqType != "LEAVE")
+        {
+            var laborCheck = await ValidateSwapLaborLawsAsync(
+                reqType: reqType,
+                requesterId: (ulong)requesterEmployeeId,
+                requesterExcludeId: requestingAssignment.Id,
+                requesterNewShiftDate: targetAssignment?.Schedule.WorkDate ?? requestingAssignment.Schedule.WorkDate,
+                requesterNewShiftStart: targetAssignment?.Schedule.ShiftTemplate?.StartTime ?? requestingAssignment.Schedule.ShiftTemplate!.StartTime,
+                requesterNewShiftEnd: targetAssignment?.Schedule.ShiftTemplate?.EndTime ?? requestingAssignment.Schedule.ShiftTemplate!.EndTime,
+                requesterNewIsOvernight: targetAssignment?.Schedule.ShiftTemplate?.IsOvernight ?? requestingAssignment.Schedule.ShiftTemplate!.IsOvernight,
+                targetId: targetUser?.Id,
+                targetExcludeId: targetAssignment?.Id,
+                targetNewShiftDate: requestingAssignment.Schedule.WorkDate,
+                targetNewShiftStart: requestingAssignment.Schedule.ShiftTemplate!.StartTime,
+                targetNewShiftEnd: requestingAssignment.Schedule.ShiftTemplate!.EndTime,
+                targetNewIsOvernight: requestingAssignment.Schedule.ShiftTemplate!.IsOvernight);
+
+            if (!laborCheck.IsValid)
+                return ApiResponse<ShiftSwapRequestDto>.Fail(laborCheck.ErrorMessage!);
+        }
+        // ────────────────────────────────────────────────────────────────────────────
+
         // LEAVE → PENDING (gửi thẳng Quản lý), SWAP/TRANSFER → PENDING_PEER (chờ đồng nghiệp xác nhận trước)
         var initialStatus = reqType == "LEAVE" ? "PENDING" : "PENDING_PEER";
 
@@ -2351,6 +2368,33 @@ public class ShiftService : IShiftService
         {
             return ApiResponse<bool>.Fail("Không thể phê duyệt đơn điều chỉnh cho ca làm việc đã trôi qua trong quá khứ.");
         }
+
+        // ── KIỂM TRA LUẬT LAO ĐỘNG khi Manager duyệt (Điều 110, 105/107, 111) ─────
+        if (!string.Equals(swap.RequestType, "LEAVE", StringComparison.OrdinalIgnoreCase)
+            && swap.RequestingAssignment?.Schedule?.ShiftTemplate != null)
+        {
+            var ra = swap.RequestingAssignment;
+            var ta = swap.TargetAssignment;
+
+            var laborCheck = await ValidateSwapLaborLawsAsync(
+                reqType: swap.RequestType,
+                requesterId: swap.RequesterUserId ?? ra.UserId,
+                requesterExcludeId: ra.Id,
+                requesterNewShiftDate: ta?.Schedule.WorkDate ?? ra.Schedule.WorkDate,
+                requesterNewShiftStart: ta?.Schedule.ShiftTemplate?.StartTime ?? ra.Schedule.ShiftTemplate.StartTime,
+                requesterNewShiftEnd: ta?.Schedule.ShiftTemplate?.EndTime ?? ra.Schedule.ShiftTemplate.EndTime,
+                requesterNewIsOvernight: ta?.Schedule.ShiftTemplate?.IsOvernight ?? ra.Schedule.ShiftTemplate.IsOvernight,
+                targetId: swap.TargetUserId,
+                targetExcludeId: ta?.Id,
+                targetNewShiftDate: ra.Schedule.WorkDate,
+                targetNewShiftStart: ra.Schedule.ShiftTemplate.StartTime,
+                targetNewShiftEnd: ra.Schedule.ShiftTemplate.EndTime,
+                targetNewIsOvernight: ra.Schedule.ShiftTemplate.IsOvernight);
+
+            if (!laborCheck.IsValid)
+                return ApiResponse<bool>.Fail(laborCheck.ErrorMessage!);
+        }
+        // ────────────────────────────────────────────────────────────────────────────
 
         // Lưu thông tin người làm đơn & đối tác trước khi thay đổi quan hệ DB
         var requesterUser = swap.RequesterUser ?? swap.RequestingAssignment?.User;
@@ -2631,6 +2675,32 @@ public class ShiftService : IShiftService
                     }
                 }
             }
+
+            // ── KIỂM TRA LUẬT LAO ĐỘNG khi Peer xác nhận (Điều 110, 105/107, 111) ──
+            if (swap.RequestingAssignment?.Schedule?.ShiftTemplate != null)
+            {
+                var ra = swap.RequestingAssignment;
+                var ta = swap.TargetAssignment;
+
+                var laborCheck = await ValidateSwapLaborLawsAsync(
+                    reqType: swap.RequestType,
+                    requesterId: swap.RequesterUserId ?? ra.UserId,
+                    requesterExcludeId: ra.Id,
+                    requesterNewShiftDate: ta?.Schedule.WorkDate ?? ra.Schedule.WorkDate,
+                    requesterNewShiftStart: ta?.Schedule.ShiftTemplate?.StartTime ?? ra.Schedule.ShiftTemplate.StartTime,
+                    requesterNewShiftEnd: ta?.Schedule.ShiftTemplate?.EndTime ?? ra.Schedule.ShiftTemplate.EndTime,
+                    requesterNewIsOvernight: ta?.Schedule.ShiftTemplate?.IsOvernight ?? ra.Schedule.ShiftTemplate.IsOvernight,
+                    targetId: swap.TargetUserId,
+                    targetExcludeId: ta?.Id,
+                    targetNewShiftDate: ra.Schedule.WorkDate,
+                    targetNewShiftStart: ra.Schedule.ShiftTemplate.StartTime,
+                    targetNewShiftEnd: ra.Schedule.ShiftTemplate.EndTime,
+                    targetNewIsOvernight: ra.Schedule.ShiftTemplate.IsOvernight);
+
+                if (!laborCheck.IsValid)
+                    return ApiResponse<bool>.Fail(laborCheck.ErrorMessage!);
+            }
+            // ────────────────────────────────────────────────────────────────────────
 
             swap.Status = "PENDING";
             await _context.SaveChangesAsync();
@@ -3153,5 +3223,327 @@ public class ShiftService : IShiftService
         }
 
         return ApiResponse<List<ColleagueShiftDto>>.Ok(availableShifts);
+    }
+
+    // ============================================================
+    // PRIVATE HELPERS: Kiểm tra Luật Lao động khi Swap / Transfer
+    // ============================================================
+
+    /// <summary>
+    /// Orchestrator: Chạy 3 bộ kiểm tra luật lao động cho cả 2 bên (requester và target).
+    /// SWAP: check cả 2 (mỗi người nhận ca của người kia).
+    /// TRANSFER: chỉ check target (người nhận ca mới).
+    /// </summary>
+    private async Task<(bool IsValid, string? ErrorMessage)> ValidateSwapLaborLawsAsync(
+        string reqType,
+        ulong requesterId,
+        ulong requesterExcludeId,
+        DateOnly requesterNewShiftDate,
+        TimeOnly requesterNewShiftStart,
+        TimeOnly requesterNewShiftEnd,
+        bool requesterNewIsOvernight,
+        ulong? targetId,
+        ulong? targetExcludeId,
+        DateOnly targetNewShiftDate,
+        TimeOnly targetNewShiftStart,
+        TimeOnly targetNewShiftEnd,
+        bool targetNewIsOvernight)
+    {
+        // --- Kiểm tra cho REQUESTER (chỉ với SWAP – người nhận ca của target) ---
+        if (string.Equals(reqType, "SWAP", StringComparison.OrdinalIgnoreCase))
+        {
+            double requesterNewHours = GetShiftNetWorkingHours(
+                requesterNewShiftStart, requesterNewShiftEnd, requesterNewIsOvernight);
+
+            var r1 = await CheckMinRestBetweenShiftsAsync(
+                requesterNewShiftDate, requesterId, requesterExcludeId,
+                requesterNewShiftStart, requesterNewShiftEnd, requesterNewIsOvernight,
+                isRequester: true);
+            if (!r1.IsValid) return r1;
+
+            var r2 = await CheckMaxDailyWorkingHoursAsync(
+                requesterId, requesterExcludeId,
+                requesterNewShiftDate, requesterNewHours,
+                isRequester: true);
+            if (!r2.IsValid) return r2;
+
+            var r3 = await CheckWeeklyRestRequirementAsync(
+                requesterId, requesterExcludeId,
+                requesterNewShiftDate, requesterNewShiftStart,
+                requesterNewShiftEnd, requesterNewIsOvernight,
+                isRequester: true);
+            if (!r3.IsValid) return r3;
+        }
+
+        // --- Kiểm tra cho TARGET (SWAP hoặc TRANSFER – người nhận ca của requester) ---
+        if (targetId.HasValue)
+        {
+            double targetNewHours = GetShiftNetWorkingHours(
+                targetNewShiftStart, targetNewShiftEnd, targetNewIsOvernight);
+
+            var t1 = await CheckMinRestBetweenShiftsAsync(
+                targetNewShiftDate, targetId.Value, targetExcludeId,
+                targetNewShiftStart, targetNewShiftEnd, targetNewIsOvernight,
+                isRequester: false);
+            if (!t1.IsValid) return t1;
+
+            var t2 = await CheckMaxDailyWorkingHoursAsync(
+                targetId.Value, targetExcludeId,
+                targetNewShiftDate, targetNewHours,
+                isRequester: false);
+            if (!t2.IsValid) return t2;
+
+            var t3 = await CheckWeeklyRestRequirementAsync(
+                targetId.Value, targetExcludeId,
+                targetNewShiftDate, targetNewShiftStart,
+                targetNewShiftEnd, targetNewIsOvernight,
+                isRequester: false);
+            if (!t3.IsValid) return t3;
+        }
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Tính số giờ làm việc thực của một ca (trừ break). Xử lý ca overnight.
+    /// </summary>
+    private static double GetShiftNetWorkingHours(
+        TimeOnly startTime, TimeOnly endTime, bool isOvernight)
+    {
+        double totalMinutes = isOvernight
+            ? (24 * 60 - startTime.ToTimeSpan().TotalMinutes + endTime.ToTimeSpan().TotalMinutes)
+            : (endTime.ToTimeSpan().TotalMinutes - startTime.ToTimeSpan().TotalMinutes);
+        return Math.Max(0, totalMinutes / 60.0);
+    }
+
+    /// <summary>
+    /// Điều 110 BLLĐ: Khoảng nghỉ tối thiểu 12 giờ liên tục giữa 2 ca liên tiếp.
+    /// Kiểm tra ca liền trước (∆t₁) và ca liền sau (∆t₂) ca mới.
+    /// </summary>
+    private async Task<(bool IsValid, string? ErrorMessage)> CheckMinRestBetweenShiftsAsync(
+        DateOnly newShiftDate,
+        ulong userId,
+        ulong? excludeAssignmentId,
+        TimeOnly newShiftStart,
+        TimeOnly newShiftEnd,
+        bool newIsOvernight,
+        bool isRequester)
+    {
+        var who = isRequester ? "Bạn" : "Đồng nghiệp";
+
+        // Chuyển ca mới sang DateTime
+        var newStartDt = newShiftDate.ToDateTime(newShiftStart);
+        var newEndDt = newIsOvernight
+            ? newShiftDate.AddDays(1).ToDateTime(newShiftEnd)
+            : newShiftDate.ToDateTime(newShiftEnd);
+
+        // Query tất cả ca trong khoảng ±2 ngày để bắt được ca overnight lân cận
+        var windowStart = newShiftDate.AddDays(-2);
+        var windowEnd = newShiftDate.AddDays(2);
+
+        var nearbyAssignments = await _context.ShiftAssignments
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Where(sa => sa.UserId == userId
+                      && sa.Status != "CANCELLED"
+                      && (excludeAssignmentId == null || sa.Id != excludeAssignmentId.Value)
+                      && sa.Schedule.WorkDate >= windowStart
+                      && sa.Schedule.WorkDate <= windowEnd
+                      && sa.Schedule.ShiftTemplate != null)
+            .ToListAsync();
+
+        DateTime? latestEndBeforeNew = null;  // ca liền trước
+        DateTime? earliestStartAfterNew = null; // ca liền sau
+
+        foreach (var sa in nearbyAssignments)
+        {
+            var t = sa.Schedule.ShiftTemplate!;
+            var sStart = sa.Schedule.WorkDate.ToDateTime(t.StartTime);
+            var sEnd = t.IsOvernight
+                ? sa.Schedule.WorkDate.AddDays(1).ToDateTime(t.EndTime)
+                : sa.Schedule.WorkDate.ToDateTime(t.EndTime);
+
+            if (sEnd <= newStartDt) // ca kết thúc TRƯỚC ca mới bắt đầu
+            {
+                if (latestEndBeforeNew == null || sEnd > latestEndBeforeNew)
+                    latestEndBeforeNew = sEnd;
+            }
+            else if (sStart >= newEndDt) // ca bắt đầu SAU ca mới kết thúc
+            {
+                if (earliestStartAfterNew == null || sStart < earliestStartAfterNew)
+                    earliestStartAfterNew = sStart;
+            }
+        }
+
+        int minRest = HeadcountConstants.MinRestBetweenShiftsHours;
+
+        if (latestEndBeforeNew.HasValue)
+        {
+            double gapHours = (newStartDt - latestEndBeforeNew.Value).TotalHours;
+            if (gapHours < minRest)
+                return (false,
+                    $"{who} vi phạm quy định nghỉ tối thiểu {minRest} giờ trước khi chuyển sang ca mới " +
+                    $"(khoảng cách hiện tại: {gapHours:F1} giờ < {minRest} giờ). [Điều 110 BLLĐ]");
+        }
+
+        if (earliestStartAfterNew.HasValue)
+        {
+            double gapHours = (earliestStartAfterNew.Value - newEndDt).TotalHours;
+            if (gapHours < minRest)
+                return (false,
+                    $"{who} vi phạm quy định nghỉ tối thiểu {minRest} giờ sau ca mới trước ca tiếp theo " +
+                    $"(khoảng cách hiện tại: {gapHours:F1} giờ < {minRest} giờ). [Điều 110 BLLĐ]");
+        }
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Điều 105 &amp; 107 BLLĐ: Tổng giờ làm việc trong ngày ≤ 12 giờ.
+    /// </summary>
+    private async Task<(bool IsValid, string? ErrorMessage)> CheckMaxDailyWorkingHoursAsync(
+        ulong userId,
+        ulong? excludeAssignmentId,
+        DateOnly targetDate,
+        double newShiftHours,
+        bool isRequester)
+    {
+        var who = isRequester ? "Bạn" : "Đồng nghiệp";
+
+        // Lấy tất cả ca trong ngày targetDate (bao gồm ca overnight bắt đầu ngày trước)
+        var dayAssignments = await _context.ShiftAssignments
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Where(sa => sa.UserId == userId
+                      && sa.Status != "CANCELLED"
+                      && (excludeAssignmentId == null || sa.Id != excludeAssignmentId.Value)
+                      && (sa.Schedule.WorkDate == targetDate
+                          || (sa.Schedule.ShiftTemplate!.IsOvernight && sa.Schedule.WorkDate == targetDate.AddDays(-1))))
+            .ToListAsync();
+
+        double existingHours = 0;
+        foreach (var sa in dayAssignments)
+        {
+            var t = sa.Schedule.ShiftTemplate!;
+            // Với ca overnight bắt đầu hôm trước: chỉ tính phần giờ rơi vào targetDate
+            if (t.IsOvernight && sa.Schedule.WorkDate == targetDate.AddDays(-1))
+            {
+                existingHours += t.EndTime.ToTimeSpan().TotalHours; // giờ từ 00:00 đến EndTime
+            }
+            else
+            {
+                existingHours += GetShiftNetWorkingHours(t.StartTime, t.EndTime, t.IsOvernight);
+            }
+        }
+
+        double totalHours = existingHours + newShiftHours;
+        int maxHours = HeadcountConstants.MaxWorkingHoursPerDay;
+
+        if (totalHours > maxHours)
+            return (false,
+                $"{who}: Tổng giờ làm việc trong ngày {targetDate:dd/MM/yyyy} sẽ đạt {totalHours:F1} giờ, " +
+                $"vượt quá giới hạn {maxHours} giờ/ngày. [Điều 105 & 107 BLLĐ]");
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Điều 111 BLLĐ: Trong chu kỳ 7 ngày chứa ca mới, phải có ít nhất 1 khoảng trống ≥ 24 giờ liên tục.
+    /// </summary>
+    private async Task<(bool IsValid, string? ErrorMessage)> CheckWeeklyRestRequirementAsync(
+        ulong userId,
+        ulong? excludeAssignmentId,
+        DateOnly newShiftDate,
+        TimeOnly newShiftStart,
+        TimeOnly newShiftEnd,
+        bool newIsOvernight,
+        bool isRequester)
+    {
+        var who = isRequester ? "Bạn" : "Đồng nghiệp";
+
+        // Cửa sổ kiểm tra: 6 ngày trước + ngày ca mới = 7 ngày liên tiếp
+        var windowStart = newShiftDate.AddDays(-(HeadcountConstants.WeeklyRestWindowDays - 1));
+        var windowEnd   = newShiftDate;
+        var windowStartDt = windowStart.ToDateTime(TimeOnly.MinValue);
+        var windowEndDt   = windowEnd.AddDays(1).ToDateTime(TimeOnly.MinValue); // exclusive
+
+        // Query tất cả ca trong cửa sổ (±1 ngày để bắt overnight)
+        var assignments = await _context.ShiftAssignments
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Where(sa => sa.UserId == userId
+                      && sa.Status != "CANCELLED"
+                      && (excludeAssignmentId == null || sa.Id != excludeAssignmentId.Value)
+                      && sa.Schedule.WorkDate >= windowStart.AddDays(-1)
+                      && sa.Schedule.WorkDate <= windowEnd.AddDays(1)
+                      && sa.Schedule.ShiftTemplate != null)
+            .ToListAsync();
+
+        // Xây dựng danh sách (StartDt, EndDt) bao gồm ca mới
+        var intervals = new List<(DateTime Start, DateTime End)>();
+
+        foreach (var sa in assignments)
+        {
+            var t = sa.Schedule.ShiftTemplate!;
+            var sStart = sa.Schedule.WorkDate.ToDateTime(t.StartTime);
+            var sEnd = t.IsOvernight
+                ? sa.Schedule.WorkDate.AddDays(1).ToDateTime(t.EndTime)
+                : sa.Schedule.WorkDate.ToDateTime(t.EndTime);
+            // Chỉ đưa vào nếu interval cắt qua cửa sổ [windowStartDt, windowEndDt]
+            if (sEnd > windowStartDt && sStart < windowEndDt)
+                intervals.Add((sStart, sEnd));
+        }
+
+        // Thêm ca mới
+        var newStart = newShiftDate.ToDateTime(newShiftStart);
+        var newEnd   = newIsOvernight
+            ? newShiftDate.AddDays(1).ToDateTime(newShiftEnd)
+            : newShiftDate.ToDateTime(newShiftEnd);
+        intervals.Add((newStart, newEnd));
+
+        // Sắp xếp và merge overlapping/adjacent intervals
+        intervals.Sort((a, b) => a.Start.CompareTo(b.Start));
+        var merged = new List<(DateTime Start, DateTime End)>();
+        foreach (var iv in intervals)
+        {
+            if (merged.Count == 0 || iv.Start > merged[^1].End)
+                merged.Add(iv);
+            else
+                merged[^1] = (merged[^1].Start, iv.End > merged[^1].End ? iv.End : merged[^1].End);
+        }
+
+        // Kiểm tra các khoảng trống trong cửa sổ
+        int minRest = HeadcountConstants.MinWeeklyRestHours;
+        bool hasAdequateRest = false;
+
+        // Khoảng trống trước ca đầu tiên
+        if (merged.Count == 0 || (merged[0].Start - windowStartDt).TotalHours >= minRest)
+        {
+            hasAdequateRest = true;
+        }
+
+        if (!hasAdequateRest)
+        {
+            // Khoảng trống giữa các ca liên tiếp
+            for (int i = 0; i < merged.Count - 1; i++)
+            {
+                double gap = (merged[i + 1].Start - merged[i].End).TotalHours;
+                if (gap >= minRest) { hasAdequateRest = true; break; }
+            }
+        }
+
+        if (!hasAdequateRest)
+        {
+            // Khoảng trống sau ca cuối cùng
+            if (merged.Count > 0 && (windowEndDt - merged[^1].End).TotalHours >= minRest)
+                hasAdequateRest = true;
+        }
+
+        if (!hasAdequateRest)
+            return (false,
+                $"{who} vi phạm quy định nghỉ tuần tối thiểu {minRest} giờ liên tục trong chu kỳ 7 ngày " +
+                $"({windowStart:dd/MM} – {windowEnd:dd/MM/yyyy}). Nhận ca này sẽ không còn khoảng nghỉ đủ {minRest} giờ. [Điều 111 BLLĐ]");
+
+        return (true, null);
     }
 }

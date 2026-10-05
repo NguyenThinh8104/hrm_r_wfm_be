@@ -13,7 +13,7 @@ public class ShiftSwapRequest
     public User? TargetUser { get; set; }
     public ulong? TargetAssignmentId { get; set; }
     public ShiftAssignment? TargetAssignment { get; set; }
-    public string RequestType { get; set; } = "SWAP"; // "SWAP" or "TRANSFER" or "LEAVE"
+    public string RequestType { get; set; } = "SWAP"; // "SWAP" or "LEAVE"
     public string? Reason { get; set; }
     public string Status { get; set; } = "PENDING";
     public ulong? ReviewedBy { get; set; }

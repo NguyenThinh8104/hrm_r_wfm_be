@@ -520,94 +520,6 @@ namespace Shared.Migrations
                     b.ToTable("kiosks", (string)null);
                 });
 
-            modelBuilder.Entity("Domain.Entities.MonthlyTimesheet", b =>
-                {
-                    b.Property<ulong>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("Id"));
-
-                    b.Property<ulong>("BranchId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<DateTime?>("ExportedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime?>("LockedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<ulong?>("LockedBy")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<byte>("PeriodMonth")
-                        .HasColumnType("tinyint unsigned");
-
-                    b.Property<ushort>("PeriodYear")
-                        .HasColumnType("smallint unsigned");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LockedBy");
-
-                    b.HasIndex("BranchId", "PeriodMonth", "PeriodYear")
-                        .IsUnique();
-
-                    b.ToTable("monthly_timesheets", (string)null);
-                });
-
-            modelBuilder.Entity("Domain.Entities.OvertimeRequest", b =>
-                {
-                    b.Property<ulong>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("Id"));
-
-                    b.Property<ulong?>("ApprovedByManager")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<uint>("ApprovedMinutes")
-                        .HasColumnType("int unsigned");
-
-                    b.Property<ulong>("AttendanceLogId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("ManagerNotes")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("OtType")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<uint>("RequestedMinutes")
-                        .HasColumnType("int unsigned");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<ulong?>("VerifiedByLeader")
-                        .HasColumnType("bigint unsigned");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ApprovedByManager");
-
-                    b.HasIndex("AttendanceLogId");
-
-                    b.HasIndex("VerifiedByLeader");
-
-                    b.ToTable("overtime_requests", (string)null);
-                });
-
             modelBuilder.Entity("Domain.Entities.Role", b =>
                 {
                     b.Property<byte>("Id")
@@ -1207,49 +1119,6 @@ namespace Shared.Migrations
                     b.Navigation("Branch");
                 });
 
-            modelBuilder.Entity("Domain.Entities.MonthlyTimesheet", b =>
-                {
-                    b.HasOne("Domain.Entities.Branch", "Branch")
-                        .WithMany()
-                        .HasForeignKey("BranchId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Domain.Entities.User", "LockedByUser")
-                        .WithMany()
-                        .HasForeignKey("LockedBy")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("Branch");
-
-                    b.Navigation("LockedByUser");
-                });
-
-            modelBuilder.Entity("Domain.Entities.OvertimeRequest", b =>
-                {
-                    b.HasOne("Domain.Entities.User", "ApprovedByManagerUser")
-                        .WithMany()
-                        .HasForeignKey("ApprovedByManager")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("Domain.Entities.AttendanceLog", "AttendanceLog")
-                        .WithMany("OvertimeRequests")
-                        .HasForeignKey("AttendanceLogId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Domain.Entities.User", "VerifiedByLeaderUser")
-                        .WithMany()
-                        .HasForeignKey("VerifiedByLeader")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("ApprovedByManagerUser");
-
-                    b.Navigation("AttendanceLog");
-
-                    b.Navigation("VerifiedByLeaderUser");
-                });
-
             modelBuilder.Entity("Domain.Entities.SecurityHandover", b =>
                 {
                     b.HasOne("Domain.Entities.User", "SecurityGuard")
@@ -1456,11 +1325,6 @@ namespace Shared.Migrations
                     b.Navigation("CreatedByUser");
 
                     b.Navigation("ShiftTemplate");
-                });
-
-            modelBuilder.Entity("Domain.Entities.AttendanceLog", b =>
-                {
-                    b.Navigation("OvertimeRequests");
                 });
 
             modelBuilder.Entity("Domain.Entities.Branch", b =>

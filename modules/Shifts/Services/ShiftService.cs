@@ -67,9 +67,6 @@ public class ShiftService : IShiftService
         {
             TemplateCode = normalizedCode,
             Name = dto.Name.Trim(),
-            Description = string.IsNullOrWhiteSpace(dto.Description) 
-                ? $"Khung ca từ {dto.StartTime:HH\\:mm} đến {dto.EndTime:HH\\:mm}" 
-                : dto.Description.Trim(),
             StartTime = dto.StartTime,
             EndTime = dto.EndTime,
             IsOvernight = validation.IsOvernight,
@@ -109,10 +106,6 @@ public class ShiftService : IShiftService
         }
 
         template.Name = dto.Name.Trim();
-        if (dto.Description != null)
-        {
-            template.Description = dto.Description.Trim();
-        }
         template.StartTime = dto.StartTime;
         template.EndTime = dto.EndTime;
         template.IsOvernight = validation.IsOvernight;
@@ -310,7 +303,7 @@ public class ShiftService : IShiftService
             Id = st.Id,
             TemplateCode = st.TemplateCode,
             Name = st.Name,
-            Description = st.Description,
+            Description = null,
             StartTime = st.StartTime.ToString("HH\\:mm\\:ss"),
             EndTime = st.EndTime.ToString("HH\\:mm\\:ss"),
             BreakMinutes = st.BreakDurationMinutes,

@@ -88,6 +88,38 @@ public static class DbInitializer
                 catch { }
             }
 
+            // Check users table columns for RefreshToken and RefreshTokenExpiryTime
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users';";
+                
+                var userCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        userCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!userCols.Contains("RefreshToken"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `RefreshToken` LONGTEXT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                if (!userCols.Contains("RefreshTokenExpiryTime"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `RefreshTokenExpiryTime` DATETIME(6) NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
             // Check branch_tiers table
             using (var command = connection.CreateCommand())
             {

@@ -46,6 +46,8 @@ public class EmployeeDetailDto
     public ulong? OriginalHomeBranchId { get; set; }
     public string? OriginalBranchName { get; set; }
     public DateOnly? DispatchEndDate { get; set; }
+    public DateTime? LockedAt { get; set; }
+    public int? DaysUntilDeletable { get; set; }
 }
 
 public class CreateEmployeeDto

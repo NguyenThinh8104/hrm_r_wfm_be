@@ -875,10 +875,6 @@ public class UserService : IUserService
 
                 if (logIds.Count > 0)
                 {
-                    await _context.OvertimeRequests
-                        .Where(o => logIds.Contains(o.AttendanceLogId))
-                        .ExecuteDeleteAsync();
-
                     await _context.AttendanceLogs
                         .Where(al => logIds.Contains(al.Id))
                         .ExecuteDeleteAsync();
@@ -919,12 +915,6 @@ public class UserService : IUserService
             // 6. Cập nhật các trường khóa ngoại nullable về NULL
             await _context.AttendanceLogs.Where(al => al.FraudFlaggedBy == userId)
                 .ExecuteUpdateAsync(s => s.SetProperty(b => b.FraudFlaggedBy, (ulong?)null));
-            await _context.OvertimeRequests.Where(o => o.VerifiedByLeader == userId)
-                .ExecuteUpdateAsync(s => s.SetProperty(b => b.VerifiedByLeader, (ulong?)null));
-            await _context.OvertimeRequests.Where(o => o.ApprovedByManager == userId)
-                .ExecuteUpdateAsync(s => s.SetProperty(b => b.ApprovedByManager, (ulong?)null));
-            await _context.MonthlyTimesheets.Where(m => m.LockedBy == userId)
-                .ExecuteUpdateAsync(s => s.SetProperty(b => b.LockedBy, (ulong?)null));
             await _context.TemporaryDispatches.Where(td => td.ApprovedBy == userId)
                 .ExecuteUpdateAsync(s => s.SetProperty(b => b.ApprovedBy, (ulong?)null));
             await _context.DispatchEmployees.Where(de => de.ApprovedBy == userId)

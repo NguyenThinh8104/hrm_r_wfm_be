@@ -62,6 +62,7 @@ public class BranchService : IBranchService, IStoreService
         var branches = await query
             .Include(b => b.Tier)
             .Include(b => b.Kiosks)
+            .Include(b => b.ShiftTemplates)
             .OrderBy(b => b.BranchCode)
             .ToListAsync();
 
@@ -99,6 +100,7 @@ public class BranchService : IBranchService, IStoreService
         var branch = await _context.Branches
             .Include(b => b.Tier)
             .Include(b => b.Kiosks)
+            .Include(b => b.ShiftTemplates)
             .FirstOrDefaultAsync(b => b.Id == id);
 
         if (branch == null)
@@ -565,6 +567,7 @@ public class BranchService : IBranchService, IStoreService
     private static BranchDto MapToBranchDto(Branch b)
     {
         var kiosks = b.Kiosks ?? new List<KioskDevice>();
+        var templates = b.ShiftTemplates ?? new List<ShiftTemplate>();
         return new BranchDto
         {
             Id = b.Id,
@@ -576,6 +579,8 @@ public class BranchService : IBranchService, IStoreService
             GeofenceRadiusMeters = b.GeofenceRadiusMeters > 0 ? b.GeofenceRadiusMeters : 50,
             BranchTier = b.BranchTier, // Map phân cấp chi nhánh từ entity sang DTO (kèm BranchTierName tự tính toán)
             StaffCount = b.StaffCount,
+            ShiftMode = b.ShiftMode ?? "GLOBAL",
+            ActiveCustomShiftCount = templates.Count(st => st.Scope == "BRANCH" && st.IsActive),
             TierId = b.TierId,
             Tier = b.Tier != null ? new TierDto
             {

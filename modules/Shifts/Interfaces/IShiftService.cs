@@ -11,8 +11,18 @@ namespace Modules.Shifts.Interfaces;
 public interface IShiftService
 {
     // ==========================================
-    // 1. Quản lý Mẫu Ca Chuẩn (UC 1.3 - Operations Admin)
+    // 1. Quản lý Mẫu Ca Chuẩn (UC 1.3 - Operations Admin & Khung ca chung / riêng)
     // ==========================================
+
+    Task<PagedResult<ShiftTemplateDto>> GetShiftTemplatesPagedAsync(string? scope, ulong? branchId, string? type, bool? isActive, string? q, int page, int pageSize);
+    Task<ShiftTemplateStatsDto> GetShiftTemplateStatsAsync();
+    Task<ShiftOperationResult<ShiftTemplateDto>> CreateShiftTemplateAsync(CreateShiftTemplateRequest request, ulong? actorId = null, string? ipAddress = null);
+    Task<ShiftOperationResult<ShiftTemplateDto>> UpdateShiftTemplateAsync(uint id, UpdateShiftTemplateRequest request, bool confirm, ulong? actorId = null, string? ipAddress = null);
+    Task<ShiftOperationResult<ShiftTemplateDto>> UpdateShiftTemplateActiveAsync(uint id, bool isActive, bool confirm, ulong? actorId = null, string? ipAddress = null);
+    Task<ShiftOperationResult<BranchEffectiveShiftsDto>> GetBranchEffectiveShiftsAsync(ulong branchId, ulong? currentUserId = null, string? currentUserRole = null);
+    Task<ShiftOperationResult<List<ShiftTemplateDto>>> GetBranchCustomShiftsAsync(ulong branchId);
+    Task<ShiftOperationResult<BranchEffectiveShiftsDto>> UpdateBranchShiftModeAsync(ulong branchId, string mode, bool confirm, ulong? actorId = null, string? ipAddress = null);
+    Task<List<BranchSelectorItemDto>> GetBranchesForSelectorAsync(string? shiftMode, string? q);
 
     /// <summary>
     /// Tạo mẫu ca làm việc chuẩn mới áp dụng cho hệ thống chuỗi cửa hàng (UC 1.3).

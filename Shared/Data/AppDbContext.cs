@@ -44,12 +44,16 @@ public partial class AppDbContext : DbContext
             entity.ToTable("branches");
             entity.HasKey(e => e.Id);
             entity.Property(e => e.BranchCode).HasColumnName("BranchCode");
+            entity.Property(e => e.ShiftMode).HasColumnName("ShiftMode").HasMaxLength(20).HasDefaultValue("GLOBAL").IsRequired();
             entity.Property(e => e.Name).HasColumnName("Name");
             entity.Property(e => e.Address).HasColumnName("Address");
             entity.Property(e => e.Status).HasColumnName("Status");
             entity.Property(e => e.GeofenceRadiusMeters).HasColumnName("GeofenceRadiusMeters");
             // Phân cấp chi nhánh (BranchTier: 1 = Tier 1, 2 = Tier 2, 3 = Tier 3). Mặc định là Tier 2 (Tiêu chuẩn).
-            entity.Property(e => e.BranchTier).HasColumnName("BranchTier").HasDefaultValue(Domain.Enums.BranchTier.Tier2);
+            entity.Property(e => e.BranchTier)
+                .HasColumnName("BranchTier")
+                .HasDefaultValue(Domain.Enums.BranchTier.Tier2)
+                .HasSentinel(Domain.Enums.BranchTier.Tier2);
             entity.Property(e => e.StaffCount).HasColumnName("StaffCount").HasDefaultValue(0);
             entity.Property(e => e.TierId).HasColumnName("TierId");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
@@ -193,11 +197,19 @@ public partial class AppDbContext : DbContext
         // 6. shift_templates
         modelBuilder.Entity<ShiftTemplate>(entity =>
         {
-            entity.ToTable("shift_templates");
+            entity.ToTable("shift_templates", t =>
+            {
+                t.HasCheckConstraint("CK_shift_templates_Scope_BranchId", "(Scope = 'GLOBAL' AND BranchId IS NULL) OR (Scope = 'BRANCH' AND BranchId IS NOT NULL)");
+            });
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.TemplateCode).IsUnique();
+            entity.HasIndex(e => new { e.Scope, e.BranchId, e.IsActive });
             entity.Property(e => e.TemplateCode).HasColumnName("TemplateCode");
             entity.Property(e => e.Name).HasColumnName("Name");
+            entity.Property(e => e.Description).HasColumnName("Description");
+            entity.Property(e => e.Scope).HasColumnName("Scope").HasMaxLength(20).HasDefaultValue("GLOBAL").IsRequired();
+            entity.Property(e => e.BranchId).HasColumnName("BranchId");
+            entity.Property(e => e.ShiftType).HasColumnName("ShiftType").HasMaxLength(20);
             entity.Property(e => e.StartTime).HasColumnName("StartTime");
             entity.Property(e => e.EndTime).HasColumnName("EndTime");
             entity.Property(e => e.IsOvernight).HasColumnName("IsOvernight");
@@ -205,6 +217,10 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsActive).HasColumnName("IsActive");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
+            entity.HasOne(e => e.Branch)
+                .WithMany(b => b.ShiftTemplates)
+                .HasForeignKey(e => e.BranchId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // 7. work_schedules
@@ -365,7 +381,8 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Status)
                 .HasConversion<byte>()
                 .HasColumnType("tinyint unsigned")
-                .HasDefaultValue(AttendanceLogStatus.PENDING);
+                .HasDefaultValue(AttendanceLogStatus.PENDING)
+                .HasSentinel(AttendanceLogStatus.PENDING);
 
             entity.Property(e => e.CheckInStatus)
                 .HasConversion<byte>()

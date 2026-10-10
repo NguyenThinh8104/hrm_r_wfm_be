@@ -40,6 +40,9 @@ public class BranchDto
     /// </summary>
     public int StaffCount { get; set; }
 
+    public string ShiftMode { get; set; } = "GLOBAL"; // "GLOBAL" | "CUSTOM"
+    public int ActiveCustomShiftCount { get; set; }
+
     public string? KioskAllowedIp { get; set; }
     public string? KioskAllowedBrowser { get; set; }
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"

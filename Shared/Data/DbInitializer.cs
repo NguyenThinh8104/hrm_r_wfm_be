@@ -96,6 +96,38 @@ public static class DbInitializer
                 catch { }
             }
 
+            // Check users table columns for RefreshToken and RefreshTokenExpiryTime
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users';";
+                
+                var userCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        userCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (!userCols.Contains("RefreshToken"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `RefreshToken` LONGTEXT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                if (!userCols.Contains("RefreshTokenExpiryTime"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `RefreshTokenExpiryTime` DATETIME(6) NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+
             // Check branch_tiers table
             using (var command = connection.CreateCommand())
             {
@@ -712,7 +744,6 @@ public static class DbInitializer
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
-                    Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
@@ -730,7 +761,6 @@ public static class DbInitializer
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
-                    Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
@@ -766,7 +796,6 @@ public static class DbInitializer
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
-                    Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 },
@@ -784,7 +813,6 @@ public static class DbInitializer
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
-                    Status = "ACTIVE",
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 }
@@ -801,10 +829,9 @@ public static class DbInitializer
                 Id = 1,
                 BranchId = 1,
                 KioskCode = "CH01-POS01",
-                DeviceName = "Máy Kiosk Cầu Giấy 01",
-                KioskToken = "ksk_tok_demo_pos01",
-                IpWhitelist = "192.168.1.100,127.0.0.1,::1",
-                UserAgentPattern = "Chrome,Edge,KioskBrowser",
+                Name = "Máy Kiosk Cầu Giấy 01",
+                DeviceToken = "ksk_tok_demo_pos01",
+                IpAddress = "192.168.1.100,127.0.0.1,::1",
                 Status = "ACTIVE",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow

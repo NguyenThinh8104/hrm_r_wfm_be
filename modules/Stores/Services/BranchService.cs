@@ -453,10 +453,9 @@ public class BranchService : IBranchService, IStoreService
         {
             BranchId = branchId,
             KioskCode = kioskCode,
-            DeviceName = deviceName,
-            KioskToken = kioskToken,
-            IpWhitelist = string.IsNullOrWhiteSpace(dto.IpWhitelist) ? null : dto.IpWhitelist.Trim(),
-            UserAgentPattern = string.IsNullOrWhiteSpace(dto.UserAgentPattern) ? null : dto.UserAgentPattern.Trim(),
+            Name = deviceName,
+            DeviceToken = kioskToken,
+            IpAddress = string.IsNullOrWhiteSpace(dto.IpWhitelist) ? null : dto.IpWhitelist.Trim(),
             Status = "ACTIVE",
             CreatedAt = now,
             UpdatedAt = now
@@ -484,11 +483,10 @@ public class BranchService : IBranchService, IStoreService
 
         if (!string.IsNullOrWhiteSpace(dto.DeviceName))
         {
-            kiosk.DeviceName = dto.DeviceName.Trim();
+            kiosk.Name = dto.DeviceName.Trim();
         }
 
-        kiosk.IpWhitelist = string.IsNullOrWhiteSpace(dto.IpWhitelist) ? null : dto.IpWhitelist.Trim();
-        kiosk.UserAgentPattern = string.IsNullOrWhiteSpace(dto.UserAgentPattern) ? null : dto.UserAgentPattern.Trim();
+        kiosk.IpAddress = string.IsNullOrWhiteSpace(dto.IpWhitelist) ? null : dto.IpWhitelist.Trim();
         kiosk.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -619,13 +617,13 @@ public class BranchService : IBranchService, IStoreService
         {
             Id = k.Id,
             BranchId = k.BranchId,
-            BranchCode = b?.Code ?? string.Empty,
+            BranchCode = b?.BranchCode ?? string.Empty,
             BranchName = b?.Name ?? string.Empty,
-            DeviceName = k.DeviceName,
+            DeviceName = k.Name,
             KioskCode = k.KioskCode,
-            IpWhitelist = k.IpWhitelist,
-            KioskToken = k.KioskToken,
-            UserAgentPattern = k.UserAgentPattern,
+            IpWhitelist = k.IpAddress,
+            KioskToken = k.DeviceToken,
+            UserAgentPattern = null,
             Status = k.Status,
             LastPingAt = k.LastPingAt,
             CreatedAt = k.CreatedAt,

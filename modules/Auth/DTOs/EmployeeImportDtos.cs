@@ -31,6 +31,7 @@ public class ImportRowErrorDto
     public int RowNumber { get; set; }
     public string? EmployeeCode { get; set; }
     public string? FullName { get; set; }
+    public string? Email { get; set; }
     public string ErrorMessage { get; set; } = string.Empty;
 }
 
@@ -60,4 +61,13 @@ public class ParsedEmployeeRow
     public string EmploymentType { get; set; } = "FULL_TIME";
     public string BranchIdentifier { get; set; } = string.Empty;
     public string Password { get; set; } = "Password@123";
+}
+
+/// <summary>
+/// DTO gửi yêu cầu xuất file báo cáo lỗi import chi tiết (.xlsx).
+/// </summary>
+public class ExportImportErrorsRequestDto
+{
+    public List<ImportRowErrorDto> Errors { get; set; } = new();
+    public string? SourceFileName { get; set; }
 }

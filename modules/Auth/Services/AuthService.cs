@@ -78,12 +78,19 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
             return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ACCOUNT_LOCKED);
         }
 
-        var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
+        var (token, expiresAt) = _jwtTokenService.GenerateAccessToken(user);
+        var (refreshToken, refreshExpiresAt) = _jwtTokenService.GenerateRefreshToken();
+
+        user.RefreshToken = refreshToken;
+        user.RefreshTokenExpiryTime = refreshExpiresAt;
+        await _context.SaveChangesAsync();
+
         var summary = MapUserSummary(user);
 
         return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
         {
             Token = token,
+            RefreshToken = refreshToken,
             ExpiresAt = expiresAt,
             User = summary
         }, AuthMessages.LOGIN_SUCCESS);
@@ -123,12 +130,19 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
             return ApiResponse<AuthResponseDto>.Fail(string.Format(AuthMessages.NOT_ASSIGNED_TO_BRANCH, user.FullName));
         }
 
-        var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
+        var (token, expiresAt) = _jwtTokenService.GenerateAccessToken(user);
+        var (refreshToken, refreshExpiresAt) = _jwtTokenService.GenerateRefreshToken();
+
+        user.RefreshToken = refreshToken;
+        user.RefreshTokenExpiryTime = refreshExpiresAt;
+        await _context.SaveChangesAsync();
+
         var summary = MapUserSummary(user);
 
         return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
         {
             Token = token,
+            RefreshToken = refreshToken,
             ExpiresAt = expiresAt,
             User = summary
         }, AuthMessages.KIOSK_LOGIN_SUCCESS);
@@ -367,7 +381,13 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
             return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ACCOUNT_LOCKED);
         }
 
-        var (token, expiresAt) = _jwtTokenService.GenerateToken(user);
+        var (token, expiresAt) = _jwtTokenService.GenerateAccessToken(user);
+        var (refreshToken, refreshExpiresAt) = _jwtTokenService.GenerateRefreshToken();
+
+        user.RefreshToken = refreshToken;
+        user.RefreshTokenExpiryTime = refreshExpiresAt;
+        await _context.SaveChangesAsync();
+
         var summary = MapUserSummary(user);
 
         _logger.LogInformation("Người dùng {FullName} ({Email}) đăng nhập Google thành công với vai trò {Role}.", user.FullName, user.Email, summary.Role);
@@ -375,9 +395,66 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
         return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
         {
             Token = token,
+            RefreshToken = refreshToken,
             ExpiresAt = expiresAt,
             User = summary
         }, AuthMessages.GOOGLE_LOGIN_SUCCESS);
+    }
+
+    public async Task<ApiResponse<AuthResponseDto>> RefreshTokenAsync(string refreshToken)
+    {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            return ApiResponse<AuthResponseDto>.Fail("Refresh token không hợp lệ.");
+        }
+
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .Include(u => u.HomeBranch)
+            .FirstOrDefaultAsync(u => u.RefreshToken == refreshToken);
+
+        if (user == null || user.RefreshTokenExpiryTime == null || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+        {
+            return ApiResponse<AuthResponseDto>.Fail("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        }
+
+        if (user.Status != "ACTIVE")
+        {
+            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ACCOUNT_LOCKED);
+        }
+
+        // Cấp Access Token mới (15 phút) và xoay vòng Refresh Token (7 ngày)
+        var (newAccessToken, expiresAt) = _jwtTokenService.GenerateAccessToken(user);
+        var (newRefreshToken, refreshExpiresAt) = _jwtTokenService.GenerateRefreshToken();
+
+        user.RefreshToken = newRefreshToken;
+        user.RefreshTokenExpiryTime = refreshExpiresAt;
+        await _context.SaveChangesAsync();
+
+        var summary = MapUserSummary(user);
+
+        return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
+        {
+            Token = newAccessToken,
+            RefreshToken = newRefreshToken,
+            ExpiresAt = expiresAt,
+            User = summary
+        }, "Làm mới phiên đăng nhập thành công.");
+    }
+
+    public async Task<ApiResponse<bool>> RevokeTokenAsync(int userId)
+    {
+        var user = await _context.Users.FindAsync((ulong)userId);
+        if (user == null)
+        {
+            return ApiResponse<bool>.Fail("Người dùng không tồn tại.");
+        }
+
+        user.RefreshToken = null;
+        user.RefreshTokenExpiryTime = null;
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<bool>.Ok(true, "Đăng xuất thành công.");
     }
 
     public async Task<ApiResponse<bool>> ChangePasswordAsync(int userId, ChangePasswordDto request)

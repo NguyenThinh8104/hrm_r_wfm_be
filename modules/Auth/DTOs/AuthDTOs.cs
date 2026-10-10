@@ -6,6 +6,11 @@ public class LoginRequestDto
     public string Password { get; set; } = string.Empty;
 }
 
+public class RefreshTokenRequestDto
+{
+    public string? RefreshToken { get; set; }
+}
+
 public class KioskLoginRequestDto
 {
     public string EmployeeCode { get; set; } = string.Empty;
@@ -35,6 +40,7 @@ public class ResetPasswordRequestDto
 public class AuthResponseDto
 {
     public string Token { get; set; } = string.Empty;
+    public string? RefreshToken { get; set; }
     public DateTime ExpiresAt { get; set; }
     public UserSummaryDto User { get; set; } = null!;
 }

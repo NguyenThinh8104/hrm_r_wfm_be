@@ -165,26 +165,7 @@ public class BranchLockService : IBranchLockService
             });
         }
 
-        // 3b. OvertimeRequests (Tăng ca)
-        var pendingOtRequests = await _context.OvertimeRequests
-            .AsNoTracking()
-            .Include(ot => ot.AttendanceLog)
-                .ThenInclude(al => al.Assignment)
-                    .ThenInclude(sa => sa.User)
-            .Where(ot => ot.Status == "PENDING" && ot.AttendanceLog != null && ot.AttendanceLog.BranchId == branchId)
-            .ToListAsync(cancellationToken);
-
-        foreach (var ot in pendingOtRequests)
-        {
-            var empName = ot.AttendanceLog?.Assignment?.User?.FullName ?? "Nhân sự";
-            pendingItems.Add(new BranchLockBlockerItemDto
-            {
-                Id = $"OT-{ot.Id}",
-                Name = $"Đơn tăng ca #{ot.Id} ({ot.RequestedMinutes} phút) - {empName}"
-            });
-        }
-
-        // 3c. TemporaryDispatches (Điều động nhân sự đi/đến chi nhánh)
+        // 3b. TemporaryDispatches (Điều động nhân sự đi/đến chi nhánh)
         var pendingDispatches = await _context.TemporaryDispatches
             .AsNoTracking()
             .Include(td => td.User)

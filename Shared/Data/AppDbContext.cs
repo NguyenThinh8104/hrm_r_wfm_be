@@ -27,11 +27,9 @@ public partial class AppDbContext : DbContext
     public DbSet<TemporaryDispatch> TemporaryDispatches { get; set; } = null!;
     public DbSet<DispatchEmployee> DispatchEmployees { get; set; } = null!;
     public DbSet<AttendanceLog> AttendanceLogs { get; set; } = null!;
-    public DbSet<OvertimeRequest> OvertimeRequests { get; set; } = null!;
     public DbSet<ShiftHandover> ShiftHandovers { get; set; } = null!;
     public DbSet<CashHandover> CashHandovers { get; set; } = null!;
     public DbSet<SecurityHandover> SecurityHandovers { get; set; } = null!;
-    public DbSet<MonthlyTimesheet> MonthlyTimesheets { get; set; } = null!;
     public DbSet<SystemAuditLog> SystemAuditLogs { get; set; } = null!;
     public DbSet<BranchTierEntity> BranchTiers { get; set; } = null!;
     public DbSet<BranchLockLog> BranchLockLogs { get; set; } = null!;
@@ -171,13 +169,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
             entity.HasIndex(e => e.KioskCode).IsUnique();
             entity.HasIndex(e => e.DeviceToken).IsUnique();
-            entity.Ignore(e => e.DeviceName);
-            entity.Ignore(e => e.KioskToken);
-            entity.Ignore(e => e.AllowedIp);
-            entity.Ignore(e => e.IpWhitelist);
-            entity.Ignore(e => e.AllowedBrowser);
-            entity.Ignore(e => e.UserAgentPattern);
-            entity.Ignore(e => e.LastBrowserUserAgent);
 
             entity.HasOne(e => e.Branch)
                 .WithMany(b => b.Kiosks)
@@ -226,8 +217,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsActive).HasColumnName("IsActive");
             entity.Property(e => e.CreatedAt).HasColumnName("CreatedAt");
             entity.Property(e => e.UpdatedAt).HasColumnName("UpdatedAt");
-            entity.Ignore(e => e.Status);
-
             entity.HasOne(e => e.Branch)
                 .WithMany(b => b.ShiftTemplates)
                 .HasForeignKey(e => e.BranchId)
@@ -435,28 +424,6 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
-        // 12. overtime_requests
-        modelBuilder.Entity<OvertimeRequest>(entity =>
-        {
-            entity.ToTable("overtime_requests");
-            entity.HasKey(e => e.Id);
-
-            entity.HasOne(e => e.AttendanceLog)
-                .WithMany(al => al.OvertimeRequests)
-                .HasForeignKey(e => e.AttendanceLogId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.VerifiedByLeaderUser)
-                .WithMany()
-                .HasForeignKey(e => e.VerifiedByLeader)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasOne(e => e.ApprovedByManagerUser)
-                .WithMany()
-                .HasForeignKey(e => e.ApprovedByManager)
-                .OnDelete(DeleteBehavior.SetNull);
-        });
-
         // 13. shift_handovers
         modelBuilder.Entity<ShiftHandover>(entity =>
         {
@@ -510,24 +477,6 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
-        // 16. monthly_timesheets
-        modelBuilder.Entity<MonthlyTimesheet>(entity =>
-        {
-            entity.ToTable("monthly_timesheets");
-            entity.HasKey(e => e.Id);
-            entity.HasIndex(e => new { e.BranchId, e.PeriodMonth, e.PeriodYear }).IsUnique();
-
-            entity.HasOne(e => e.Branch)
-                .WithMany()
-                .HasForeignKey(e => e.BranchId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.LockedByUser)
-                .WithMany()
-                .HasForeignKey(e => e.LockedBy)
-                .OnDelete(DeleteBehavior.SetNull);
-        });
-
         // 17. system_audit_logs
         modelBuilder.Entity<SystemAuditLog>(entity =>
         {
@@ -538,43 +487,6 @@ public partial class AppDbContext : DbContext
             entity.HasOne(e => e.Actor)
                 .WithMany()
                 .HasForeignKey(e => e.ActorId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        // 18. shift_swap_requests
-        modelBuilder.Entity<ShiftSwapRequest>(entity =>
-        {
-            entity.ToTable("shift_swap_requests");
-            entity.HasKey(e => e.Id);
-
-            entity.HasOne(e => e.RequestingAssignment)
-                .WithMany()
-                .HasForeignKey(e => e.RequestingAssignmentId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasOne(e => e.TargetAssignment)
-                .WithMany()
-                .HasForeignKey(e => e.TargetAssignmentId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasOne(e => e.RequesterUser)
-                .WithMany()
-                .HasForeignKey(e => e.RequesterUserId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.TargetUser)
-                .WithMany()
-                .HasForeignKey(e => e.TargetUserId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.ReviewedByUser)
-                .WithMany()
-                .HasForeignKey(e => e.ReviewedBy)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            entity.HasOne(e => e.Schedule)
-                .WithMany()
-                .HasForeignKey(e => e.ScheduleId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
     }

@@ -16,15 +16,7 @@ public class Branch
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string Status { get; set; } = "ACTIVE"; // "ACTIVE" or "INACTIVE"
-    
-    [NotMapped]
-    public string? Phone { get; set; }
 
-    [NotMapped]
-    public string? KioskAllowedIp { get; set; }
-
-    [NotMapped]
-    public string? KioskAllowedBrowser { get; set; }
 
     /// <summary>
     /// Phân cấp quy mô chi nhánh (Tier 1: Lớn, Tier 2: Tiêu chuẩn, Tier 3: Nhỏ). Mặc định là Tier 2 (Tiêu chuẩn).

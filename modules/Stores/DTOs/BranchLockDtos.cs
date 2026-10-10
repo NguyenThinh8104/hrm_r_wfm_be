@@ -63,34 +63,28 @@ public class LockBranchRequestDto
     public string Reason { get; set; } = string.Empty;
 
     /// <summary>
-    /// Mã chi nhánh xác nhận để chống thao tác nhầm lẫn (Phải khớp chính xác với mã chi nhánh).
+    /// Mã chi nhánh xác nhận (Tùy chọn).
     /// </summary>
-    [Required(ErrorMessage = "Mã xác nhận chi nhánh (confirmBranchCode) là bắt buộc.")]
     [JsonPropertyName("confirmBranchCode")]
-    public string ConfirmBranchCode { get; set; } = string.Empty;
+    public string? ConfirmBranchCode { get; set; }
 
     /// <summary>
-    /// Chế độ xử lý nhân sự của chi nhánh: "KeepAndBlock" | "TransferTemporarily" | "HOLD" | "TRANSFER".
+    /// Chế độ xử lý nhân sự của chi nhánh (Tùy chọn).
     /// </summary>
-    [Required(ErrorMessage = "Chế độ xử lý nhân sự (staffHandlingMode) là bắt buộc.")]
-    [RegularExpression("^(?i)(KeepAndBlock|TransferTemporarily|HOLD|TRANSFER)$", ErrorMessage = "Chế độ xử lý nhân sự chỉ chấp nhận 'KeepAndBlock' hoặc 'TransferTemporarily'.")]
     [JsonPropertyName("staffHandlingMode")]
-    public string StaffHandlingMode { get; set; } = "KeepAndBlock";
+    public string? StaffHandlingMode { get; set; }
 
     /// <summary>
-    /// ID chi nhánh đích nhận nhân sự (Bắt buộc khi staffHandlingMode là TransferTemporarily hoặc futureShiftHandling là Transfer).
-    /// Hỗ trợ cả số nguyên ulong hoặc chuỗi Guid/ID.
+    /// ID chi nhánh đích nhận nhân sự (Tùy chọn).
     /// </summary>
     [JsonPropertyName("transferToBranchId")]
     public ulong? TransferToBranchId { get; set; }
 
     /// <summary>
-    /// Chế độ xử lý ca làm việc tương lai: "Cancel" | "Transfer" | "Suspend".
+    /// Chế độ xử lý ca làm việc tương lai (Tùy chọn).
     /// </summary>
-    [Required(ErrorMessage = "Chế độ xử lý ca tương lai (futureShiftHandling) là bắt buộc.")]
-    [RegularExpression("^(?i)(Cancel|Transfer|Suspend)$", ErrorMessage = "Chế độ xử lý ca tương lai chỉ chấp nhận 'Cancel', 'Transfer' hoặc 'Suspend'.")]
     [JsonPropertyName("futureShiftHandling")]
-    public string FutureShiftHandling { get; set; } = "Cancel";
+    public string? FutureShiftHandling { get; set; }
 }
 
 /// <summary>

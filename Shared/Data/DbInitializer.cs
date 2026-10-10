@@ -78,6 +78,14 @@ public static class DbInitializer
                     alterCmd.ExecuteNonQuery();
                 }
 
+                // Tự động kiểm tra và bổ sung cột ShiftMode nếu database chưa có
+                if (!branchCols.Contains("ShiftMode"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `ShiftMode` VARCHAR(20) NOT NULL DEFAULT 'GLOBAL';";
+                    alterCmd.ExecuteNonQuery();
+                }
+
                 // Loại bỏ bảng headcount_import_requests cũ nếu còn tồn tại
                 try
                 {
@@ -297,6 +305,55 @@ public static class DbInitializer
                 }
                 catch { }
             }
+
+            // Check shift_templates table columns
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT COLUMN_NAME 
+                    FROM information_schema.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shift_templates';";
+                
+                var shiftCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        shiftCols.Add(reader.GetString(0));
+                    }
+                }
+
+                if (shiftCols.Count > 0)
+                {
+                    if (!shiftCols.Contains("Scope"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE `shift_templates` ADD COLUMN `Scope` VARCHAR(20) NOT NULL DEFAULT 'GLOBAL';";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!shiftCols.Contains("BranchId"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE `shift_templates` ADD COLUMN `BranchId` BIGINT UNSIGNED NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!shiftCols.Contains("ShiftType"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE `shift_templates` ADD COLUMN `ShiftType` VARCHAR(20) NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+
+                    if (!shiftCols.Contains("Description"))
+                    {
+                        using var alterCmd = connection.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE `shift_templates` ADD COLUMN `Description` LONGTEXT NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+            }
         }
         catch
         {
@@ -331,6 +388,7 @@ public static class DbInitializer
                     BranchCode = "CH01",
                     Name = "Cửa hàng Tiện lợi Chi nhánh Cầu Giấy",
                     Address = "123 Cầu Giấy, Q. Cầu Giấy, Hà Nội",
+                    ShiftMode = "GLOBAL",
                     Status = "ACTIVE",
                     Location = new NetTopologySuite.Geometries.Point(105.52534976666665, 21.0138981) { SRID = 4326 },
                     GeofenceRadiusMeters = 50,
@@ -343,6 +401,7 @@ public static class DbInitializer
                     BranchCode = "CH02",
                     Name = "Cửa hàng Tiện lợi Chi nhánh Lê Văn Việt",
                     Address = "456 Lê Văn Việt, TP. Thủ Đức, TP. Hồ Chí Minh",
+                    ShiftMode = "GLOBAL",
                     Status = "ACTIVE",
                     Latitude = 10.8456,
                     Longitude = 106.7925,
@@ -356,6 +415,7 @@ public static class DbInitializer
                     BranchCode = "CH03",
                     Name = "Cửa hàng Tiện lợi Chi nhánh Hoàn Kiếm",
                     Address = "78 Hàng Bài, Q. Hoàn Kiếm, Hà Nội",
+                    ShiftMode = "CUSTOM",
                     Status = "ACTIVE",
                     Location = new NetTopologySuite.Geometries.Point(105.8525, 21.0245) { SRID = 4326 },
                     GeofenceRadiusMeters = 50,
@@ -632,19 +692,23 @@ public static class DbInitializer
             }
         }
 
-        // 4. Seed ShiftTemplates (4 ca x 6 tiếng = 24h)
+        // 4. Seed ShiftTemplates: 3 ca chung + 2 ca riêng cho CH03
         if (!context.ShiftTemplates.Any())
         {
             var templates = new List<ShiftTemplate>
             {
+                // 3 Ca chung toàn chuỗi (GLOBAL)
                 new ShiftTemplate
                 {
                     Id = 1,
-                    TemplateCode = "CA_01",
-                    Name = "Ca 1 - Sáng (06:00 - 12:00)",
-                    Description = "Ca sáng sớm từ 06:00 đến 12:00 (6 tiếng)",
+                    TemplateCode = "CA_SANG",
+                    Name = "Ca Sáng (06:00 - 14:00)",
+                    Description = "Ca sáng tiêu chuẩn áp dụng toàn chuỗi cửa hàng",
+                    Scope = "GLOBAL",
+                    BranchId = null,
+                    ShiftType = "SANG",
                     StartTime = new TimeOnly(6, 0),
-                    EndTime = new TimeOnly(12, 0),
+                    EndTime = new TimeOnly(14, 0),
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
@@ -655,11 +719,14 @@ public static class DbInitializer
                 new ShiftTemplate
                 {
                     Id = 2,
-                    TemplateCode = "CA_02",
-                    Name = "Ca 2 - Chiều (12:00 - 18:00)",
-                    Description = "Ca trưa - chiều từ 12:00 đến 18:00 (6 tiếng)",
-                    StartTime = new TimeOnly(12, 0),
-                    EndTime = new TimeOnly(18, 0),
+                    TemplateCode = "CA_CHIEU",
+                    Name = "Ca Chiều (14:00 - 22:00)",
+                    Description = "Ca chiều tiêu chuẩn áp dụng toàn chuỗi cửa hàng",
+                    Scope = "GLOBAL",
+                    BranchId = null,
+                    ShiftType = "CHIEU",
+                    StartTime = new TimeOnly(14, 0),
+                    EndTime = new TimeOnly(22, 0),
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
@@ -670,12 +737,33 @@ public static class DbInitializer
                 new ShiftTemplate
                 {
                     Id = 3,
-                    TemplateCode = "CA_03",
-                    Name = "Ca 3 - Tối (18:00 - 00:00)",
-                    Description = "Ca tối từ 18:00 đến 00:00 (6 tiếng)",
-                    StartTime = new TimeOnly(18, 0),
-                    EndTime = new TimeOnly(0, 0),
+                    TemplateCode = "CA_DEM",
+                    Name = "Ca Đêm (22:00 - 06:00)",
+                    Description = "Ca đêm qua ngày tiêu chuẩn áp dụng toàn chuỗi cửa hàng",
+                    Scope = "GLOBAL",
+                    BranchId = null,
+                    ShiftType = "DEM",
+                    StartTime = new TimeOnly(22, 0),
+                    EndTime = new TimeOnly(6, 0),
                     IsOvernight = true,
+                    BreakDurationMinutes = 45,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                },
+                // 2 Ca riêng cho chi nhánh CH03 (BRANCH)
+                new ShiftTemplate
+                {
+                    Id = 4,
+                    TemplateCode = "CH03-S1",
+                    Name = "Ca Sáng Riêng CH03 (07:00 - 15:00)",
+                    Description = "Khung ca sáng riêng chi nhánh Hoàn Kiếm",
+                    Scope = "BRANCH",
+                    BranchId = 3,
+                    ShiftType = "SANG",
+                    StartTime = new TimeOnly(7, 0),
+                    EndTime = new TimeOnly(15, 0),
+                    IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,
                     Status = "ACTIVE",
@@ -684,12 +772,15 @@ public static class DbInitializer
                 },
                 new ShiftTemplate
                 {
-                    Id = 4,
-                    TemplateCode = "CA_04",
-                    Name = "Ca 4 - Đêm (00:00 - 06:00)",
-                    Description = "Ca đêm xuyên sáng từ 00:00 đến 06:00 (6 tiếng)",
-                    StartTime = new TimeOnly(0, 0),
-                    EndTime = new TimeOnly(6, 0),
+                    Id = 5,
+                    TemplateCode = "CH03-S2",
+                    Name = "Ca Chiều Riêng CH03 (15:00 - 23:00)",
+                    Description = "Khung ca chiều riêng chi nhánh Hoàn Kiếm",
+                    Scope = "BRANCH",
+                    BranchId = 3,
+                    ShiftType = "CHIEU",
+                    StartTime = new TimeOnly(15, 0),
+                    EndTime = new TimeOnly(23, 0),
                     IsOvernight = false,
                     BreakDurationMinutes = 30,
                     IsActive = true,

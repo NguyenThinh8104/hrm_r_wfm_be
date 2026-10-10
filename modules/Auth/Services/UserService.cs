@@ -812,6 +812,72 @@ public class UserService : IUserService
 
         try
         {
+            // 1. Dọn dẹp phân ca (ShiftAssignments) và các bản ghi phụ thuộc
+            var assignmentIds = await _context.ShiftAssignments
+                .Where(sa => sa.UserId == userId)
+                .Select(sa => sa.Id)
+                .ToListAsync();
+
+            if (assignmentIds.Count > 0)
+            {
+                var logIds = await _context.AttendanceLogs
+                    .Where(al => assignmentIds.Contains(al.AssignmentId))
+                    .Select(al => al.Id)
+                    .ToListAsync();
+
+                if (logIds.Count > 0)
+                {
+                    await _context.AttendanceLogs
+                        .Where(al => logIds.Contains(al.Id))
+                        .ExecuteDeleteAsync();
+                }
+
+                await _context.ShiftSwapRequests
+                    .Where(ssr => (ssr.RequestingAssignmentId != null && assignmentIds.Contains(ssr.RequestingAssignmentId.Value))
+                               || (ssr.TargetAssignmentId != null && assignmentIds.Contains(ssr.TargetAssignmentId.Value)))
+                    .ExecuteDeleteAsync();
+
+                await _context.ShiftAssignments
+                    .Where(sa => assignmentIds.Contains(sa.Id))
+                    .ExecuteDeleteAsync();
+            }
+
+            // 2. Dọn dẹp đơn xin đổi ca (ShiftSwapRequests) mà user tham gia
+            await _context.ShiftSwapRequests
+                .Where(ssr => ssr.RequesterUserId == userId || ssr.TargetUserId == userId)
+                .ExecuteDeleteAsync();
+
+            // 3. Dọn dẹp điều động nhân sự (DispatchEmployees & TemporaryDispatches)
+            await _context.DispatchEmployees.Where(de => de.UserId == userId).ExecuteDeleteAsync();
+            await _context.TemporaryDispatches.Where(td => td.UserId == userId).ExecuteDeleteAsync();
+
+            // 4. Dọn dẹp bàn giao (Handovers)
+            await _context.CashHandovers.Where(ch => ch.CashierId == userId).ExecuteDeleteAsync();
+            await _context.SecurityHandovers.Where(sh => sh.SecurityGuardId == userId).ExecuteDeleteAsync();
+            await _context.ShiftHandovers.Where(sh => sh.ShiftLeaderId == userId).ExecuteDeleteAsync();
+
+            // 5. Cập nhật các trường khóa ngoại non-nullable sang Admin (actorId) để tránh lỗi ràng buộc
+            await _context.WorkSchedules.Where(ws => ws.CreatedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.CreatedBy, actorId));
+            await _context.KioskActivationCodes.Where(k => k.GeneratedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.GeneratedBy, actorId));
+            await _context.TemporaryDispatches.Where(td => td.RequestedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.RequestedBy, actorId));
+
+            // 6. Cập nhật các trường khóa ngoại nullable về NULL
+            await _context.AttendanceLogs.Where(al => al.FraudFlaggedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.FraudFlaggedBy, (ulong?)null));
+            await _context.TemporaryDispatches.Where(td => td.ApprovedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.ApprovedBy, (ulong?)null));
+            await _context.DispatchEmployees.Where(de => de.ApprovedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.ApprovedBy, (ulong?)null));
+            await _context.ShiftSwapRequests.Where(ssr => ssr.ReviewedBy == userId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.ReviewedBy, (ulong?)null));
+
+            // 7. Dọn dẹp log kiểm toán do user này thực hiện (Actor)
+            await _context.SystemAuditLogs.Where(a => a.ActorId == userId).ExecuteDeleteAsync();
+
+            // 8. Xóa triệt để dòng người dùng khỏi bảng users trong MySQL CSDL
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
         }

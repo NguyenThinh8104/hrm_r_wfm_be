@@ -83,7 +83,7 @@ public class BranchLockService : IBranchLockService
             .Include(ws => ws.ShiftTemplate)
             .Where(ws => ws.BranchId == branchId &&
                          ws.Status != "CANCELLED" &&
-                         (ws.WorkDate == today || (ws.WorkDate == yesterday && ws.ShiftTemplate.IsOvernight)))
+                         (ws.WorkDate >= today || (ws.WorkDate == yesterday && ws.ShiftTemplate != null && ws.ShiftTemplate.IsOvernight)))
             .ToListAsync(cancellationToken);
 
         var ongoingSchedules = candidateSchedules.Where(ws =>
@@ -107,6 +107,25 @@ public class BranchLockService : IBranchLockService
                 Message = $"Có {ongoingSchedules.Count} ca làm việc đang diễn ra tại thời điểm khóa.",
                 Count = ongoingSchedules.Count,
                 Items = ongoingSchedules.Select(ws => new BranchLockBlockerItemDto
+                {
+                    Id = ws.Id.ToString(),
+                    Name = $"{ws.ShiftTemplate?.Name ?? "Ca làm việc"} ({ws.WorkDate:dd/MM/yyyy} {ws.ShiftTemplate?.StartTime:HH:mm}-{ws.ShiftTemplate?.EndTime:HH:mm})"
+                }).ToList()
+            });
+        }
+
+        var scheduledFutureSchedules = candidateSchedules
+            .Where(ws => !ongoingSchedules.Any(o => o.Id == ws.Id))
+            .ToList();
+
+        if (scheduledFutureSchedules.Count > 0)
+        {
+            blockers.Add(new BranchLockBlockerDto
+            {
+                Code = "ACTIVE_SHIFTS",
+                Message = $"Chi nhánh còn {scheduledFutureSchedules.Count} ca làm việc đã xếp lịch chưa hoàn thành. Vui lòng hủy các ca này trước khi khóa.",
+                Count = scheduledFutureSchedules.Count,
+                Items = scheduledFutureSchedules.Select(ws => new BranchLockBlockerItemDto
                 {
                     Id = ws.Id.ToString(),
                     Name = $"{ws.ShiftTemplate?.Name ?? "Ca làm việc"} ({ws.WorkDate:dd/MM/yyyy} {ws.ShiftTemplate?.StartTime:HH:mm}-{ws.ShiftTemplate?.EndTime:HH:mm})"
@@ -192,9 +211,9 @@ public class BranchLockService : IBranchLockService
             });
         }
 
-        // Số lượng nhân sự bị ảnh hưởng trực tiếp (nhân sự có HomeBranchId là chi nhánh này)
+        // Số lượng nhân sự bị ảnh hưởng trực tiếp (từ Store Manager trở xuống: RoleId >= 3)
         var affectedEmployeeCount = await _context.Users
-            .CountAsync(u => u.HomeBranchId == branchId && u.Status == "ACTIVE", cancellationToken);
+            .CountAsync(u => u.HomeBranchId == branchId && (u.RoleId >= 3 || (u.RoleId != 1 && u.RoleId != 2)) && u.Status == "ACTIVE", cancellationToken);
 
         return new BranchLockCheckResponseDto
         {
@@ -235,56 +254,14 @@ public class BranchLockService : IBranchLockService
             return BranchLockOperationResult.NotFound($"Không tìm thấy chi nhánh với ID {branchId}.");
         }
 
-        // 2. Validate confirmBranchCode phải khớp mã chi nhánh
-        if (string.IsNullOrWhiteSpace(request.ConfirmBranchCode) ||
-            !string.Equals(request.ConfirmBranchCode.Trim(), branch.BranchCode.Trim(), StringComparison.OrdinalIgnoreCase))
-        {
-            return BranchLockOperationResult.BadRequest($"Mã xác nhận '{request.ConfirmBranchCode}' không khớp với mã chi nhánh '{branch.BranchCode}'.");
-        }
-
-        // 3. Không cho khóa nếu chi nhánh đã ở trạng thái khóa (400)
+        // 2. Không cho khóa nếu chi nhánh đã ở trạng thái khóa (400)
         if (string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase))
         {
             return BranchLockOperationResult.BadRequest($"Chi nhánh '{branch.Name}' đã ở trạng thái tạm khóa.");
         }
 
-        // 4. Nếu Transfer staff hoặc Transfer shifts thì bắt buộc transferToBranchId, chi nhánh đích phải đang Hoạt động
-        var isTransferStaff = string.Equals(request.StaffHandlingMode, "TransferTemporarily", StringComparison.OrdinalIgnoreCase) ||
-                              string.Equals(request.StaffHandlingMode, "TRANSFER", StringComparison.OrdinalIgnoreCase);
-        var isTransferShifts = string.Equals(request.FutureShiftHandling, "Transfer", StringComparison.OrdinalIgnoreCase);
-
-        Branch? targetBranch = null;
-        if (isTransferStaff || isTransferShifts)
-        {
-            if (!request.TransferToBranchId.HasValue || request.TransferToBranchId.Value == 0)
-            {
-                var actionMsg = isTransferStaff
-                    ? "chuyển nhân sự tạm thời (TransferTemporarily)"
-                    : "chuyển ca làm việc tương lai sang chi nhánh khác (Transfer)";
-                return BranchLockOperationResult.BadRequest($"Khi chọn {actionMsg}, bắt buộc phải chọn chi nhánh đích (transferToBranchId).");
-            }
-
-            if (request.TransferToBranchId.Value == branch.Id)
-            {
-                return BranchLockOperationResult.BadRequest("Chi nhánh đích không thể trùng với chi nhánh đang khóa.");
-            }
-
-            targetBranch = await _context.Branches
-                .FirstOrDefaultAsync(b => b.Id == request.TransferToBranchId.Value, cancellationToken);
-
-            if (targetBranch == null)
-            {
-                return BranchLockOperationResult.BadRequest($"Chi nhánh đích nhận nhân sự/ca làm việc với ID {request.TransferToBranchId.Value} không tồn tại.");
-            }
-
-            if (!string.Equals(targetBranch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
-            {
-                return BranchLockOperationResult.BadRequest($"Chi nhánh đích '{targetBranch.Name}' hiện không ở trạng thái Hoạt động. Không thể chuyển dữ liệu sang.");
-            }
-        }
-
-        // 5. Mở Transaction và thực hiện kiểm tra blockers cùng lúc với cập nhật trạng thái
+        // 3. Mở Transaction và thực hiện kiểm tra blockers cùng lúc với cập nhật trạng thái
         IDbContextTransaction? transaction = null;
         if (_context.Database.IsRelational())
         {
@@ -293,7 +270,7 @@ public class BranchLockService : IBranchLockService
 
         try
         {
-            // 5a. Chạy lại toàn bộ kiểm tra như lock-check trong cùng transaction
+            // 3a. Chạy lại toàn bộ kiểm tra như lock-check trong cùng transaction
             var lockCheck = await CheckLockConditionsAsync(branchId, cancellationToken);
             if (!lockCheck.CanLock)
             {
@@ -304,7 +281,7 @@ public class BranchLockService : IBranchLockService
             var now = DateTime.UtcNow;
             var actor = !string.IsNullOrWhiteSpace(performedBy) ? performedBy.Trim() : "System";
 
-            // 5b. Đổi status chi nhánh, ghi LockedAt/By/Reason và cập nhật RowVersion (concurrency token)
+            // 3b. Đổi status chi nhánh, ghi LockedAt/By/Reason và cập nhật RowVersion (concurrency token)
             branch.Status = "INACTIVE";
             branch.LockedAt = now;
             branch.LockedBy = actor;
@@ -319,98 +296,34 @@ public class BranchLockService : IBranchLockService
                 kiosk.UpdatedAt = now;
             }
 
-            // 5c. Xử lý nhân sự theo StaffHandlingMode
-            var activeStaff = await _context.Users
-                .Where(u => u.HomeBranchId == branchId && u.Status == "ACTIVE")
+            // 3c. Khóa tất cả tài khoản trong chi nhánh từ Store Manager trở xuống (RoleId >= 3)
+            var branchStaff = await _context.Users
+                .Where(u => u.HomeBranchId == branchId && (u.RoleId >= 3 || (u.RoleId != 1 && u.RoleId != 2)) && u.Status == "ACTIVE")
                 .ToListAsync(cancellationToken);
 
-            if (isTransferStaff && request.TransferToBranchId.HasValue)
+            foreach (var user in branchStaff)
             {
-                var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
-                var callerId = performedByUserId ?? (ulong)1;
-
-                foreach (var user in activeStaff)
-                {
-                    _context.TemporaryDispatches.Add(new TemporaryDispatch
-                    {
-                        UserId = user.Id,
-                        SourceBranchId = branch.Id,
-                        TargetBranchId = request.TransferToBranchId.Value,
-                        StartDate = today,
-                        EndDate = today.AddMonths(1),
-                        Status = "APPROVED",
-                        RequestedBy = callerId,
-                        ApprovedBy = callerId,
-                        Note = $"Tự động điều động tạm thời khi khóa chi nhánh {branch.Name} ({branch.BranchCode})",
-                        CreatedAt = now
-                    });
-                }
-            }
-            else
-            {
-                foreach (var user in activeStaff)
-                {
-                    user.Status = "SUSPENDED";
-                    user.UpdatedAt = now;
-                }
+                user.Status = "INACTIVE";
+                user.UpdatedAt = now;
             }
 
-            // 5d. Xử lý ca làm việc tương lai theo FutureShiftHandling
+            // 3d. Hủy toàn bộ ca làm việc tương lai nếu có
             var todayDate = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
             var futureSchedules = await _context.WorkSchedules
                 .Include(ws => ws.ShiftAssignments)
                 .Where(ws => ws.BranchId == branchId && ws.WorkDate >= todayDate && ws.Status != "CANCELLED")
                 .ToListAsync(cancellationToken);
 
-            if (string.Equals(request.FutureShiftHandling, "Cancel", StringComparison.OrdinalIgnoreCase))
+            foreach (var ws in futureSchedules)
             {
-                foreach (var ws in futureSchedules)
+                ws.Status = "CANCELLED";
+                foreach (var sa in ws.ShiftAssignments)
                 {
-                    ws.Status = "CANCELLED";
-                    foreach (var sa in ws.ShiftAssignments)
-                    {
-                        sa.Status = "CANCELLED";
-                    }
-                }
-            }
-            else if (string.Equals(request.FutureShiftHandling, "Suspend", StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (var ws in futureSchedules)
-                {
-                    ws.Status = "SUSPENDED";
-                    foreach (var sa in ws.ShiftAssignments)
-                    {
-                        sa.Status = "SUSPENDED";
-                    }
-                }
-            }
-            else if (isTransferShifts && request.TransferToBranchId.HasValue)
-            {
-                var targetId = request.TransferToBranchId.Value;
-                foreach (var ws in futureSchedules)
-                {
-                    var existsAtTarget = await _context.WorkSchedules.AnyAsync(
-                        targetWs => targetWs.BranchId == targetId &&
-                                    targetWs.ShiftTemplateId == ws.ShiftTemplateId &&
-                                    targetWs.WorkDate == ws.WorkDate, cancellationToken);
-
-                    if (!existsAtTarget)
-                    {
-                        ws.BranchId = targetId;
-                    }
-                    else
-                    {
-                        ws.Status = "TRANSFERRED";
-                    }
+                    sa.Status = "CANCELLED";
                 }
             }
 
-            // 5e. Ghi BranchLockLog
-            var normalizedStaffMode = isTransferStaff ? "TransferTemporarily" : "KeepAndBlock";
-            var normalizedFutureShiftMode = string.Equals(request.FutureShiftHandling, "Suspend", StringComparison.OrdinalIgnoreCase)
-                ? "Suspend"
-                : (isTransferShifts ? "Transfer" : "Cancel");
-
+            // 3e. Ghi BranchLockLog
             var log = new BranchLockLog
             {
                 BranchId = branch.Id,
@@ -418,14 +331,14 @@ public class BranchLockService : IBranchLockService
                 Reason = request.Reason.Trim(),
                 PerformedBy = actor,
                 PerformedAt = now,
-                AffectedEmployeeCount = lockCheck.AffectedEmployeeCount,
-                StaffHandlingMode = normalizedStaffMode,
-                FutureShiftHandling = normalizedFutureShiftMode,
-                TransferredToBranchId = request.TransferToBranchId
+                AffectedEmployeeCount = branchStaff.Count,
+                StaffHandlingMode = "LOCK_ACCOUNTS",
+                FutureShiftHandling = "Cancel",
+                TransferredToBranchId = null
             };
             _context.BranchLockLogs.Add(log);
 
-            // 5f. Lưu thay đổi và commit transaction
+            // 3f. Lưu thay đổi và commit transaction
             await _context.SaveChangesAsync(cancellationToken);
 
             if (transaction != null)
@@ -506,19 +419,18 @@ public class BranchLockService : IBranchLockService
                 kiosk.UpdatedAt = now;
             }
 
-            // 3. Khôi phục lại trạng thái cho các nhân sự từng bị đình chỉ bởi KeepAndBlock
-            var suspendedUsers = await _context.Users
-                .Where(u => u.HomeBranchId == branchId && u.Status == "SUSPENDED")
+            // 3. Khôi phục lại trạng thái cho các nhân sự thuộc chi nhánh bị khóa (từ Store Manager trở xuống)
+            var inactiveUsers = await _context.Users
+                .Where(u => u.HomeBranchId == branchId && (u.Status == "INACTIVE" || u.Status == "SUSPENDED") && (u.RoleId >= 3 || (u.RoleId != 1 && u.RoleId != 2)))
                 .ToListAsync(cancellationToken);
 
-            foreach (var user in suspendedUsers)
+            foreach (var user in inactiveUsers)
             {
                 user.Status = "ACTIVE";
                 user.UpdatedAt = now;
             }
 
-            var affectedEmployeeCount = await _context.Users
-                .CountAsync(u => u.HomeBranchId == branchId, cancellationToken);
+            var affectedEmployeeCount = inactiveUsers.Count;
 
             // 4. Ghi BranchLockLog
             var unlockLog = new BranchLockLog

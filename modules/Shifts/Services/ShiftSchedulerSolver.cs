@@ -121,11 +121,14 @@ public class ShiftSchedulerSolver
             }
         }
 
-        // Ràng buộc 1: Mỗi nhân viên không được làm quá 1 ca trong 1 ngày (d)
+        // Ràng buộc 1: Mỗi nhân viên không được làm quá 1 ca trong 1 ngày (d) (CHỈ ÁP DỤNG CHO CÁC NGÀY TƯƠNG LAI)
         for (int e = 0; e < numEmployees; e++)
         {
             for (int d = 0; d < numDays; d++)
             {
+                var workDate = input.WeekStartDate.AddDays(d);
+                if (workDate <= input.Today) continue; // Ngày đã qua/hôm nay đã được cố định ở Ràng buộc 0
+
                 var dailyShifts = new List<BoolVar>();
                 for (int s = 0; s < numShifts; s++)
                 {
@@ -159,8 +162,7 @@ public class ShiftSchedulerSolver
             }
         }
 
-        // Ràng buộc 2: Nghỉ tối thiểu 12 giờ giữa 2 ca của 2 ngày liên tiếp (Khoảng cách giữa giờ kết thúc ca ngày d và giờ bắt đầu ca ngày d+1 phải >= 12 giờ)
-        // Ví dụ: Làm ca đêm hôm nay (00:00 - 06:00 hoặc 22:00 - 06:00) thì hôm sau ca sáng (06:00) và ca chiều (12:00) đều chưa đủ 12h nghỉ nên không được làm.
+        // Ràng buộc 2: Nghỉ tối thiểu 12 giờ giữa 2 ca của 2 ngày liên tiếp
         for (int s1 = 0; s1 < numShifts; s1++)
         {
             var t1 = templates[s1];
@@ -186,28 +188,61 @@ public class ShiftSchedulerSolver
                 {
                     for (int e = 0; e < numEmployees; e++)
                     {
+                        var emp = employees[e];
                         for (int d = 0; d < numDays - 1; d++)
                         {
-                            // x[e, d, s1] + x[e, d+1, s2] <= 1: không được làm cả 2 ca này
-                            model.Add(x[(e, d, s1)] + x[(e, d + 1, s2)] <= 1);
+                            var dateD = input.WeekStartDate.AddDays(d);
+                            var dateNext = input.WeekStartDate.AddDays(d + 1);
+
+                            if (dateNext <= input.Today)
+                            {
+                                // Cả 2 ngày đều là quá khứ: Đã cố định trong lịch sử, không đặt ràng buộc để tránh xung đột dữ liệu cũ
+                                continue;
+                            }
+                            else if (dateD <= input.Today && dateNext > input.Today)
+                            {
+                                // Ngày d là quá khứ/hôm nay, ngày d+1 là tương lai:
+                                // Nếu nhân viên đã làm ca s1 ở ngày d, thì ngày d+1 KHÔNG ĐƯỢC làm ca s2
+                                bool workedS1 = pastAssignmentSet.Contains((emp.Id, dateD, t1.Id));
+                                if (workedS1)
+                                {
+                                    model.Add(x[(e, d + 1, s2)] == 0);
+                                }
+                            }
+                            else
+                            {
+                                // Cả 2 ngày đều là tương lai: x[e, d, s1] + x[e, d+1, s2] <= 1
+                                model.Add(x[(e, d, s1)] + x[(e, d + 1, s2)] <= 1);
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Ràng buộc 3: Giới hạn số ca làm trong tuần (không quá 6 ca/tuần để đảm bảo ít nhất 1 ngày nghỉ)
+        // Ràng buộc 3: Giới hạn số ca làm trong tuần (không quá MaxShiftsPerWeekPerEmployee)
         for (int e = 0; e < numEmployees; e++)
         {
-            var weeklyShifts = new List<BoolVar>();
+            var emp = employees[e];
+            int pastShiftsCount = input.ExistingPastAssignments.Count(a => a.UserId == emp.Id);
+
+            var futureShifts = new List<BoolVar>();
             for (int d = 0; d < numDays; d++)
             {
+                var workDate = input.WeekStartDate.AddDays(d);
+                if (workDate <= input.Today) continue;
+
                 for (int s = 0; s < numShifts; s++)
                 {
-                    weeklyShifts.Add(x[(e, d, s)]);
+                    futureShifts.Add(x[(e, d, s)]);
                 }
             }
-            model.Add(LinearExpr.Sum(weeklyShifts) <= input.MaxShiftsPerWeekPerEmployee);
+
+            if (futureShifts.Any())
+            {
+                int remainingAllowed = Math.Max(0, input.MaxShiftsPerWeekPerEmployee - pastShiftsCount);
+                model.Add(LinearExpr.Sum(futureShifts) <= remainingAllowed);
+            }
         }
 
         // Ràng buộc 4: Chỉ gán nhân viên vào ca theo đúng định mức vai trò (Cashier / Sales / Security)

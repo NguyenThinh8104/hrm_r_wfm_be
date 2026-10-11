@@ -2475,11 +2475,26 @@ public class ShiftService : IShiftService
             return ApiResponse<AutoScheduleResultDto>.Fail("Không có mẫu ca nào hoạt động trong hệ thống.");
         }
 
-        // 2. Đảm bảo đầy đủ khung ca cho toàn bộ 7 ngày trong tuần
+        // 2. Kiểm tra khung ca hiện có của tuần
         var existingSchedules = await _context.WorkSchedules
             .Include(ws => ws.ShiftTemplate)
             .Where(ws => ws.BranchId == dto.BranchId && ws.WorkDate >= dto.WeekStartDate && ws.WorkDate <= weekEndDate)
             .ToListAsync();
+
+        if (!existingSchedules.Any())
+        {
+            return ApiResponse<AutoScheduleResultDto>.Fail("Chưa có khung ca nào được thiết lập cho tuần này. Vui lòng bấm 'Thiết lập định mức tuần' để chọn các ca áp dụng trước khi chạy xếp ca tự động.");
+        }
+
+        // CHỈ tự động xếp cho các mẫu ca mà Quản lý cửa hàng đã thiết lập / chọn cho tuần này.
+        // Tuyệt đối không tự ý kéo tất cả các ca mẫu active của Admin vào cơ sở!
+        var activeTemplateIdsInWeek = existingSchedules.Select(ws => ws.ShiftTemplateId).Distinct().ToHashSet();
+        templates = templates.Where(t => activeTemplateIdsInWeek.Contains(t.Id)).ToList();
+
+        if (!templates.Any())
+        {
+            return ApiResponse<AutoScheduleResultDto>.Fail("Không tìm thấy mẫu ca hoạt động nào tương ứng với các ca trực của tuần này.");
+        }
 
         var existingKeys = existingSchedules.Select(ws => (ws.WorkDate, ws.ShiftTemplateId)).ToHashSet();
         var toAdd = new List<WorkSchedule>();
@@ -2491,6 +2506,7 @@ public class ShiftService : IShiftService
             {
                 if (!existingKeys.Contains((workDate, template.Id)))
                 {
+                    var sampleSchedule = existingSchedules.FirstOrDefault(s => s.ShiftTemplateId == template.Id);
                     toAdd.Add(new WorkSchedule
                     {
                         BranchId = dto.BranchId,
@@ -2500,9 +2516,9 @@ public class ShiftService : IShiftService
                         SnapshotStartTime = template.StartTime,
                         SnapshotEndTime = template.EndTime,
                         SnapshotIsOvernight = template.IsOvernight,
-                        RequiredCashier = 1,
-                        RequiredSales = 1,
-                        RequiredSecurity = 1,
+                        RequiredCashier = sampleSchedule?.RequiredCashier ?? 1,
+                        RequiredSales = sampleSchedule?.RequiredSales ?? 1,
+                        RequiredSecurity = sampleSchedule?.RequiredSecurity ?? 1,
                         Status = "DRAFT",
                         CreatedBy = userId,
                         CreatedAt = DateTime.UtcNow
@@ -2519,7 +2535,10 @@ public class ShiftService : IShiftService
 
         var schedules = await _context.WorkSchedules
             .Include(ws => ws.ShiftTemplate)
-            .Where(ws => ws.BranchId == dto.BranchId && ws.WorkDate >= dto.WeekStartDate && ws.WorkDate <= weekEndDate)
+            .Where(ws => ws.BranchId == dto.BranchId 
+                      && ws.WorkDate >= dto.WeekStartDate 
+                      && ws.WorkDate <= weekEndDate 
+                      && activeTemplateIdsInWeek.Contains(ws.ShiftTemplateId))
             .ToListAsync();
 
         // 2. Lấy danh sách nhân viên chi nhánh (bao gồm nhân sự được điều động đến trong tuần)

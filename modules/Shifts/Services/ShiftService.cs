@@ -2228,7 +2228,7 @@ public class ShiftService : IShiftService
 
         var employees = await _context.Users
             .Include(u => u.Role)
-            .Where(u => (u.HomeBranchId == dto.BranchId || incomingUserIds.Contains(u.Id)) && u.Status == "ACTIVE")
+            .Where(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == dto.BranchId || u.HomeBranchId == dto.BranchId || incomingUserIds.Contains(u.Id)) && u.Status == "ACTIVE")
             .ToListAsync();
 
         if (!employees.Any())

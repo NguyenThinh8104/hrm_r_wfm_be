@@ -109,7 +109,24 @@ public class DispatchController : ControllerBase
     }
 
     /// <summary>
-    /// [Store Manager A] Hủy và xóa đơn đề nghị chi viện khi đang chờ duyệt (PENDING).
+    /// [Store Manager A] Thu hồi đơn đề nghị chi viện đang chờ duyệt để chỉnh sửa (RECALLED).
+    /// </summary>
+    [HttpPost("recall/{id}")]
+    public async Task<ActionResult<ApiResponse<DispatchRecordDto>>> RecallDispatchRequest(int id, [FromBody] RecallDispatchRequestDto? request)
+    {
+        var managerEmpId = GetCurrentUserId();
+        if (managerEmpId <= 0)
+        {
+            return Unauthorized(ApiResponse<DispatchRecordDto>.Fail("Không xác định được danh tính quản lý."));
+        }
+
+        var result = await _dispatchService.RecallDispatchRequestAsync(managerEmpId, id, request?.Reason);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager A] Hủy và xóa đơn đề nghị chi viện khi đang chờ duyệt (PENDING) hoặc đã thu hồi (RECALLED).
     /// </summary>
     [HttpDelete("request/{id}")]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteDispatchRequest(int id)
@@ -145,6 +162,24 @@ public class DispatchController : ControllerBase
         }
 
         var result = await _dispatchService.GetBranchEmployeesForDispatchAsync(targetId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager & Ops Admin] Tra cứu định biên an toàn và số lượng nhân sự khả dụng cho điều động của chi nhánh hỗ trợ.
+    /// </summary>
+    [HttpGet("branch-quota/{branchId:long}")]
+    public async Task<ActionResult<ApiResponse<BranchDispatchQuotaStatusDto>>> GetBranchDispatchQuota(
+        [FromRoute] ulong branchId,
+        [FromQuery] string? startDate,
+        [FromQuery] string? endDate,
+        [FromQuery] ulong? excludeDispatchId)
+    {
+        DateOnly? parsedStartDate = !string.IsNullOrEmpty(startDate) && DateOnly.TryParse(startDate, out var sDate) ? sDate : null;
+        DateOnly? parsedEndDate = !string.IsNullOrEmpty(endDate) && DateOnly.TryParse(endDate, out var eDate) ? eDate : null;
+
+        var result = await _dispatchService.GetBranchDispatchQuotaAsync(branchId, parsedStartDate, parsedEndDate, excludeDispatchId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

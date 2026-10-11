@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ClosedXML.Excel;
 using Domain.Entities;
@@ -20,19 +21,22 @@ public class UserService : IUserService
     private readonly IEmailService _emailService;
     private readonly IBranchHeadcountService _headcountService;
     private readonly ILogger<UserService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public UserService(
         AppDbContext context, 
         IPasswordHasher passwordHasher,
         IEmailService emailService,
         IBranchHeadcountService headcountService,
-        ILogger<UserService> logger)
+        ILogger<UserService> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _context = context;
         _passwordHasher = passwordHasher;
         _emailService = emailService;
         _headcountService = headcountService;
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     #region UC 1.4 - Quản lý Tài khoản & Phân quyền Vận hành (Store Managers)
@@ -1519,6 +1523,7 @@ public class UserService : IUserService
         // 4. Thẩm định định biên (Effective Quota) và tạo nhân sự cho các dòng hợp lệ
         var newUsersToInsert = new List<User>();
         var branchBatchCounter = new Dictionary<ulong, int>();
+        var emailQueueItems = new List<(string Email, string FullName, string Code, string RoleName, string BranchName, string PlainPass)>();
 
         foreach (var (row, role, branch) in validRowsToProcess)
         {
@@ -1579,6 +1584,7 @@ public class UserService : IUserService
             };
 
             newUsersToInsert.Add(user);
+            emailQueueItems.Add((normalizedEmail, row.FullName.Trim(), normalizedCode, role.RoleName, branch.Name, plainPass));
 
             result.SuccessEmployees.Add(new EmployeeDetailDto
             {
@@ -1614,12 +1620,51 @@ public class UserService : IUserService
             {
                 TotalImported = newUsersToInsert.Count
             }, ipAddress);
+
+            // Tự động gửi Welcome Email thông báo tài khoản & mật khẩu khởi tạo cho nhân sự mới trong nền
+            if (emailQueueItems.Count > 0)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var scope = _scopeFactory.CreateScope();
+                        var scopedEmailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                        var logger = scope.ServiceProvider.GetRequiredService<ILogger<UserService>>();
+
+                        foreach (var item in emailQueueItems)
+                        {
+                            try
+                            {
+                                await scopedEmailService.SendWelcomeEmailAsync(
+                                    item.Email,
+                                    item.FullName,
+                                    item.Code,
+                                    item.RoleName,
+                                    item.BranchName,
+                                    item.PlainPass
+                                );
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogError(ex, "Lỗi gửi welcome email cho nhân sự import {Email} ({Code})", item.Email, item.Code);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Lỗi khi thực thi tiến trình gửi email ngầm sau khi import nhân sự");
+                    }
+                });
+            }
         }
 
         result.SuccessCount = newUsersToInsert.Count;
         result.FailureCount = result.Errors.Count;
 
-        var message = $"Import nhân sự hoàn tất: {result.SuccessCount} thành công, {result.FailureCount} lỗi.";
+        var message = result.SuccessCount > 0
+            ? $"Import nhân sự hoàn tất: {result.SuccessCount} thành công (hệ thống đang tự động gửi email chào mừng kèm thông tin đăng nhập), {result.FailureCount} lỗi."
+            : $"Import nhân sự hoàn tất: {result.SuccessCount} thành công, {result.FailureCount} lỗi.";
         return ApiResponse<BulkImportResultDto>.Ok(result, message);
     }
 

@@ -1142,9 +1142,9 @@ public class ShiftService : IShiftService
         }
 
         var today = DateOnly.FromDateTime(DateTime.Today);
-        if (schedule.WorkDate < today)
+        if (schedule.WorkDate <= today)
         {
-            return ApiResponse<WorkScheduleDto>.Fail("Không thể điều chỉnh định mức ca làm việc đã trôi qua trong quá khứ.");
+            return ApiResponse<WorkScheduleDto>.Fail("Không thể điều chỉnh định mức ca làm việc của ngày hôm nay hoặc ngày đã qua.");
         }
 
         schedule.RequiredCashier = dto.RequiredCashier;
@@ -1255,9 +1255,9 @@ public class ShiftService : IShiftService
 
         foreach (var item in dto.Assignments)
         {
-            if (item.WorkDate < today)
+            if (item.WorkDate <= today)
             {
-                errors.Add($"Ngày {item.WorkDate:dd/MM/yyyy} là ngày trong quá khứ, không thể phân công ca.");
+                errors.Add($"Ngày {item.WorkDate:dd/MM/yyyy} là ngày hôm nay hoặc ngày trong quá khứ, không thể phân công ca.");
                 continue;
             }
 
@@ -1822,9 +1822,9 @@ public class ShiftService : IShiftService
                 if (dayNum < 1 || dayNum > 7) continue;
                 var workDate = dto.WeekStartDate.AddDays(dayNum - 1);
 
-                if (workDate < DateOnly.FromDateTime(DateTime.Today))
+                if (workDate <= DateOnly.FromDateTime(DateTime.Today))
                 {
-                    errors.Add($"Ngày {workDate:dd/MM/yyyy} là ngày trong quá khứ, không thể phân công ca.");
+                    errors.Add($"Ngày {workDate:dd/MM/yyyy} là ngày hôm nay hoặc ngày trong quá khứ, không thể phân công ca.");
                     continue;
                 }
 
@@ -2072,9 +2072,9 @@ public class ShiftService : IShiftService
         }
 
         var today = DateOnly.FromDateTime(DateTime.Today);
-        if (assignment.Schedule != null && assignment.Schedule.WorkDate < today)
+        if (assignment.Schedule != null && assignment.Schedule.WorkDate <= today)
         {
-            return ApiResponse<bool>.Fail("Không thể hủy/xóa phân công ca làm việc đã trôi qua trong quá khứ.");
+            return ApiResponse<bool>.Fail("Không thể hủy/xóa phân công ca làm việc của ngày hôm nay hoặc ngày đã trôi qua.");
         }
 
         // Xử lý các yêu cầu đổi ca liên quan trước khi xóa phân công ca (tránh lỗi khóa ngoại)
@@ -2120,11 +2120,23 @@ public class ShiftService : IShiftService
 
         var weekEndDate = dto.WeekStartDate.AddDays(6);
 
-        // 1. Lấy danh sách mẫu ca chuẩn đang hoạt động
-        var templates = await _context.ShiftTemplates
-            .Where(st => st.IsActive)
-            .OrderBy(st => st.StartTime)
-            .ToListAsync();
+        // 1. Lấy danh sách mẫu ca chuẩn áp dụng của chi nhánh
+        var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
+        List<ShiftTemplate> templates;
+        if (isGlobal)
+        {
+            templates = await _context.ShiftTemplates
+                .Where(st => (st.Scope == "GLOBAL" || string.IsNullOrEmpty(st.Scope)) && st.IsActive)
+                .OrderBy(st => st.StartTime)
+                .ToListAsync();
+        }
+        else
+        {
+            templates = await _context.ShiftTemplates
+                .Where(st => st.Scope == "BRANCH" && st.BranchId == branch.Id && st.IsActive)
+                .OrderBy(st => st.StartTime)
+                .ToListAsync();
+        }
 
         if (!templates.Any())
         {
@@ -2253,16 +2265,35 @@ public class ShiftService : IShiftService
             }
         }
 
-        // 3. Nếu cho phép ghi đè, xóa các phân công cũ trong tuần
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        // Thu thập các ca làm việc ĐÃ CÓ của nhân viên trong các ngày đã qua và hôm nay (workDate <= today)
+        var pastAssignments = await _context.ShiftAssignments
+            .Include(sa => sa.Schedule)
+            .Where(sa => sa.Schedule.BranchId == dto.BranchId 
+                      && sa.Schedule.WorkDate >= dto.WeekStartDate 
+                      && sa.Schedule.WorkDate <= today)
+            .Select(sa => new SingleAssignmentItemDto
+            {
+                UserId = sa.UserId,
+                ShiftTemplateId = sa.Schedule.ShiftTemplateId,
+                WorkDate = sa.Schedule.WorkDate
+            })
+            .ToListAsync();
+
+        // 3. Nếu cho phép ghi đè, CHỈ XÓA các phân công của các ngày tương lai (WorkDate > today)
+        // Tuyệt đối giữ nguyên lịch phân công của các ngày đã qua và ngày hôm nay
         if (dto.OverwriteExisting)
         {
-            var oldAssignments = await _context.ShiftAssignments
-                .Where(sa => sa.Schedule.BranchId == dto.BranchId && sa.Schedule.WorkDate >= dto.WeekStartDate && sa.Schedule.WorkDate <= weekEndDate)
+            var futureAssignmentsToDelete = await _context.ShiftAssignments
+                .Where(sa => sa.Schedule.BranchId == dto.BranchId 
+                          && sa.Schedule.WorkDate > today 
+                          && sa.Schedule.WorkDate <= weekEndDate)
                 .ToListAsync();
 
-            if (oldAssignments.Any())
+            if (futureAssignmentsToDelete.Any())
             {
-                var oldAssignmentIds = oldAssignments.Select(sa => sa.Id).ToList();
+                var oldAssignmentIds = futureAssignmentsToDelete.Select(sa => sa.Id).ToList();
                 var relatedSwapRequests = await _context.ShiftSwapRequests
                     .Where(r => (r.RequestingAssignmentId != null && oldAssignmentIds.Contains(r.RequestingAssignmentId.Value))
                              || (r.TargetAssignmentId != null && oldAssignmentIds.Contains(r.TargetAssignmentId.Value)))
@@ -2282,12 +2313,12 @@ public class ShiftService : IShiftService
                     }
                 }
 
-                _context.ShiftAssignments.RemoveRange(oldAssignments);
+                _context.ShiftAssignments.RemoveRange(futureAssignmentsToDelete);
                 await _context.SaveChangesAsync();
             }
         }
 
-        // 5. Chạy solver Google OR-Tools CP-SAT
+        // 5. Chạy solver Google OR-Tools CP-SAT với các ca quá khứ đã được nạp
         var solver = new ShiftSchedulerSolver();
         var solverResult = solver.Solve(new ShiftSchedulerSolver.SolverInput
         {
@@ -2298,7 +2329,9 @@ public class ShiftService : IShiftService
             Schedules = schedules,
             MaxShiftsPerWeekPerEmployee = dto.MaxShiftsPerWeekPerEmployee,
             MinShiftsPerWeekForFullTime = dto.MinShiftsPerWeekForFullTime,
-            EmployeeAvailableDates = employeeAvailableDates
+            EmployeeAvailableDates = employeeAvailableDates,
+            Today = today,
+            ExistingPastAssignments = pastAssignments
         });
 
         if (!solverResult.IsSuccess)
@@ -2306,12 +2339,12 @@ public class ShiftService : IShiftService
             return ApiResponse<AutoScheduleResultDto>.Fail(solverResult.StatusMessage);
         }
 
-        // 6. Lưu các phân bổ tối ưu vào cơ sở dữ liệu
+        // 6. Lưu các phân bổ tối ưu vào cơ sở dữ liệu (CHỈ LƯU các ca thuộc ngày tương lai WorkDate > today)
         var scheduleMap = schedules.ToDictionary(s => (s.ShiftTemplateId, s.WorkDate), s => s);
         var userMap = employees.ToDictionary(u => u.Id, u => u);
 
         var newAssignments = new List<ShiftAssignment>();
-        foreach (var item in solverResult.RecommendedAssignments)
+        foreach (var item in solverResult.RecommendedAssignments.Where(a => a.WorkDate > today))
         {
             if (scheduleMap.TryGetValue((item.ShiftTemplateId, item.WorkDate), out var schedule) &&
                 userMap.TryGetValue(item.UserId, out var emp))
@@ -2518,9 +2551,9 @@ public class ShiftService : IShiftService
     public async Task<ApiResponse<ShiftAssignmentDto>> AssignShiftAsync(CreateShiftAssignmentDto request)
     {
         var today = DateOnly.FromDateTime(DateTime.Today);
-        if (request.WorkDate < today)
+        if (request.WorkDate <= today)
         {
-            return ApiResponse<ShiftAssignmentDto>.Fail("Không thể phân công ca làm việc cho ngày đã trôi qua trong quá khứ.");
+            return ApiResponse<ShiftAssignmentDto>.Fail("Không thể phân công ca làm việc cho ngày hôm nay hoặc ngày đã qua.");
         }
 
         var conflict = await _context.ShiftAssignments

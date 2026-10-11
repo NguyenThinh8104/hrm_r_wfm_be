@@ -24,6 +24,17 @@ public class ShiftSchedulerSolver
         /// Nếu nhân sự có ngày không nằm trong tập này, solver sẽ không xếp ca cho nhân sự vào ngày đó.
         /// </summary>
         public Dictionary<ulong, HashSet<DateOnly>>? EmployeeAvailableDates { get; set; }
+
+        /// <summary>
+        /// Ngày hiện tại (để phân định các ngày đã qua và hôm nay: không tạo ca mới cho các ngày này).
+        /// </summary>
+        public DateOnly Today { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+        /// <summary>
+        /// Danh sách các ca đã có của nhân viên trong tuần ở các ngày đã qua / hôm nay.
+        /// Solver sẽ cố định các ca này để tính toán các ràng buộc toàn tuần (ca tối đa, nghỉ ca đêm, v.v.).
+        /// </summary>
+        public List<SingleAssignmentItemDto> ExistingPastAssignments { get; set; } = new List<SingleAssignmentItemDto>();
     }
 
     public class SolverResult
@@ -77,6 +88,38 @@ public class ShiftSchedulerSolver
         // =========================================================================
         // 1. RÀNG BUỘC CỨNG (HARD CONSTRAINTS)
         // =========================================================================
+
+        // Ràng buộc 0: Cố định các ca đã có trong các ngày đã qua và hôm nay (WorkDate <= Today)
+        // Tuyệt đối không thay đổi hoặc xếp mới vào các ngày này; đồng thời các ca này là căn cứ
+        // để solver tính toán số ca tối đa trong tuần, nghỉ sau ca đêm, định mức Full-time.
+        var pastAssignmentSet = input.ExistingPastAssignments
+            .Select(a => (a.UserId, a.WorkDate, a.ShiftTemplateId))
+            .ToHashSet();
+
+        for (int d = 0; d < numDays; d++)
+        {
+            var workDate = input.WeekStartDate.AddDays(d);
+            if (workDate <= input.Today)
+            {
+                for (int e = 0; e < numEmployees; e++)
+                {
+                    var emp = employees[e];
+                    for (int s = 0; s < numShifts; s++)
+                    {
+                        var template = templates[s];
+                        bool hasShift = pastAssignmentSet.Contains((emp.Id, workDate, template.Id));
+                        if (hasShift)
+                        {
+                            model.Add(x[(e, d, s)] == 1);
+                        }
+                        else
+                        {
+                            model.Add(x[(e, d, s)] == 0);
+                        }
+                    }
+                }
+            }
+        }
 
         // Ràng buộc 1: Mỗi nhân viên không được làm quá 1 ca trong 1 ngày (d)
         for (int e = 0; e < numEmployees; e++)
@@ -154,6 +197,11 @@ public class ShiftSchedulerSolver
         for (int d = 0; d < numDays; d++)
         {
             var workDate = input.WeekStartDate.AddDays(d);
+            if (workDate <= input.Today)
+            {
+                // Ngày đã qua hoặc hôm nay: Đã được cố định bởi Ràng buộc 0, không cần áp định mức sinh ca mới
+                continue;
+            }
 
             for (int s = 0; s < numShifts; s++)
             {
@@ -263,6 +311,11 @@ public class ShiftSchedulerSolver
             for (int d = 0; d < numDays; d++)
             {
                 var workDate = input.WeekStartDate.AddDays(d);
+                if (workDate <= input.Today)
+                {
+                    // Tuyệt đối không đề xuất xếp mới cho các ngày đã qua và hôm nay
+                    continue;
+                }
 
                 for (int s = 0; s < numShifts; s++)
                 {

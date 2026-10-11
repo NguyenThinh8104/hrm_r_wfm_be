@@ -174,6 +174,26 @@ public class ShiftTemplatesController : ControllerBase
         return Ok(result.Data);
     }
 
+    /// <summary>
+    /// [Operations Admin] Xóa khung ca làm việc (vô hiệu hóa/soft delete).
+    /// DELETE /api/shift-templates/{id}
+    /// </summary>
+    [HttpDelete("{id}")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    public async Task<ActionResult> DeleteShiftTemplate(uint id)
+    {
+        var result = await _shiftService.DeleteShiftTemplateAsync(id);
+        if (!result.Success)
+        {
+            return BadRequest(new
+            {
+                code = "ERROR",
+                message = result.Message
+            });
+        }
+        return Ok(new { success = true, message = "Xóa khung ca thành công." });
+    }
+
     private ulong? GetCurrentUserId()
     {
         var idStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value

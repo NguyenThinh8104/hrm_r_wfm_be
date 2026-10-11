@@ -379,15 +379,84 @@ public class BranchService : IBranchService, IStoreService
             return ApiResponse<bool>.Fail("Không tìm thấy chi nhánh cửa hàng cần xóa.");
         }
 
-        foreach (var user in branch.Users)
+        // 1. Gỡ ràng buộc nhân sự
+        var users = await _context.Users
+            .Where(u => u.HomeBranchId == id || u.OriginalHomeBranchId == id)
+            .ToListAsync();
+        foreach (var user in users)
         {
-            user.HomeBranchId = null;
+            if (user.HomeBranchId == id) user.HomeBranchId = null;
+            if (user.OriginalHomeBranchId == id) user.OriginalHomeBranchId = null;
+        }
+
+        // 2. Xóa các bản ghi điều động liên quan đến chi nhánh này
+        var dispatches = await _context.TemporaryDispatches
+            .Where(d => d.TargetBranchId == id || d.SourceBranchId == id)
+            .ToListAsync();
+        if (dispatches.Any())
+        {
+            var dispatchIds = dispatches.Select(d => d.Id).ToList();
+            var dispatchEmployees = await _context.DispatchEmployees
+                .Where(de => dispatchIds.Contains(de.DispatchId))
+                .ToListAsync();
+            _context.DispatchEmployees.RemoveRange(dispatchEmployees);
+            _context.TemporaryDispatches.RemoveRange(dispatches);
+        }
+
+        // 3. Xóa các ca riêng của chi nhánh
+        var customShifts = await _context.ShiftTemplates
+            .Where(st => st.BranchId == id)
+            .ToListAsync();
+        if (customShifts.Any())
+        {
+            _context.ShiftTemplates.RemoveRange(customShifts);
+        }
+
+        // 4. Xóa log khóa chi nhánh
+        var lockLogs = await _context.BranchLockLogs
+            .Where(l => l.BranchId == id || l.TransferredToBranchId == id)
+            .ToListAsync();
+        if (lockLogs.Any())
+        {
+            _context.BranchLockLogs.RemoveRange(lockLogs);
+        }
+
+        // 5. Xóa lịch làm việc & phân ca của chi nhánh
+        var schedules = await _context.WorkSchedules
+            .Where(ws => ws.BranchId == id)
+            .ToListAsync();
+        if (schedules.Any())
+        {
+            var scheduleIds = schedules.Select(ws => ws.Id).ToList();
+            var assignments = await _context.ShiftAssignments
+                .Where(sa => scheduleIds.Contains(sa.ScheduleId))
+                .ToListAsync();
+            _context.ShiftAssignments.RemoveRange(assignments);
+            _context.WorkSchedules.RemoveRange(schedules);
+        }
+
+        // 6. Xóa chấm công của chi nhánh
+        var attendances = await _context.AttendanceLogs
+            .Where(a => a.BranchId == id)
+            .ToListAsync();
+        if (attendances.Any())
+        {
+            _context.AttendanceLogs.RemoveRange(attendances);
+        }
+
+        // 7. Xóa trạm Kiosks
+        var kiosks = await _context.KioskDevices
+            .Where(k => k.BranchId == id)
+            .ToListAsync();
+        if (kiosks.Any())
+        {
+            _context.KioskDevices.RemoveRange(kiosks);
         }
 
         _context.Branches.Remove(branch);
         await _context.SaveChangesAsync();
 
-        return ApiResponse<bool>.Ok(true, "Đã xóa chi nhánh cửa hàng thành công.");
+        return ApiResponse<bool>.Ok(true, "Đã xóa hoàn toàn chi nhánh cửa hàng khỏi hệ thống.");
     }
 
     // ==========================================

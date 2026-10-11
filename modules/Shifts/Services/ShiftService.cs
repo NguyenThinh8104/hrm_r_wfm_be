@@ -901,11 +901,19 @@ public class ShiftService : IShiftService
             return ApiResponse<bool>.Fail("Không tìm thấy mẫu ca làm việc.");
         }
 
+        var hasSchedules = await _context.WorkSchedules.AnyAsync(ws => ws.ShiftTemplateId == id);
+        if (!hasSchedules)
+        {
+            _context.ShiftTemplates.Remove(template);
+            await _context.SaveChangesAsync();
+            return ApiResponse<bool>.Ok(true, "Đã xóa hoàn toàn khung ca mẫu khỏi hệ thống.");
+        }
+
         template.IsActive = false;
         template.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return ApiResponse<bool>.Ok(true, "Đã vô hiệu hóa mẫu ca chuẩn thành công.");
+        return ApiResponse<bool>.Ok(true, "Khung ca đã có lịch phân công nên đã chuyển sang ngừng áp dụng.");
     }
 
     /// <summary>

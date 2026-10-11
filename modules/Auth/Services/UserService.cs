@@ -1655,6 +1655,7 @@ public class UserService : IUserService
                     {
                         _logger.LogError(ex, "Lỗi khi thực thi tiến trình gửi email ngầm sau khi import nhân sự");
                     }
+                    await Task.Delay(2500); 
                 });
             }
         }
@@ -1695,9 +1696,56 @@ public class UserService : IUserService
 
     private static string GetCellString(IXLCell cell)
     {
-        if (cell == null || cell.IsEmpty()) return string.Empty;
-        // XLCellValue.ToString() an toàn cho mọi kiểu dữ liệu (Text, Number, Date, Boolean)
         return cell.Value.ToString().Trim();
+    }
+
+    public async Task<ApiResponse<DuplicateCheckResultDto>> CheckDuplicateAsync(string? employeeCode, string? email, string? phone, ulong? excludeId)
+    {
+        var result = new DuplicateCheckResultDto();
+
+        if (!string.IsNullOrWhiteSpace(employeeCode))
+        {
+            var code = employeeCode.Trim().ToUpper();
+            var existing = await _context.Users
+                .Where(u => u.EmployeeCode == code && (!excludeId.HasValue || u.Id != excludeId.Value))
+                .Select(u => new { u.FullName })
+                .FirstOrDefaultAsync();
+            if (existing != null)
+            {
+                result.IsEmployeeCodeDuplicate = true;
+                result.ExistingEmployeeName = existing.FullName;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            var normEmail = email.Trim().ToLower();
+            var existing = await _context.Users
+                .Where(u => u.Email.ToLower() == normEmail && (!excludeId.HasValue || u.Id != excludeId.Value))
+                .Select(u => new { u.FullName })
+                .FirstOrDefaultAsync();
+            if (existing != null)
+            {
+                result.IsEmailDuplicate = true;
+                result.ExistingEmailOwnerName = existing.FullName;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(phone))
+        {
+            var normPhone = phone.Trim().Replace(" ", "");
+            var existing = await _context.Users
+                .Where(u => u.Phone == normPhone && (!excludeId.HasValue || u.Id != excludeId.Value))
+                .Select(u => new { u.FullName })
+                .FirstOrDefaultAsync();
+            if (existing != null)
+            {
+                result.IsPhoneDuplicate = true;
+                result.ExistingPhoneOwnerName = existing.FullName;
+            }
+        }
+
+        return ApiResponse<DuplicateCheckResultDto>.Ok(result);
     }
 
     #endregion

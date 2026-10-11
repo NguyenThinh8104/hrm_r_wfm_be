@@ -135,6 +135,21 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// UC 1.5: Kiểm tra trùng lặp thông tin nhân sự (Mã NV, Email, SĐT) trong thời gian thực
+    /// </summary>
+    [HttpGet("check-duplicate")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<DuplicateCheckResultDto>>> CheckDuplicate(
+        [FromQuery] string? employeeCode,
+        [FromQuery] string? email,
+        [FromQuery] string? phone,
+        [FromQuery] ulong? excludeId)
+    {
+        var result = await _userService.CheckDuplicateAsync(employeeCode, email, phone, excludeId);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự (Đã bị khóa - Không cho phép chỉnh sửa hồ sơ sau khi tạo)
     /// </summary>
     [HttpPut("employees/{id}")]

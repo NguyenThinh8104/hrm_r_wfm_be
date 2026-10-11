@@ -926,6 +926,15 @@ public class DispatchService : IDispatchService
 
         int primaryId = empList.FirstOrDefault()?.EmployeeId ?? (d.UserId > 0 ? (int)d.UserId : 0);
 
+        string? requestReason = d.Note;
+        string? approvalNote = null;
+        if (!string.IsNullOrEmpty(d.Note) && d.Note.Contains(" | Ghi chú duyệt: "))
+        {
+            var parts = d.Note.Split(new[] { " | Ghi chú duyệt: " }, StringSplitOptions.None);
+            requestReason = parts[0];
+            approvalNote = parts.Length > 1 ? parts[1] : null;
+        }
+
         return new DispatchRecordDto
         {
             DispatchId = (int)d.Id,
@@ -939,7 +948,9 @@ public class DispatchService : IDispatchService
             ToStoreName = d.TargetBranch?.Name ?? string.Empty,
             StartDate = d.StartDate,
             EndDate = d.EndDate,
-            Reason = d.Note,
+            Reason = requestReason,
+            Note = d.Note,
+            ApprovalNotes = approvalNote,
             Status = d.Status,
             RequestedByName = d.RequestedByUser?.FullName ?? string.Empty,
             ApprovedByName = d.ApprovedByUser?.FullName,

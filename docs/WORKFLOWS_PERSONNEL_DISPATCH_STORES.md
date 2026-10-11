@@ -219,13 +219,18 @@ Khi chi nhánh đã đạt trần kịch biên định biên ($\text{CurrentHead
 - **Quy tắc kiểm tra**:
   - `FromStoreId != ToStoreId` (không điều động nội bộ).
   - `StartDate <= EndDate` và `StartDate >= Today` (không điều động cho ngày trong quá khứ).
+  - **Giới hạn thời hạn tối đa 30 ngày**: $EndDate - StartDate + 1 \le 30$ ngày.
   - Cả hai chi nhánh `FromStoreId` và `ToStoreId` đều phải đang `ACTIVE`.
   - Nhân sự được đề xuất phải thuộc biên chế của chi nhánh cho mượn (`user.HomeBranchId == FromStoreId`) và có `Status == "ACTIVE"`.
+  - **Kiểm tra quân số an toàn chi nhánh cho mượn (Ngưỡng an toàn 40%)**:
+    Tổng số nhân sự đang đi chi viện (các lệnh `APPROVED` còn hiệu lực) + số nhân sự xin mượn trong đơn mới **không được vượt quá 40% tổng quân số** của chi nhánh hỗ trợ.
+    Nếu vượt quá 40%, hệ thống chặn tạo đơn và cảnh báo:
+    > *"Chi nhánh [Tên chi nhánh] chỉ còn lại X nhân sự khả dụng. Việc điều động quá số lượng này sẽ làm gián đoạn vận hành của chi nhánh hỗ trợ."*
 - Bản ghi `temporary_dispatches` được tạo với trạng thái `PENDING`.
 
 #### Bước 2: Hiệu chỉnh / Hủy đơn khi đang chờ duyệt
 - Khi đơn đang ở trạng thái `PENDING`:
-  - Bên tạo đơn hoặc Admin có thể điều chỉnh ngày, nhân sự, lý do (`PUT /api/Dispatch/request/{id}`).
+  - Bên tạo đơn hoặc Admin có thể điều chỉnh ngày, nhân sự, lý do (`PUT /api/Dispatch/request/{id}`). Hệ thống tiếp tục kiểm tra lại giới hạn 30 ngày và ngưỡng an toàn 40% quân số.
   - Bên tạo đơn hoặc Admin có thể hủy đơn (`DELETE /api/Dispatch/request/{id}`).
 
 #### Bước 3: Thẩm định & Phê duyệt / Từ chối (UC 4.2)
@@ -233,9 +238,10 @@ Khi chi nhánh đã đạt trần kịch biên định biên ($\text{CurrentHead
 - **Người thực hiện**: Store Manager chi nhánh cho mượn (Source Branch).
 - **Xử lý từ chối**: Chuyển trạng thái sang `REJECTED`, lưu lý do từ chối.
 - **Xử lý phê duyệt (`APPROVED`)**: Quản lý có thể chấp thuận nhân viên được đề xuất hoặc chỉ định nhân viên thay thế (`AssignedEmployeeId`) thuộc chi nhánh mình.
-- **2 Ràng buộc an toàn bắt buộc khi duyệt**:
+- **Các Ràng buộc an toàn bắt buộc khi duyệt**:
   1. **Chặn xung đột ca trực tại chi nhánh gốc**: Quét bảng `shift_assignments`. Nếu nhân viên đã có ca trực hợp lệ tại chi nhánh gốc trong khoảng $[StartDate, EndDate]$, hệ thống **chặn phê duyệt** và yêu cầu Quản lý gỡ ca trực gốc trước.
   2. **Chặn điều động kép**: Nhân viên không được có một lệnh điều động `APPROVED` nào khác đang trùng lặp thời gian.
+  3. **Kiểm tra ngưỡng quân số an toàn 40%**: Số nhân viên được duyệt không được vượt quá số nhân sự khả dụng cho phép của chi nhánh.
 
 #### Bước 4: Tự động đồng bộ quyền hạn vận hành (UC 4.3)
 Ngay khi lệnh điều động chuyển sang `APPROVED`:

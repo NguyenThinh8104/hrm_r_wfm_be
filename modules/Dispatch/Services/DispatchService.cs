@@ -33,6 +33,12 @@ public class DispatchService : IDispatchService
             return ApiResponse<DispatchRecordDto>.Fail("Ngày bắt đầu điều động không thể sau ngày kết thúc.");
         }
 
+        int durationDays = request.EndDate.DayNumber - request.StartDate.DayNumber + 1;
+        if (durationDays > 30)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail($"Thời hạn điều động tạm thời không được vượt quá 30 ngày (Khoảng thời gian bạn chọn: {durationDays} ngày).");
+        }
+
         var today = DateOnly.FromDateTime(DateTime.Now);
         if (request.StartDate < today)
         {
@@ -78,6 +84,20 @@ public class DispatchService : IDispatchService
         if (invalidBranchUser != null)
         {
             return ApiResponse<DispatchRecordDto>.Fail($"Nhân sự '{invalidBranchUser.FullName}' không thuộc biên chế của chi nhánh hỗ trợ ({fromBranch.Name}).");
+        }
+
+        // Kiểm tra quân số an toàn của chi nhánh cho mượn (SourceBranch):
+        // Tổng số nhân sự đang đi chi viện (lệnh APPROVED còn hiệu lực) + số nhân sự xin mượn không vượt quá 40% tổng quân số.
+        var quotaCheck = await GetBranchDispatchQuotaAsync(fromBranch.Id, request.StartDate, request.EndDate);
+        if (!quotaCheck.Success || quotaCheck.Data == null)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail(!string.IsNullOrWhiteSpace(quotaCheck.Message) ? quotaCheck.Message : "Không thể xác định hạn mức điều động an toàn của chi nhánh hỗ trợ.");
+        }
+
+        if (employeeIds.Count > quotaCheck.Data.AvailableDispatchQuota)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail(
+                $"Chi nhánh {fromBranch.Name} chỉ còn lại {quotaCheck.Data.AvailableDispatchQuota} nhân sự khả dụng. Việc điều động quá số lượng này sẽ làm gián đoạn vận hành của chi nhánh hỗ trợ.");
         }
 
         var requester = await _context.Users.FindAsync((ulong)requesterEmployeeId);
@@ -141,7 +161,14 @@ public class DispatchService : IDispatchService
 
         if (dispatch == null) return ApiResponse<bool>.Fail("Lệnh điều động không tồn tại.");
 
-        if (dispatch.Status != "PENDING") return ApiResponse<bool>.Fail($"Lệnh này đã được xử lý trước đó (Trạng thái hiện tại: {dispatch.Status}).");
+        if (dispatch.Status != "PENDING")
+        {
+            if (dispatch.Status == "RECALLED")
+            {
+                return ApiResponse<bool>.Fail("Đơn đề nghị điều động này đã được bên gửi thu hồi để chỉnh sửa. Bạn không thể phê duyệt tại thời điểm này.");
+            }
+            return ApiResponse<bool>.Fail($"Lệnh này đã được xử lý trước đó (Trạng thái hiện tại: {dispatch.Status}).");
+        }
 
         // Đảm bảo có danh sách DispatchEmployees (nếu dữ liệu cũ chỉ có UserId trên bảng mẹ)
         if (!dispatch.DispatchEmployees.Any() && dispatch.UserId > 0)
@@ -154,6 +181,27 @@ public class DispatchService : IDispatchService
                 CreatedAt = dispatch.CreatedAt
             };
             dispatch.DispatchEmployees.Add(fallbackDe);
+        }
+
+        // Kiểm tra quân số an toàn của chi nhánh hỗ trợ khi phê duyệt
+        int approvingCount = 0;
+        if (request.EmployeeReviews != null && request.EmployeeReviews.Any())
+        {
+            approvingCount = request.EmployeeReviews.Count(r => r.IsApproved);
+        }
+        else if (request.IsApproved == true)
+        {
+            approvingCount = dispatch.DispatchEmployees.Any() ? dispatch.DispatchEmployees.Count : 1;
+        }
+
+        if (approvingCount > 0)
+        {
+            var quotaCheck = await GetBranchDispatchQuotaAsync(dispatch.SourceBranchId, dispatch.StartDate, dispatch.EndDate, dispatch.Id);
+            if (quotaCheck.Success && quotaCheck.Data != null && approvingCount > quotaCheck.Data.AvailableDispatchQuota)
+            {
+                return ApiResponse<bool>.Fail(
+                    $"Chi nhánh {dispatch.SourceBranch?.Name ?? "hỗ trợ"} chỉ còn lại {quotaCheck.Data.AvailableDispatchQuota} nhân sự khả dụng. Việc điều động quá số lượng này sẽ làm gián đoạn vận hành của chi nhánh hỗ trợ.");
+            }
         }
 
         // TRƯỜNG HỢP 1: Duyệt theo danh sách từng nhân sự (EmployeeReviews)
@@ -484,7 +532,7 @@ public class DispatchService : IDispatchService
             return ApiResponse<DispatchRecordDto>.Fail("Không tìm thấy lệnh điều động cần chỉnh sửa.");
         }
 
-        if (dispatch.Status != "PENDING")
+        if (dispatch.Status != "PENDING" && dispatch.Status != "RECALLED")
         {
             return ApiResponse<DispatchRecordDto>.Fail($"Không thể chỉnh sửa đơn đã được xử lý (Trạng thái hiện tại: {dispatch.Status}).");
         }
@@ -512,6 +560,12 @@ public class DispatchService : IDispatchService
         if (request.StartDate > request.EndDate)
         {
             return ApiResponse<DispatchRecordDto>.Fail("Ngày bắt đầu điều động không thể sau ngày kết thúc.");
+        }
+
+        int durationDays = request.EndDate.DayNumber - request.StartDate.DayNumber + 1;
+        if (durationDays > 30)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail($"Thời hạn điều động tạm thời không được vượt quá 30 ngày (Khoảng thời gian bạn chọn: {durationDays} ngày).");
         }
 
         var today = DateOnly.FromDateTime(DateTime.Now);
@@ -560,12 +614,26 @@ public class DispatchService : IDispatchService
             return ApiResponse<DispatchRecordDto>.Fail($"Nhân sự '{invalidBranchUser.FullName}' không thuộc biên chế của chi nhánh hỗ trợ ({fromBranch.Name}).");
         }
 
+        // Kiểm tra quân số an toàn của chi nhánh cho mượn (loại trừ dispatch hiện tại)
+        var quotaCheck = await GetBranchDispatchQuotaAsync(fromBranch.Id, request.StartDate, request.EndDate, dispatch.Id);
+        if (!quotaCheck.Success || quotaCheck.Data == null)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail(!string.IsNullOrWhiteSpace(quotaCheck.Message) ? quotaCheck.Message : "Không thể xác định hạn mức điều động an toàn của chi nhánh hỗ trợ.");
+        }
+
+        if (employeeIds.Count > quotaCheck.Data.AvailableDispatchQuota)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail(
+                $"Chi nhánh {fromBranch.Name} chỉ còn lại {quotaCheck.Data.AvailableDispatchQuota} nhân sự khả dụng. Việc điều động quá số lượng này sẽ làm gián đoạn vận hành của chi nhánh hỗ trợ.");
+        }
+
         dispatch.UserId = users.First().Id;
         dispatch.SourceBranchId = (ulong)request.FromStoreId;
         dispatch.TargetBranchId = (ulong)request.ToStoreId;
         dispatch.StartDate = request.StartDate;
         dispatch.EndDate = request.EndDate;
         dispatch.Note = request.Reason;
+        dispatch.Status = "PENDING"; // Tự động đưa về PENDING để gửi lại cho bên nhận xét duyệt
 
         // Cập nhật lại các bản ghi DispatchEmployees
         _context.DispatchEmployees.RemoveRange(dispatch.DispatchEmployees);
@@ -590,11 +658,72 @@ public class DispatchService : IDispatchService
             .Include(d => d.DispatchEmployees).ThenInclude(de => de.User).ThenInclude(u => u.Role)
             .FirstAsync(d => d.Id == dispatch.Id);
 
-        return ApiResponse<DispatchRecordDto>.Ok(MapToDispatchRecordDto(updated), "Đã chỉnh sửa và lưu lại đơn điều động thành công (đang chờ phê duyệt).");
+        return ApiResponse<DispatchRecordDto>.Ok(MapToDispatchRecordDto(updated), "Đã chỉnh sửa và gửi lại đơn điều động thành công (đang chờ phê duyệt).");
     }
 
     /// <summary>
-    /// Hủy / Xóa đơn đề nghị chi viện khi đang chờ duyệt (PENDING).
+    /// Thu hồi đơn đề nghị chi viện đang chờ duyệt để chỉnh sửa nội dung (RECALLED).
+    /// Giúp ngăn chặn xung đột đồng thời khi chi nhánh đối tác đang mở duyệt đơn.
+    /// </summary>
+    public async Task<ApiResponse<DispatchRecordDto>> RecallDispatchRequestAsync(int managerId, int dispatchId, string? reason = null)
+    {
+        var dispatch = await _context.TemporaryDispatches
+            .Include(d => d.SourceBranch)
+            .Include(d => d.TargetBranch)
+            .Include(d => d.RequestedByUser)
+            .Include(d => d.ApprovedByUser)
+            .Include(d => d.DispatchEmployees).ThenInclude(de => de.User).ThenInclude(u => u.Role)
+            .FirstOrDefaultAsync(d => d.Id == (ulong)dispatchId);
+
+        if (dispatch == null)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail("Không tìm thấy lệnh điều động cần thu hồi.");
+        }
+
+        if (dispatch.Status != "PENDING")
+        {
+            if (dispatch.Status == "RECALLED")
+            {
+                return ApiResponse<DispatchRecordDto>.Fail("Đơn này đã được thu hồi trước đó rồi. Bạn có thể tiến hành chỉnh sửa.");
+            }
+            return ApiResponse<DispatchRecordDto>.Fail($"Không thể thu hồi đơn đã được xử lý (Trạng thái hiện tại: {dispatch.Status}).");
+        }
+
+        var manager = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == (ulong)managerId);
+        if (manager == null)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail("Không xác định được danh tính người thực hiện.");
+        }
+
+        bool isAdmin = manager.Role != null && (manager.Role.RoleCode == "OPERATIONS_ADMIN" || manager.Role.RoleCode == "BUSINESS_OWNER");
+        bool isRequester = dispatch.RequestedBy == (ulong)managerId;
+        bool isStoreManagerTarget = manager.HomeBranchId.HasValue && manager.HomeBranchId.Value == dispatch.TargetBranchId;
+
+        if (!isAdmin && !isRequester && !isStoreManagerTarget)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail("Bạn không có quyền thu hồi đơn điều động của chi nhánh khác.");
+        }
+
+        dispatch.Status = "RECALLED";
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            dispatch.Note = string.IsNullOrEmpty(dispatch.Note)
+                ? $"[Thu hồi]: {reason.Trim()}"
+                : $"{dispatch.Note} | [Thu hồi]: {reason.Trim()}";
+        }
+
+        foreach (var de in dispatch.DispatchEmployees)
+        {
+            de.Status = "PENDING";
+        }
+
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<DispatchRecordDto>.Ok(MapToDispatchRecordDto(dispatch), "Đã thu hồi đơn điều động thành công. Bạn có thể chỉnh sửa nội dung và gửi lại.");
+    }
+
+    /// <summary>
+    /// Hủy / Xóa đơn đề nghị chi viện khi đang chờ duyệt (PENDING) hoặc đã thu hồi (RECALLED).
     /// </summary>
     public async Task<ApiResponse<bool>> DeleteDispatchRequestAsync(int managerId, int dispatchId)
     {
@@ -607,7 +736,7 @@ public class DispatchService : IDispatchService
             return ApiResponse<bool>.Fail("Không tìm thấy lệnh điều động cần hủy.");
         }
 
-        if (dispatch.Status != "PENDING")
+        if (dispatch.Status != "PENDING" && dispatch.Status != "RECALLED")
         {
             return ApiResponse<bool>.Fail($"Không thể hủy đơn đã được xử lý (Trạng thái hiện tại: {dispatch.Status}).");
         }
@@ -681,6 +810,74 @@ public class DispatchService : IDispatchService
             .ToListAsync();
 
         return ApiResponse<List<DispatchEmployeeOptionDto>>.Ok(employees, "Lấy danh sách nhân sự chi viện thành công.");
+    }
+
+    /// <summary>
+    /// Tra cứu định biên an toàn và số lượng nhân sự khả dụng cho điều động của chi nhánh cho mượn (SourceBranch).
+    /// Quy tắc: Số nhân sự đang đi chi viện (lệnh APPROVED còn hiệu lực) + số mới không vượt quá 40% tổng quân số.
+    /// </summary>
+    public async Task<ApiResponse<BranchDispatchQuotaStatusDto>> GetBranchDispatchQuotaAsync(
+        ulong branchId, 
+        DateOnly? startDate, 
+        DateOnly? endDate, 
+        ulong? excludeDispatchId = null)
+    {
+        var branch = await _context.Branches.FindAsync(branchId);
+        if (branch == null)
+        {
+            return ApiResponse<BranchDispatchQuotaStatusDto>.Fail("Không tìm thấy chi nhánh chỉ định.");
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var queryStart = startDate ?? today;
+        var queryEnd = endDate ?? (startDate.HasValue ? startDate.Value : today);
+
+        // Tổng quân số ACTIVE của chi nhánh gốc
+        var totalHeadcount = await _context.Users
+            .CountAsync(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == branchId) && u.Status == "ACTIVE");
+
+        // Tìm các lệnh điều động APPROVED hoặc PARTIAL từ chi nhánh này trùng với khoảng thời gian [queryStart, queryEnd]
+        var overlappingDispatches = await _context.TemporaryDispatches
+            .Include(d => d.DispatchEmployees)
+            .Where(d => d.SourceBranchId == branchId
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL")
+                     && (!excludeDispatchId.HasValue || d.Id != excludeDispatchId.Value)
+                     && d.StartDate <= queryEnd
+                     && queryStart <= d.EndDate)
+            .ToListAsync();
+
+        var dispatchedUserIds = new HashSet<ulong>();
+        foreach (var d in overlappingDispatches)
+        {
+            if (d.DispatchEmployees != null && d.DispatchEmployees.Any())
+            {
+                foreach (var de in d.DispatchEmployees.Where(de => de.Status == "APPROVED"))
+                {
+                    dispatchedUserIds.Add(de.UserId);
+                }
+            }
+            else if (d.UserId > 0 && d.Status == "APPROVED")
+            {
+                dispatchedUserIds.Add(d.UserId);
+            }
+        }
+
+        int currentlyDispatchedCount = dispatchedUserIds.Count;
+        int maxAllowedDispatchCount = (int)Math.Floor(totalHeadcount * 0.40);
+        int availableDispatchQuota = Math.Max(0, maxAllowedDispatchCount - currentlyDispatchedCount);
+
+        var dto = new BranchDispatchQuotaStatusDto
+        {
+            BranchId = branch.Id,
+            BranchName = branch.Name,
+            TotalHeadcount = totalHeadcount,
+            CurrentlyDispatchedCount = currentlyDispatchedCount,
+            MaxAllowedDispatchCount = maxAllowedDispatchCount,
+            AvailableDispatchQuota = availableDispatchQuota,
+            MaxDispatchRatio = 0.40
+        };
+
+        return ApiResponse<BranchDispatchQuotaStatusDto>.Ok(dto);
     }
 
     /// <summary>

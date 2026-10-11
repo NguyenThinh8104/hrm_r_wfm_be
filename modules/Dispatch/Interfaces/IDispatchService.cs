@@ -11,7 +11,9 @@ public interface IDispatchService
     Task<ApiResponse<List<DispatchRecordDto>>> GetAllDispatchesAsync(string? status, int? storeId);
     Task<ApiResponse<DispatchNetworkMetricsDto>> GetNetworkMetricsAsync(DateOnly? fromDate, DateOnly? toDate);
     Task<ApiResponse<DispatchRecordDto>> UpdateDispatchRequestAsync(int managerId, int dispatchId, UpdateDispatchRequestDto request);
+    Task<ApiResponse<DispatchRecordDto>> RecallDispatchRequestAsync(int managerId, int dispatchId, string? reason = null);
     Task<ApiResponse<bool>> DeleteDispatchRequestAsync(int managerId, int dispatchId);
     Task<ApiResponse<List<DispatchEmployeeOptionDto>>> GetBranchEmployeesForDispatchAsync(ulong branchId);
+    Task<ApiResponse<BranchDispatchQuotaStatusDto>> GetBranchDispatchQuotaAsync(ulong branchId, DateOnly? startDate, DateOnly? endDate, ulong? excludeDispatchId = null);
 }
 

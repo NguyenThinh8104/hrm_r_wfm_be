@@ -105,3 +105,23 @@ public class DispatchEmployeeOptionDto
     public string RoleCode { get; set; } = string.Empty;
     public ulong HomeBranchId { get; set; }
 }
+
+/// <summary>
+/// DTO thông tin định biên an toàn và số lượng nhân sự khả dụng cho điều động của chi nhánh cho mượn.
+/// </summary>
+public class BranchDispatchQuotaStatusDto
+{
+    public ulong BranchId { get; set; }
+    public string BranchName { get; set; } = string.Empty;
+    public int TotalHeadcount { get; set; }
+    public int CurrentlyDispatchedCount { get; set; }
+    public int MaxAllowedDispatchCount { get; set; }
+    public int AvailableDispatchQuota { get; set; }
+    public double MaxDispatchRatio { get; set; } = 0.40;
+}
+
+public class RecallDispatchRequestDto
+{
+    public string? Reason { get; set; }
+}
+

@@ -378,6 +378,42 @@ public class ShiftService : IShiftService
             template.ShiftType = request.ShiftType.Trim().ToUpper();
         }
 
+        // Ràng buộc đóng băng lịch ca: Thay đổi ca mẫu chỉ áp dụng từ tuần sau.
+        // Tuần hiện tại, các ngày đã qua và các ca đã công bố phải giữ nguyên giờ ca cũ (Snapshot).
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        int daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
+        var currentMonday = today.AddDays(-daysSinceMonday);
+        var nextMonday = currentMonday.AddDays(7);
+
+        // 1. Đóng băng snapshot cho toàn bộ lịch ca của tuần hiện tại, quá khứ và các ca đã công bố
+        var schedulesToLock = await _context.WorkSchedules
+            .Where(ws => ws.ShiftTemplateId == template.Id && (ws.WorkDate < nextMonday || ws.Status == "PUBLISHED"))
+            .ToListAsync();
+
+        foreach (var ws in schedulesToLock)
+        {
+            if (!ws.SnapshotStartTime.HasValue)
+            {
+                ws.SnapshotShiftName = template.Name;
+                ws.SnapshotStartTime = template.StartTime;
+                ws.SnapshotEndTime = template.EndTime;
+                ws.SnapshotIsOvernight = template.IsOvernight;
+            }
+        }
+
+        // 2. Các ca ở trạng thái nháp (DRAFT) từ thứ Hai tuần sau trở đi sẽ nhận khung giờ mới
+        var futureDraftSchedules = await _context.WorkSchedules
+            .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate >= nextMonday && ws.Status == "DRAFT")
+            .ToListAsync();
+
+        foreach (var ws in futureDraftSchedules)
+        {
+            ws.SnapshotShiftName = !string.IsNullOrWhiteSpace(request.Name) ? request.Name.Trim() : template.Name;
+            ws.SnapshotStartTime = newStartTime;
+            ws.SnapshotEndTime = newEndTime;
+            ws.SnapshotIsOvernight = newEndTime < newStartTime;
+        }
+
         template.StartTime = newStartTime;
         template.EndTime = newEndTime;
         template.IsOvernight = newEndTime < newStartTime;
@@ -752,6 +788,42 @@ public class ShiftService : IShiftService
             return ApiResponse<ShiftTemplateDto>.Fail(validation.ErrorMessage ?? "Cấu hình khung ca không hợp lệ.");
         }
 
+        // Ràng buộc đóng băng lịch ca: Thay đổi ca mẫu chỉ áp dụng từ tuần sau.
+        // Tuần hiện tại, các ngày đã qua và các ca đã công bố phải giữ nguyên giờ ca cũ (Snapshot).
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        int daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
+        var currentMonday = today.AddDays(-daysSinceMonday);
+        var nextMonday = currentMonday.AddDays(7);
+
+        // 1. Đóng băng snapshot cho toàn bộ lịch ca của tuần hiện tại, quá khứ và các ca đã công bố
+        var schedulesToLock = await _context.WorkSchedules
+            .Where(ws => ws.ShiftTemplateId == template.Id && (ws.WorkDate < nextMonday || ws.Status == "PUBLISHED"))
+            .ToListAsync();
+
+        foreach (var ws in schedulesToLock)
+        {
+            if (!ws.SnapshotStartTime.HasValue)
+            {
+                ws.SnapshotShiftName = template.Name;
+                ws.SnapshotStartTime = template.StartTime;
+                ws.SnapshotEndTime = template.EndTime;
+                ws.SnapshotIsOvernight = template.IsOvernight;
+            }
+        }
+
+        // 2. Các ca ở trạng thái nháp (DRAFT) từ thứ Hai tuần sau trở đi sẽ nhận khung giờ mới
+        var futureDraftSchedules = await _context.WorkSchedules
+            .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate >= nextMonday && ws.Status == "DRAFT")
+            .ToListAsync();
+
+        foreach (var ws in futureDraftSchedules)
+        {
+            ws.SnapshotShiftName = dto.Name.Trim();
+            ws.SnapshotStartTime = dto.StartTime;
+            ws.SnapshotEndTime = dto.EndTime;
+            ws.SnapshotIsOvernight = validation.IsOvernight;
+        }
+
         template.Name = dto.Name.Trim();
         template.StartTime = dto.StartTime;
         template.EndTime = dto.EndTime;
@@ -1096,6 +1168,10 @@ public class ShiftService : IShiftService
                         BranchId = dto.BranchId,
                         ShiftTemplateId = template.Id,
                         WorkDate = workDate,
+                        SnapshotShiftName = template.Name,
+                        SnapshotStartTime = template.StartTime,
+                        SnapshotEndTime = template.EndTime,
+                        SnapshotIsOvernight = template.IsOvernight,
                         RequiredCashier = dto.DefaultRequiredCashier,
                         RequiredSales = dto.DefaultRequiredSales,
                         RequiredSecurity = dto.DefaultRequiredSecurity,
@@ -1164,9 +1240,9 @@ public class ShiftService : IShiftService
             BranchId = schedule.BranchId,
             BranchName = schedule.Branch.Name,
             ShiftTemplateId = schedule.ShiftTemplateId,
-            ShiftTemplateName = schedule.ShiftTemplate.Name,
-            StartTime = schedule.ShiftTemplate.StartTime,
-            EndTime = schedule.ShiftTemplate.EndTime,
+            ShiftTemplateName = schedule.SnapshotShiftName ?? schedule.ShiftTemplate.Name,
+            StartTime = schedule.SnapshotStartTime ?? schedule.ShiftTemplate.StartTime,
+            EndTime = schedule.SnapshotEndTime ?? schedule.ShiftTemplate.EndTime,
             WorkDate = schedule.WorkDate,
             RequiredLeader = 1,
             RequiredCashier = schedule.RequiredCashier,
@@ -1199,7 +1275,7 @@ public class ShiftService : IShiftService
                 .ThenInclude(sa => sa.AssignedRole)
             .Where(ws => ws.BranchId == branchId && ws.WorkDate.Year == year && ws.WorkDate.Month == month)
             .OrderBy(ws => ws.WorkDate)
-            .ThenBy(ws => ws.ShiftTemplate.StartTime)
+            .ThenBy(ws => ws.SnapshotStartTime ?? ws.ShiftTemplate.StartTime)
             .ToListAsync();
 
         var result = schedules.Select(ws => new WorkScheduleDto
@@ -1208,9 +1284,9 @@ public class ShiftService : IShiftService
             BranchId = ws.BranchId,
             BranchName = ws.Branch.Name,
             ShiftTemplateId = ws.ShiftTemplateId,
-            ShiftTemplateName = ws.ShiftTemplate.Name,
-            StartTime = ws.ShiftTemplate.StartTime,
-            EndTime = ws.ShiftTemplate.EndTime,
+            ShiftTemplateName = ws.SnapshotShiftName ?? ws.ShiftTemplate.Name,
+            StartTime = ws.SnapshotStartTime ?? ws.ShiftTemplate.StartTime,
+            EndTime = ws.SnapshotEndTime ?? ws.ShiftTemplate.EndTime,
             WorkDate = ws.WorkDate,
             RequiredCashier = ws.RequiredCashier,
             RequiredSales = ws.RequiredSales,
@@ -1350,6 +1426,10 @@ public class ShiftService : IShiftService
                     BranchId = dto.BranchId,
                     ShiftTemplateId = item.ShiftTemplateId,
                     WorkDate = item.WorkDate,
+                    SnapshotShiftName = shiftTemplate.Name,
+                    SnapshotStartTime = shiftTemplate.StartTime,
+                    SnapshotEndTime = shiftTemplate.EndTime,
+                    SnapshotIsOvernight = shiftTemplate.IsOvernight,
                     RequiredCashier = 1,
                     RequiredSales = 1,
                     RequiredSecurity = 1,
@@ -1494,6 +1574,7 @@ public class ShiftService : IShiftService
     {
         var schedules = await _context.WorkSchedules
             .Include(ws => ws.ShiftAssignments)
+            .Include(ws => ws.ShiftTemplate)
             .Where(ws => ws.BranchId == branchId && ws.WorkDate.Year == year && ws.WorkDate.Month == month)
             .ToListAsync();
 
@@ -1505,6 +1586,13 @@ public class ShiftService : IShiftService
         foreach (var schedule in schedules)
         {
             schedule.Status = "PUBLISHED";
+            if (!schedule.SnapshotStartTime.HasValue && schedule.ShiftTemplate != null)
+            {
+                schedule.SnapshotShiftName = schedule.ShiftTemplate.Name;
+                schedule.SnapshotStartTime = schedule.ShiftTemplate.StartTime;
+                schedule.SnapshotEndTime = schedule.ShiftTemplate.EndTime;
+                schedule.SnapshotIsOvernight = schedule.ShiftTemplate.IsOvernight;
+            }
             foreach (var assignment in schedule.ShiftAssignments)
             {
                 assignment.Status = "CONFIRMED";
@@ -1586,6 +1674,10 @@ public class ShiftService : IShiftService
                         BranchId = dto.BranchId,
                         ShiftTemplateId = template.Id,
                         WorkDate = workDate,
+                        SnapshotShiftName = template.Name,
+                        SnapshotStartTime = template.StartTime,
+                        SnapshotEndTime = template.EndTime,
+                        SnapshotIsOvernight = template.IsOvernight,
                         RequiredCashier = dto.DefaultRequiredCashier,
                         RequiredSales = dto.DefaultRequiredSales,
                         RequiredSecurity = dto.DefaultRequiredSecurity,
@@ -1633,7 +1725,7 @@ public class ShiftService : IShiftService
                 .ThenInclude(sa => sa.User)
             .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
             .OrderBy(ws => ws.WorkDate)
-            .ThenBy(ws => ws.ShiftTemplate.StartTime)
+            .ThenBy(ws => ws.SnapshotStartTime ?? ws.ShiftTemplate.StartTime)
             .ToListAsync();
 
         var scheduleDtos = schedules.Select(ws => new WorkScheduleDto
@@ -1642,9 +1734,9 @@ public class ShiftService : IShiftService
             BranchId = ws.BranchId,
             BranchName = ws.Branch.Name,
             ShiftTemplateId = ws.ShiftTemplateId,
-            ShiftTemplateName = ws.ShiftTemplate.Name,
-            StartTime = ws.ShiftTemplate.StartTime,
-            EndTime = ws.ShiftTemplate.EndTime,
+            ShiftTemplateName = ws.SnapshotShiftName ?? ws.ShiftTemplate.Name,
+            StartTime = ws.SnapshotStartTime ?? ws.ShiftTemplate.StartTime,
+            EndTime = ws.SnapshotEndTime ?? ws.ShiftTemplate.EndTime,
             WorkDate = ws.WorkDate,
             RequiredLeader = 1,
             RequiredCashier = ws.RequiredCashier,
@@ -1722,9 +1814,9 @@ public class ShiftService : IShiftService
             {
                 Date = sa.Schedule.WorkDate,
                 ShiftTemplateId = sa.Schedule.ShiftTemplateId,
-                ShiftName = sa.Schedule.ShiftTemplate.Name,
-                StartTime = sa.Schedule.ShiftTemplate.StartTime,
-                EndTime = sa.Schedule.ShiftTemplate.EndTime,
+                ShiftName = sa.Schedule.SnapshotShiftName ?? sa.Schedule.ShiftTemplate.Name,
+                StartTime = sa.Schedule.SnapshotStartTime ?? sa.Schedule.ShiftTemplate.StartTime,
+                EndTime = sa.Schedule.SnapshotEndTime ?? sa.Schedule.ShiftTemplate.EndTime,
                 AssignmentId = sa.Id,
                 Status = sa.Status
             }).ToList();
@@ -1764,6 +1856,34 @@ public class ShiftService : IShiftService
 
         var activeTemplatesRes = await GetAllShiftTemplatesAsync(branchId, false);
 
+        // Khóa tiêu đề cột ca mẫu theo giờ đóng băng của tuần đang xem nếu các ca trong tuần đã có snapshot
+        var templatesForWeek = (activeTemplatesRes.Data ?? new List<ShiftDto>()).Select(t =>
+        {
+            var matchingSchedule = schedules.FirstOrDefault(s => s.ShiftTemplateId == t.Id && s.SnapshotStartTime.HasValue);
+            if (matchingSchedule != null)
+            {
+                return new ShiftDto
+                {
+                    Id = t.Id,
+                    TemplateCode = t.TemplateCode,
+                    Name = matchingSchedule.SnapshotShiftName ?? t.Name,
+                    ShiftType = t.ShiftType,
+                    StartTime = matchingSchedule.SnapshotStartTime.Value.ToString("HH:mm"),
+                    EndTime = matchingSchedule.SnapshotEndTime.HasValue 
+                        ? matchingSchedule.SnapshotEndTime.Value.ToString("HH:mm") 
+                        : t.EndTime,
+                    IsOvernight = matchingSchedule.SnapshotIsOvernight ?? t.IsOvernight,
+                    BreakDuration = t.BreakDuration,
+                    Scope = t.Scope,
+                    BranchId = t.BranchId,
+                    BranchName = t.BranchName,
+                    IsActive = t.IsActive,
+                    Status = t.Status
+                };
+            }
+            return t;
+        }).ToList();
+
         var matrix = new WeeklyScheduleMatrixDto
         {
             BranchId = branchId,
@@ -1774,7 +1894,7 @@ public class ShiftService : IShiftService
             Days = days,
             Schedules = scheduleDtos,
             EmployeeRosters = employeeRosters,
-            ActiveTemplates = activeTemplatesRes.Data ?? new List<ShiftDto>()
+            ActiveTemplates = templatesForWeek
         };
 
         return ApiResponse<WeeklyScheduleMatrixDto>.Ok(matrix);
@@ -1937,6 +2057,10 @@ public class ShiftService : IShiftService
                         BranchId = dto.BranchId,
                         ShiftTemplateId = dto.ShiftTemplateId,
                         WorkDate = workDate,
+                        SnapshotShiftName = shiftTemplate.Name,
+                        SnapshotStartTime = shiftTemplate.StartTime,
+                        SnapshotEndTime = shiftTemplate.EndTime,
+                        SnapshotIsOvernight = shiftTemplate.IsOvernight,
                         RequiredCashier = 1,
                         RequiredSales = 2,
                         RequiredSecurity = 1,
@@ -2052,6 +2176,7 @@ public class ShiftService : IShiftService
         var weekEndDate = weekStartDate.AddDays(6);
         var schedules = await _context.WorkSchedules
             .Include(ws => ws.ShiftAssignments)
+            .Include(ws => ws.ShiftTemplate)
             .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
             .ToListAsync();
 
@@ -2063,6 +2188,13 @@ public class ShiftService : IShiftService
         foreach (var schedule in schedules)
         {
             schedule.Status = "PUBLISHED";
+            if (!schedule.SnapshotStartTime.HasValue && schedule.ShiftTemplate != null)
+            {
+                schedule.SnapshotShiftName = schedule.ShiftTemplate.Name;
+                schedule.SnapshotStartTime = schedule.ShiftTemplate.StartTime;
+                schedule.SnapshotEndTime = schedule.ShiftTemplate.EndTime;
+                schedule.SnapshotIsOvernight = schedule.ShiftTemplate.IsOvernight;
+            }
             foreach (var assignment in schedule.ShiftAssignments)
             {
                 assignment.Status = "CONFIRMED";
@@ -2180,6 +2312,10 @@ public class ShiftService : IShiftService
                         BranchId = dto.BranchId,
                         ShiftTemplateId = template.Id,
                         WorkDate = workDate,
+                        SnapshotShiftName = template.Name,
+                        SnapshotStartTime = template.StartTime,
+                        SnapshotEndTime = template.EndTime,
+                        SnapshotIsOvernight = template.IsOvernight,
                         RequiredCashier = 1,
                         RequiredSales = 1,
                         RequiredSecurity = 1,
@@ -2693,6 +2829,10 @@ public class ShiftService : IShiftService
                 BranchId = (ulong)request.StoreId,
                 ShiftTemplateId = (uint)request.ShiftId,
                 WorkDate = request.WorkDate,
+                SnapshotShiftName = shiftTemplate.Name,
+                SnapshotStartTime = shiftTemplate.StartTime,
+                SnapshotEndTime = shiftTemplate.EndTime,
+                SnapshotIsOvernight = shiftTemplate.IsOvernight,
                 RequiredCashier = 1,
                 RequiredSales = 1,
                 RequiredSecurity = 1,
@@ -2725,9 +2865,9 @@ public class ShiftService : IShiftService
             EmployeeCode = user.EmployeeCode,
             PositionName = user.Role.RoleName,
             ShiftId = (int)shiftTemplate.Id,
-            ShiftName = shiftTemplate.Name,
-            StartTime = shiftTemplate.StartTime,
-            EndTime = shiftTemplate.EndTime,
+            ShiftName = schedule.EffectiveShiftName,
+            StartTime = schedule.EffectiveStartTime,
+            EndTime = schedule.EffectiveEndTime,
             WorkDate = request.WorkDate,
             StoreId = (int)branch.Id,
             StoreName = branch.Name,
@@ -2748,12 +2888,20 @@ public class ShiftService : IShiftService
         var weekEnd = weekStartDate.AddDays(6);
         var schedules = await _context.WorkSchedules
             .Include(ws => ws.ShiftAssignments)
+            .Include(ws => ws.ShiftTemplate)
             .Where(ws => ws.BranchId == (ulong)storeId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEnd)
             .ToListAsync();
 
         foreach (var schedule in schedules)
         {
             schedule.Status = "PUBLISHED";
+            if (!schedule.SnapshotStartTime.HasValue && schedule.ShiftTemplate != null)
+            {
+                schedule.SnapshotShiftName = schedule.ShiftTemplate.Name;
+                schedule.SnapshotStartTime = schedule.ShiftTemplate.StartTime;
+                schedule.SnapshotEndTime = schedule.ShiftTemplate.EndTime;
+                schedule.SnapshotIsOvernight = schedule.ShiftTemplate.IsOvernight;
+            }
             foreach (var assignment in schedule.ShiftAssignments)
             {
                 assignment.Status = "CONFIRMED";
@@ -2782,7 +2930,7 @@ public class ShiftService : IShiftService
                 .ThenInclude(u => u.Role)
             .Where(sa => sa.UserId == (ulong)employeeId && sa.Schedule.WorkDate >= startDate && sa.Schedule.WorkDate <= endDate)
             .OrderBy(sa => sa.Schedule.WorkDate)
-            .ThenBy(sa => sa.Schedule.ShiftTemplate.StartTime)
+            .ThenBy(sa => sa.Schedule.SnapshotStartTime ?? sa.Schedule.ShiftTemplate.StartTime)
             .Select(sa => new ShiftAssignmentDto
             {
                 AssignmentId = (int)sa.Id,
@@ -2792,9 +2940,9 @@ public class ShiftService : IShiftService
                 EmployeeCode = sa.User.EmployeeCode,
                 PositionName = sa.User.Role.RoleName,
                 ShiftId = (int)sa.Schedule.ShiftTemplateId,
-                ShiftName = sa.Schedule.ShiftTemplate.Name,
-                StartTime = sa.Schedule.ShiftTemplate.StartTime,
-                EndTime = sa.Schedule.ShiftTemplate.EndTime,
+                ShiftName = sa.Schedule.SnapshotShiftName ?? sa.Schedule.ShiftTemplate.Name,
+                StartTime = sa.Schedule.SnapshotStartTime ?? sa.Schedule.ShiftTemplate.StartTime,
+                EndTime = sa.Schedule.SnapshotEndTime ?? sa.Schedule.ShiftTemplate.EndTime,
                 WorkDate = sa.Schedule.WorkDate,
                 StoreId = (int)sa.Schedule.BranchId,
                 StoreName = sa.Schedule.Branch.Name,
@@ -4044,9 +4192,9 @@ public class ShiftService : IShiftService
             {
                 AssignmentId = (int)sa.Id,
                 ScheduleId = (int)sa.ScheduleId,
-                ShiftName = sa.Schedule.ShiftTemplate.Name,
+                ShiftName = sa.Schedule.EffectiveShiftName,
                 WorkDate = sa.Schedule.WorkDate.ToString("yyyy-MM-dd"),
-                TimeRange = $"{sa.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {sa.Schedule.ShiftTemplate.EndTime:hh\\:mm}",
+                TimeRange = $"{sa.Schedule.EffectiveStartTime:hh\\:mm} - {sa.Schedule.EffectiveEndTime:hh\\:mm}",
                 BranchName = sa.Schedule.Branch.Name
             });
         }
@@ -4186,11 +4334,10 @@ public class ShiftService : IShiftService
 
         foreach (var sa in nearbyAssignments)
         {
-            var t = sa.Schedule.ShiftTemplate!;
-            var sStart = sa.Schedule.WorkDate.ToDateTime(t.StartTime);
-            var sEnd = t.IsOvernight
-                ? sa.Schedule.WorkDate.AddDays(1).ToDateTime(t.EndTime)
-                : sa.Schedule.WorkDate.ToDateTime(t.EndTime);
+            var sStart = sa.Schedule.WorkDate.ToDateTime(sa.Schedule.EffectiveStartTime);
+            var sEnd = (sa.Schedule.EffectiveIsOvernight || sa.Schedule.EffectiveEndTime < sa.Schedule.EffectiveStartTime)
+                ? sa.Schedule.WorkDate.AddDays(1).ToDateTime(sa.Schedule.EffectiveEndTime)
+                : sa.Schedule.WorkDate.ToDateTime(sa.Schedule.EffectiveEndTime);
 
             if (sEnd <= newStartDt) // ca kết thúc TRƯỚC ca mới bắt đầu
             {

@@ -245,6 +245,11 @@ public partial class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.CreatedBy)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.Property(e => e.SnapshotShiftName).HasColumnName("SnapshotShiftName").HasMaxLength(100);
+            entity.Property(e => e.SnapshotStartTime).HasColumnName("SnapshotStartTime");
+            entity.Property(e => e.SnapshotEndTime).HasColumnName("SnapshotEndTime");
+            entity.Property(e => e.SnapshotIsOvernight).HasColumnName("SnapshotIsOvernight");
         });
 
         // 8. shift_assignments

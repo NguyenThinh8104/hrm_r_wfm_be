@@ -118,9 +118,9 @@ public class AttendanceService : IAttendanceService
                 FullName = sa.User.FullName,
                 PositionName = sa.User.Role.RoleName,
                 AssignmentId = (int)sa.Id,
-                ShiftName = sa.Schedule.ShiftTemplate.Name,
-                StartTime = sa.Schedule.ShiftTemplate.StartTime,
-                EndTime = sa.Schedule.ShiftTemplate.EndTime,
+                ShiftName = sa.Schedule.EffectiveShiftName,
+                StartTime = sa.Schedule.EffectiveStartTime,
+                EndTime = sa.Schedule.EffectiveEndTime,
                 HasCheckedIn = att?.CheckInTime != null,
                 HasCheckedOut = att?.CheckOutTime != null,
                 CheckInTime = att?.CheckInTime,
@@ -311,9 +311,9 @@ public class AttendanceService : IAttendanceService
                 EmployeeCode = sa.User.EmployeeCode,
                 FullName = sa.User.FullName,
                 PositionName = sa.User.Role?.RoleName ?? string.Empty,
-                ShiftName = sa.Schedule.ShiftTemplate.Name,
-                StartTime = sa.Schedule.ShiftTemplate.StartTime,
-                EndTime = sa.Schedule.ShiftTemplate.EndTime,
+                ShiftName = sa.Schedule.EffectiveShiftName,
+                StartTime = sa.Schedule.EffectiveStartTime,
+                EndTime = sa.Schedule.EffectiveEndTime,
                 CheckInTime = att?.CheckInTime,
                 CheckOutTime = att?.CheckOutTime,
                 CheckInPhotoPresignedUrl = checkInPhotoUrl,
@@ -418,9 +418,9 @@ public class AttendanceService : IAttendanceService
                          sa.Schedule.BranchId == kiosk.BranchId &&
                          sa.Status != "CANCELLED" &&
                          (sa.Schedule.WorkDate == today ||
-                          (sa.Schedule.ShiftTemplate.IsOvernight && sa.Schedule.WorkDate == yesterday)))
+                          ((sa.Schedule.SnapshotIsOvernight ?? sa.Schedule.ShiftTemplate.IsOvernight) && sa.Schedule.WorkDate == yesterday)))
             .OrderBy(sa => sa.Schedule.WorkDate)
-            .ThenBy(sa => sa.Schedule.ShiftTemplate.StartTime)
+            .ThenBy(sa => sa.Schedule.SnapshotStartTime ?? sa.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
 
         if (activeAssignments.Count == 0)
@@ -446,11 +446,13 @@ public class AttendanceService : IAttendanceService
         var shiftTimeWindows = unattendedAssignments.Select(sa =>
         {
             var workDate = sa.Schedule.WorkDate;
-            var template = sa.Schedule.ShiftTemplate;
-            var startDt = workDate.ToDateTime(template.StartTime);
-            var endDt = (template.IsOvernight || template.EndTime < template.StartTime)
-                ? workDate.AddDays(1).ToDateTime(template.EndTime)
-                : workDate.ToDateTime(template.EndTime);
+            var startTime = sa.Schedule.EffectiveStartTime;
+            var endTime = sa.Schedule.EffectiveEndTime;
+            var isOvernight = sa.Schedule.EffectiveIsOvernight;
+            var startDt = workDate.ToDateTime(startTime);
+            var endDt = (isOvernight || endTime < startTime)
+                ? workDate.AddDays(1).ToDateTime(endTime)
+                : workDate.ToDateTime(endTime);
 
             var earliestCheckIn = startDt.AddMinutes(-30);
             var latestCheckIn = endDt;
@@ -483,7 +485,7 @@ public class AttendanceService : IAttendanceService
             {
                 return ApiResponse<AttendanceRecordDto>.Fail(string.Format(
                     AttendanceMessages.TooEarlyForShift,
-                    upcomingShift.Assignment.Schedule.ShiftTemplate.Name,
+                    upcomingShift.Assignment.Schedule.EffectiveShiftName,
                     upcomingShift.StartDt.ToString("HH:mm"),
                     upcomingShift.EarliestCheckIn.ToString("HH:mm")));
             }
@@ -498,7 +500,7 @@ public class AttendanceService : IAttendanceService
             {
                 return ApiResponse<AttendanceRecordDto>.Fail(string.Format(
                     AttendanceMessages.ShiftAlreadyEnded,
-                    endedShift.Assignment.Schedule.ShiftTemplate.Name,
+                    endedShift.Assignment.Schedule.EffectiveShiftName,
                     endedShift.EndDt.ToString("HH:mm")));
             }
 
@@ -546,7 +548,7 @@ public class AttendanceService : IAttendanceService
             StoreId = (int)kiosk.BranchId,
             KioskId = (int)kiosk.Id,
             StoreName = kiosk.Branch.Name,
-            ShiftName = assignment.Schedule.ShiftTemplate.Name,
+            ShiftName = assignment.Schedule.EffectiveShiftName,
             CheckInTime = log.CheckInTime,
             CheckInMethod = "Kiosk_OTP",
             Status = "Pending",
@@ -621,7 +623,7 @@ public class AttendanceService : IAttendanceService
             .Where(al => al.Assignment.UserId == user.Id &&
                          al.CheckOutPhotoKey == null &&
                          (al.Assignment.Schedule.WorkDate == today ||
-                          (al.Assignment.Schedule.ShiftTemplate.IsOvernight && al.Assignment.Schedule.WorkDate == yesterday)))
+                          ((al.Assignment.Schedule.SnapshotIsOvernight ?? al.Assignment.Schedule.ShiftTemplate.IsOvernight) && al.Assignment.Schedule.WorkDate == yesterday)))
             .OrderByDescending(al => al.CheckInTime)
             .FirstOrDefaultAsync();
 
@@ -985,10 +987,10 @@ public class AttendanceService : IAttendanceService
                 dayDto.Shifts.Add(new MyShiftSlotDto
                 {
                     AssignmentId = a.Id,
-                    ShiftName = a.Schedule.ShiftTemplate?.Name ?? string.Empty,
+                    ShiftName = a.Schedule.EffectiveShiftName,
                     TemplateCode = a.Schedule.ShiftTemplate?.TemplateCode ?? string.Empty,
-                    StartTime = a.Schedule.ShiftTemplate?.StartTime ?? default,
-                    EndTime = a.Schedule.ShiftTemplate?.EndTime ?? default,
+                    StartTime = a.Schedule.EffectiveStartTime,
+                    EndTime = a.Schedule.EffectiveEndTime,
                     BranchId = a.Schedule.BranchId,
                     BranchName = a.Schedule.Branch?.Name ?? string.Empty,
                     BranchAddress = a.Schedule.Branch?.Address ?? string.Empty,
@@ -1048,8 +1050,7 @@ public class AttendanceService : IAttendanceService
             }
             else if (a.AttendanceLog != null)
             {
-                var template = a.Schedule.ShiftTemplate;
-                var shiftStartDt = template != null ? date.ToDateTime(template.StartTime) : a.AttendanceLog.CheckInTime;
+                var shiftStartDt = a.Schedule != null ? date.ToDateTime(a.Schedule.EffectiveStartTime) : a.AttendanceLog.CheckInTime;
                 isLate = a.AttendanceLog.IsLate || (a.AttendanceLog.CheckInTime > shiftStartDt.AddMinutes(15));
 
                 if (a.AttendanceLog.CheckOutTime.HasValue)
@@ -1075,10 +1076,10 @@ public class AttendanceService : IAttendanceService
             {
                 Date = date,
                 DayOfWeek = GetVietnameseDayOfWeek(date.DayOfWeek),
-                ShiftName = a.Schedule.ShiftTemplate?.Name ?? string.Empty,
-                ShiftStart = a.Schedule.ShiftTemplate?.StartTime ?? default,
-                ShiftEnd = a.Schedule.ShiftTemplate?.EndTime ?? default,
-                BranchName = a.Schedule.Branch?.Name ?? string.Empty,
+                ShiftName = a.Schedule?.EffectiveShiftName ?? string.Empty,
+                ShiftStart = a.Schedule?.EffectiveStartTime ?? default,
+                ShiftEnd = a.Schedule?.EffectiveEndTime ?? default,
+                BranchName = a.Schedule?.Branch?.Name ?? string.Empty,
                 CheckInTime = a.AttendanceLog?.CheckInTime,
                 CheckOutTime = a.AttendanceLog?.CheckOutTime,
                 ActualWorkMinutes = actualMinutes.HasValue ? Math.Round(actualMinutes.Value, 1) : null,

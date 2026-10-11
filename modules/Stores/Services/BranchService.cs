@@ -156,6 +156,7 @@ public class BranchService : IBranchService, IStoreService
             StaffCount = dto.StaffCount.HasValue && dto.StaffCount.Value > 0 ? dto.StaffCount.Value : 0,
             TierId = dto.TierId,
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
+            ShiftMode = "GLOBAL",
             GeofenceRadiusMeters = dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0 ? dto.GeofenceRadiusMeters.Value : 50,
             CreatedAt = now,
             UpdatedAt = now

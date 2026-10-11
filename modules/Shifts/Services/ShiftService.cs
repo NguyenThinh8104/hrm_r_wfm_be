@@ -957,6 +957,16 @@ public class ShiftService : IShiftService
                     query = query.Where(st => st.Scope == "BRANCH" && st.BranchId == branch.Id);
                 }
             }
+            else
+            {
+                query = query.Where(st => st.Scope == "GLOBAL" || string.IsNullOrEmpty(st.Scope));
+            }
+        }
+        else
+        {
+            // Khi không chỉ định branchId (ví dụ trang chung), CHỈ lấy ca chung GLOBAL.
+            // Tuyệt đối không rò rỉ các ca riêng (BRANCH) của cơ sở khác!
+            query = query.Where(st => st.Scope == "GLOBAL" || string.IsNullOrEmpty(st.Scope));
         }
 
         var templates = await query
@@ -1126,18 +1136,41 @@ public class ShiftService : IShiftService
 
         int daysInMonth = DateTime.DaysInMonth(dto.Year, dto.Month);
 
+        var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
+
         List<ShiftTemplate> templates;
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
-            templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
-                .ToListAsync();
+            var templateQuery = _context.ShiftTemplates
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive);
+
+            if (isGlobal)
+            {
+                templateQuery = templateQuery.Where(st => st.Scope == "GLOBAL" || string.IsNullOrEmpty(st.Scope));
+            }
+            else
+            {
+                templateQuery = templateQuery.Where(st => st.Scope == "BRANCH" && st.BranchId == branch.Id);
+            }
+
+            templates = await templateQuery.ToListAsync();
         }
         else
         {
-            templates = await _context.ShiftTemplates
-                .Where(st => st.IsActive)
-                .ToListAsync();
+            if (isGlobal)
+            {
+                templates = await _context.ShiftTemplates
+                    .Where(st => (st.Scope == "GLOBAL" || string.IsNullOrEmpty(st.Scope)) && st.IsActive)
+                    .OrderBy(st => st.StartTime)
+                    .ToListAsync();
+            }
+            else
+            {
+                templates = await _context.ShiftTemplates
+                    .Where(st => st.Scope == "BRANCH" && st.BranchId == branch.Id && st.IsActive)
+                    .OrderBy(st => st.StartTime)
+                    .ToListAsync();
+            }
         }
 
         if (!templates.Any())
@@ -1620,16 +1653,27 @@ public class ShiftService : IShiftService
 
         var weekEndDate = dto.WeekStartDate.AddDays(6);
 
+        var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
+
         List<ShiftTemplate> templates;
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
-            templates = await _context.ShiftTemplates
-                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive)
-                .ToListAsync();
+            var templateQuery = _context.ShiftTemplates
+                .Where(st => dto.TemplateIds.Contains(st.Id) && st.IsActive);
+
+            if (isGlobal)
+            {
+                templateQuery = templateQuery.Where(st => st.Scope == "GLOBAL" || string.IsNullOrEmpty(st.Scope));
+            }
+            else
+            {
+                templateQuery = templateQuery.Where(st => st.Scope == "BRANCH" && st.BranchId == branch.Id);
+            }
+
+            templates = await templateQuery.ToListAsync();
         }
         else
         {
-            var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
             if (isGlobal)
             {
                 templates = await _context.ShiftTemplates
@@ -1716,14 +1760,27 @@ public class ShiftService : IShiftService
             days.Add(weekStartDate.AddDays(i));
         }
 
-        var schedules = await _context.WorkSchedules
+        var isGlobalBranch = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
+
+        var schedulesQuery = _context.WorkSchedules
             .Include(ws => ws.Branch)
             .Include(ws => ws.ShiftTemplate)
             .Include(ws => ws.ShiftAssignments)
                 .ThenInclude(sa => sa.AssignedRole)
             .Include(ws => ws.ShiftAssignments)
                 .ThenInclude(sa => sa.User)
-            .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
+            .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate);
+
+        if (isGlobalBranch)
+        {
+            schedulesQuery = schedulesQuery.Where(ws => ws.ShiftTemplate.Scope == "GLOBAL" || string.IsNullOrEmpty(ws.ShiftTemplate.Scope));
+        }
+        else
+        {
+            schedulesQuery = schedulesQuery.Where(ws => ws.ShiftTemplate.Scope == "BRANCH" && ws.ShiftTemplate.BranchId == branchId);
+        }
+
+        var schedules = await schedulesQuery
             .OrderBy(ws => ws.WorkDate)
             .ThenBy(ws => ws.SnapshotStartTime ?? ws.ShiftTemplate.StartTime)
             .ToListAsync();

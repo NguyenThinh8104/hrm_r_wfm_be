@@ -79,6 +79,11 @@ public interface IShiftService
     Task<ApiResponse<WorkScheduleDto>> UpdateScheduleRequirementAsync(UpdateScheduleRequirementDto dto);
 
     /// <summary>
+    /// Xóa 1 bản ghi khung ca làm việc ở trạng thái DRAFT.
+    /// </summary>
+    Task<ApiResponse<bool>> DeleteScheduleAsync(ulong scheduleId);
+
+    /// <summary>
     /// Truy vấn danh sách khung lịch làm việc kèm chỉ tiêu định mức nhu cầu nhân sự của chi nhánh trong tháng.
     /// Logic đặc biệt: Lọc theo BranchId, Year, Month, sắp xếp tăng dần theo WorkDate và StartTime của ca.
     /// </summary>

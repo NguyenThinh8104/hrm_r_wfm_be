@@ -1233,12 +1233,56 @@ public class ShiftService : IShiftService
     /// <returns>ApiResponse chứa thông tin khung ca làm việc đã cập nhật chỉ tiêu (WorkScheduleDto)</returns>
     public async Task<ApiResponse<WorkScheduleDto>> UpdateScheduleRequirementAsync(UpdateScheduleRequirementDto dto)
     {
-        var schedule = await _context.WorkSchedules
-            .Include(ws => ws.Branch)
-            .Include(ws => ws.ShiftTemplate)
-            .Include(ws => ws.ShiftAssignments)
-                .ThenInclude(sa => sa.AssignedRole)
-            .FirstOrDefaultAsync(ws => ws.Id == dto.ScheduleId);
+        WorkSchedule? schedule = null;
+        if (dto.ScheduleId > 0)
+        {
+            schedule = await _context.WorkSchedules
+                .Include(ws => ws.Branch)
+                .Include(ws => ws.ShiftTemplate)
+                .Include(ws => ws.ShiftAssignments)
+                    .ThenInclude(sa => sa.AssignedRole)
+                .FirstOrDefaultAsync(ws => ws.Id == dto.ScheduleId);
+        }
+        else if (dto.BranchId.HasValue && dto.ShiftTemplateId.HasValue && dto.WorkDate.HasValue)
+        {
+            schedule = await _context.WorkSchedules
+                .Include(ws => ws.Branch)
+                .Include(ws => ws.ShiftTemplate)
+                .Include(ws => ws.ShiftAssignments)
+                    .ThenInclude(sa => sa.AssignedRole)
+                .FirstOrDefaultAsync(ws => ws.BranchId == dto.BranchId.Value 
+                                        && ws.ShiftTemplateId == dto.ShiftTemplateId.Value 
+                                        && ws.WorkDate == dto.WorkDate.Value);
+
+            if (schedule == null)
+            {
+                var template = await _context.ShiftTemplates.FindAsync(dto.ShiftTemplateId.Value);
+                if (template == null) return ApiResponse<WorkScheduleDto>.Fail("Không tìm thấy mẫu ca.");
+                var branch = await _context.Branches.FindAsync(dto.BranchId.Value);
+                if (branch == null) return ApiResponse<WorkScheduleDto>.Fail("Không tìm thấy chi nhánh.");
+
+                schedule = new WorkSchedule
+                {
+                    BranchId = dto.BranchId.Value,
+                    ShiftTemplateId = dto.ShiftTemplateId.Value,
+                    WorkDate = dto.WorkDate.Value,
+                    SnapshotShiftName = template.Name,
+                    SnapshotStartTime = template.StartTime,
+                    SnapshotEndTime = template.EndTime,
+                    SnapshotIsOvernight = template.IsOvernight,
+                    RequiredCashier = dto.RequiredCashier,
+                    RequiredSales = dto.RequiredSales,
+                    RequiredSecurity = dto.RequiredSecurity,
+                    Status = "DRAFT",
+                    CreatedBy = 1,
+                    CreatedAt = DateTime.UtcNow,
+                    Branch = branch,
+                    ShiftTemplate = template
+                };
+                _context.WorkSchedules.Add(schedule);
+                await _context.SaveChangesAsync();
+            }
+        }
 
         if (schedule == null)
         {
@@ -1271,11 +1315,11 @@ public class ShiftService : IShiftService
         {
             ScheduleId = schedule.Id,
             BranchId = schedule.BranchId,
-            BranchName = schedule.Branch.Name,
+            BranchName = schedule.Branch?.Name ?? string.Empty,
             ShiftTemplateId = schedule.ShiftTemplateId,
-            ShiftTemplateName = schedule.SnapshotShiftName ?? schedule.ShiftTemplate.Name,
-            StartTime = schedule.SnapshotStartTime ?? schedule.ShiftTemplate.StartTime,
-            EndTime = schedule.SnapshotEndTime ?? schedule.ShiftTemplate.EndTime,
+            ShiftTemplateName = schedule.SnapshotShiftName ?? schedule.ShiftTemplate?.Name ?? string.Empty,
+            StartTime = schedule.SnapshotStartTime ?? schedule.ShiftTemplate?.StartTime ?? default,
+            EndTime = schedule.SnapshotEndTime ?? schedule.ShiftTemplate?.EndTime ?? default,
             WorkDate = schedule.WorkDate,
             RequiredLeader = 1,
             RequiredCashier = schedule.RequiredCashier,
@@ -1288,7 +1332,43 @@ public class ShiftService : IShiftService
             Status = schedule.Status
         };
 
-        return ApiResponse<WorkScheduleDto>.Ok(resultDto, "Cập nhật định mức nhu cầu ca thành công.");
+        return ApiResponse<WorkScheduleDto>.Ok(resultDto, "Cập nhật định mức ca trực thành công!");
+    }
+
+    /// <summary>
+    /// Xóa 1 bản ghi khung ca làm việc ở trạng thái DRAFT.
+    /// </summary>
+    public async Task<ApiResponse<bool>> DeleteScheduleAsync(ulong scheduleId)
+    {
+        var schedule = await _context.WorkSchedules
+            .Include(ws => ws.ShiftAssignments)
+            .FirstOrDefaultAsync(ws => ws.Id == scheduleId);
+
+        if (schedule == null)
+        {
+            return ApiResponse<bool>.Fail("Không tìm thấy ca trực trong lịch làm việc.");
+        }
+
+        if (schedule.Status != "DRAFT")
+        {
+            return ApiResponse<bool>.Fail("Chỉ có thể xóa khung ca ở trạng thái DRAFT (chưa công bố).");
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        if (schedule.WorkDate <= today)
+        {
+            return ApiResponse<bool>.Fail("Không thể xóa khung ca của ngày hôm nay hoặc ngày đã qua.");
+        }
+
+        if (schedule.ShiftAssignments.Any())
+        {
+            _context.ShiftAssignments.RemoveRange(schedule.ShiftAssignments);
+        }
+
+        _context.WorkSchedules.Remove(schedule);
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<bool>.Ok(true, "Đã xóa khung ca thành công.");
     }
 
     /// <summary>
@@ -1695,13 +1775,41 @@ public class ShiftService : IShiftService
             return ApiResponse<WeeklyScheduleMatrixDto>.Fail("Không có mẫu ca nào hoạt động để sinh lịch tuần.");
         }
 
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
         var existingSchedules = await _context.WorkSchedules
+            .Include(ws => ws.ShiftAssignments)
             .Where(ws => ws.BranchId == dto.BranchId && ws.WorkDate >= dto.WeekStartDate && ws.WorkDate <= weekEndDate)
             .ToListAsync();
 
-        var existingSet = existingSchedules
-            .Select(ws => $"{ws.ShiftTemplateId}_{ws.WorkDate:yyyy-MM-dd}")
-            .ToHashSet();
+        // 1. Nếu người dùng chỉ chọn một số mẫu ca (dto.TemplateIds có giá trị), 
+        // dọn sạch các ca DRAFT của những mẫu ca KHÔNG được chọn trong các ngày tương lai
+        if (dto.TemplateIds != null && dto.TemplateIds.Any())
+        {
+            var selectedTemplateIdSet = templates.Select(t => t.Id).ToHashSet();
+            var unselectedDraftSchedules = existingSchedules
+                .Where(ws => ws.Status == "DRAFT" && ws.WorkDate > today && !selectedTemplateIdSet.Contains(ws.ShiftTemplateId))
+                .ToList();
+
+            if (unselectedDraftSchedules.Any())
+            {
+                var unselectedScheduleIds = unselectedDraftSchedules.Select(ws => ws.Id).ToList();
+                var assignmentsToDelete = await _context.ShiftAssignments
+                    .Where(sa => unselectedScheduleIds.Contains(sa.ScheduleId))
+                    .ToListAsync();
+                if (assignmentsToDelete.Any())
+                {
+                    _context.ShiftAssignments.RemoveRange(assignmentsToDelete);
+                }
+                _context.WorkSchedules.RemoveRange(unselectedDraftSchedules);
+
+                existingSchedules.RemoveAll(ws => unselectedDraftSchedules.Contains(ws));
+            }
+        }
+
+        var existingDict = existingSchedules
+            .GroupBy(ws => $"{ws.ShiftTemplateId}_{ws.WorkDate:yyyy-MM-dd}")
+            .ToDictionary(g => g.Key, g => g.First());
 
         var newSchedules = new List<WorkSchedule>();
 
@@ -1711,24 +1819,42 @@ public class ShiftService : IShiftService
             foreach (var template in templates)
             {
                 var key = $"{template.Id}_{workDate:yyyy-MM-dd}";
-                if (!existingSet.Contains(key))
+                if (existingDict.TryGetValue(key, out var existing))
                 {
-                    newSchedules.Add(new WorkSchedule
+                    // Cập nhật định mức cho các ca DRAFT trong tương lai
+                    if (existing.Status == "DRAFT" && workDate > today)
                     {
-                        BranchId = dto.BranchId,
-                        ShiftTemplateId = template.Id,
-                        WorkDate = workDate,
-                        SnapshotShiftName = template.Name,
-                        SnapshotStartTime = template.StartTime,
-                        SnapshotEndTime = template.EndTime,
-                        SnapshotIsOvernight = template.IsOvernight,
-                        RequiredCashier = dto.DefaultRequiredCashier,
-                        RequiredSales = dto.DefaultRequiredSales,
-                        RequiredSecurity = dto.DefaultRequiredSecurity,
-                        Status = "DRAFT",
-                        CreatedBy = createdByUserId,
-                        CreatedAt = DateTime.UtcNow
-                    });
+                        existing.RequiredCashier = dto.DefaultRequiredCashier;
+                        existing.RequiredSales = dto.DefaultRequiredSales;
+                        existing.RequiredSecurity = dto.DefaultRequiredSecurity;
+                        existing.SnapshotShiftName = template.Name;
+                        existing.SnapshotStartTime = template.StartTime;
+                        existing.SnapshotEndTime = template.EndTime;
+                        existing.SnapshotIsOvernight = template.IsOvernight;
+                    }
+                }
+                else
+                {
+                    // Chỉ khởi tạo ca mới cho các ngày tương lai
+                    if (workDate > today)
+                    {
+                        newSchedules.Add(new WorkSchedule
+                        {
+                            BranchId = dto.BranchId,
+                            ShiftTemplateId = template.Id,
+                            WorkDate = workDate,
+                            SnapshotShiftName = template.Name,
+                            SnapshotStartTime = template.StartTime,
+                            SnapshotEndTime = template.EndTime,
+                            SnapshotIsOvernight = template.IsOvernight,
+                            RequiredCashier = dto.DefaultRequiredCashier,
+                            RequiredSales = dto.DefaultRequiredSales,
+                            RequiredSecurity = dto.DefaultRequiredSecurity,
+                            Status = "DRAFT",
+                            CreatedBy = createdByUserId,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
                 }
             }
         }
@@ -1736,8 +1862,9 @@ public class ShiftService : IShiftService
         if (newSchedules.Any())
         {
             _context.WorkSchedules.AddRange(newSchedules);
-            await _context.SaveChangesAsync();
         }
+
+        await _context.SaveChangesAsync();
 
         return await GetWeeklyScheduleMatrixAsync(dto.BranchId, dto.WeekStartDate);
     }

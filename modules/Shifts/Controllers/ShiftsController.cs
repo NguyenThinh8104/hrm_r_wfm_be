@@ -202,9 +202,33 @@ public class ShiftsController : ControllerBase
             var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(targetBranchId.Value);
             if (!ok) return forbid!;
         }
+        else if (dto.BranchId.HasValue)
+        {
+            var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(dto.BranchId.Value);
+            if (!ok) return forbid!;
+        }
 
         dto.ScheduleId = scheduleId;
         var result = await _shiftService.UpdateScheduleRequirementAsync(dto);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Xóa 1 khung ca làm việc chưa công bố (DRAFT).
+    /// </summary>
+    [HttpDelete("schedules/{scheduleId}")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteSchedule(ulong scheduleId)
+    {
+        var targetBranchId = await _shiftService.GetBranchIdByScheduleIdAsync(scheduleId);
+        if (targetBranchId.HasValue)
+        {
+            var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(targetBranchId.Value);
+            if (!ok) return forbid!;
+        }
+
+        var result = await _shiftService.DeleteScheduleAsync(scheduleId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

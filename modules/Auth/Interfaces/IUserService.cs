@@ -26,6 +26,9 @@ public interface IUserService
     // UC 1.5 - Xóa tài khoản nhân sự (Chỉ xóa khi đã khóa)
     Task<ApiResponse<bool>> DeleteUserAsync(ulong userId, ulong actorId, string actorRole, string? ipAddress);
 
+    // Kiểm tra trùng lặp danh tính (Mã NV, Email, SĐT)
+    Task<ApiResponse<DuplicateCheckResultDto>> CheckDuplicateAsync(string? employeeCode, string? email, string? phone, ulong? excludeId);
+
     // Danh mục Roles & Chi nhánh
     Task<ApiResponse<List<RoleDto>>> GetRolesAsync();
     Task<ApiResponse<List<BranchSimpleDto>>> GetBranchesAsync();

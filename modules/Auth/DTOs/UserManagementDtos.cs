@@ -147,3 +147,13 @@ public class EmployeeRoleStatsDto
     public int Manager { get; set; }
 }
 
+public class DuplicateCheckResultDto
+{
+    public bool IsEmployeeCodeDuplicate { get; set; }
+    public string? ExistingEmployeeName { get; set; }
+    public bool IsEmailDuplicate { get; set; }
+    public string? ExistingEmailOwnerName { get; set; }
+    public bool IsPhoneDuplicate { get; set; }
+    public string? ExistingPhoneOwnerName { get; set; }
+}
+

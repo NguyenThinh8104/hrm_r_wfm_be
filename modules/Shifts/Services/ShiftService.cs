@@ -878,7 +878,7 @@ public class ShiftService : IShiftService
                 var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
                 if (isGlobal)
                 {
-                    query = query.Where(st => st.Scope == "GLOBAL");
+                    query = query.Where(st => st.Scope == "GLOBAL" || string.IsNullOrEmpty(st.Scope));
                 }
                 else
                 {
@@ -1545,7 +1545,7 @@ public class ShiftService : IShiftService
             if (isGlobal)
             {
                 templates = await _context.ShiftTemplates
-                    .Where(st => st.Scope == "GLOBAL" && st.IsActive)
+                    .Where(st => (st.Scope == "GLOBAL" || string.IsNullOrEmpty(st.Scope)) && st.IsActive)
                     .OrderBy(st => st.StartTime)
                     .ToListAsync();
             }

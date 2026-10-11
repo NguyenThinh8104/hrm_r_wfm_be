@@ -120,7 +120,7 @@ public static class DbInitializer
                 if (!branchCols.Contains("RowVersion"))
                 {
                     using var alterCmd = connection.CreateCommand();
-                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `RowVersion` DATETIME(6) NULL;";
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `RowVersion` char(36) COLLATE ascii_general_ci NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';";
                     alterCmd.ExecuteNonQuery();
                 }
 

@@ -64,6 +64,8 @@ public class DispatchRecordDto
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
     public string? Reason { get; set; }
+    public string? Note { get; set; }
+    public string? ApprovalNotes { get; set; }
     public string Status { get; set; } = string.Empty;
     public string RequestedByName { get; set; } = string.Empty;
     public string? ApprovedByName { get; set; }

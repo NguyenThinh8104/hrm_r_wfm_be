@@ -159,6 +159,14 @@ namespace Shared.Migrations
                         .HasColumnType("char(36)")
                         .HasColumnName("RowVersion");
 
+                    b.Property<string>("ShiftMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)")
+                        .HasDefaultValue("GLOBAL")
+                        .HasColumnName("ShiftMode");
+
                     b.Property<int>("StaffCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
@@ -693,6 +701,10 @@ namespace Shared.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<uint>("Id"));
 
+                    b.Property<ulong?>("BranchId")
+                        .HasColumnType("bigint unsigned")
+                        .HasColumnName("BranchId");
+
                     b.Property<uint>("BreakDurationMinutes")
                         .HasColumnType("int unsigned")
                         .HasColumnName("BreakDurationMinutes");
@@ -700,6 +712,10 @@ namespace Shared.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)")
                         .HasColumnName("CreatedAt");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("longtext")
+                        .HasColumnName("Description");
 
                     b.Property<TimeOnly>("EndTime")
                         .HasColumnType("time(6)")
@@ -718,6 +734,19 @@ namespace Shared.Migrations
                         .HasColumnType("longtext")
                         .HasColumnName("Name");
 
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)")
+                        .HasDefaultValue("GLOBAL")
+                        .HasColumnName("Scope");
+
+                    b.Property<string>("ShiftType")
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)")
+                        .HasColumnName("ShiftType");
+
                     b.Property<TimeOnly>("StartTime")
                         .HasColumnType("time(6)")
                         .HasColumnName("StartTime");
@@ -733,10 +762,17 @@ namespace Shared.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BranchId");
+
                     b.HasIndex("TemplateCode")
                         .IsUnique();
 
-                    b.ToTable("shift_templates", (string)null);
+                    b.HasIndex("Scope", "BranchId", "IsActive");
+
+                    b.ToTable("shift_templates", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_shift_templates_Scope_BranchId", "(Scope = 'GLOBAL' AND BranchId IS NULL) OR (Scope = 'BRANCH' AND BranchId IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Domain.Entities.SystemAuditLog", b =>
@@ -944,6 +980,23 @@ namespace Shared.Migrations
 
                     b.Property<uint>("ShiftTemplateId")
                         .HasColumnType("int unsigned");
+
+                    b.Property<TimeOnly?>("SnapshotEndTime")
+                        .HasColumnType("time(6)")
+                        .HasColumnName("SnapshotEndTime");
+
+                    b.Property<bool?>("SnapshotIsOvernight")
+                        .HasColumnType("tinyint(1)")
+                        .HasColumnName("SnapshotIsOvernight");
+
+                    b.Property<string>("SnapshotShiftName")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("SnapshotShiftName");
+
+                    b.Property<TimeOnly?>("SnapshotStartTime")
+                        .HasColumnType("time(6)")
+                        .HasColumnName("SnapshotStartTime");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1192,7 +1245,7 @@ namespace Shared.Migrations
                     b.HasOne("Domain.Entities.ShiftAssignment", "TargetAssignment")
                         .WithMany()
                         .HasForeignKey("TargetAssignmentId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Domain.Entities.User", "TargetUser")
                         .WithMany()
@@ -1210,6 +1263,16 @@ namespace Shared.Migrations
                     b.Navigation("TargetAssignment");
 
                     b.Navigation("TargetUser");
+                });
+
+            modelBuilder.Entity("Domain.Entities.ShiftTemplate", b =>
+                {
+                    b.HasOne("Domain.Entities.Branch", "Branch")
+                        .WithMany("ShiftTemplates")
+                        .HasForeignKey("BranchId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Branch");
                 });
 
             modelBuilder.Entity("Domain.Entities.SystemAuditLog", b =>
@@ -1322,6 +1385,8 @@ namespace Shared.Migrations
                     b.Navigation("Kiosks");
 
                     b.Navigation("LockLogs");
+
+                    b.Navigation("ShiftTemplates");
 
                     b.Navigation("Users");
 

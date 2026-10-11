@@ -7,42 +7,195 @@ namespace Modules.Shifts.DTOs;
 /// <summary>
 /// DTO thông tin mẫu ca làm việc chuẩn đã được chuẩn hóa hệ thống (UC 1.3).
 /// </summary>
+/// <summary>
+/// DTO thông tin mẫu ca làm việc chuẩn đã được chuẩn hóa hệ thống (UC 1.3 / Khung ca chung - riêng).
+/// </summary>
 public class ShiftTemplateDto
 {
     public uint Id { get; set; }
     public string TemplateCode { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public string StartTime { get; set; } = "00:00:00";
-    public string EndTime { get; set; } = "00:00:00";
-    public uint BreakMinutes { get; set; }
+    public string? ShiftType { get; set; } // "SANG" | "CHIEU" | "DEM" | "KHAC"
+    public string Scope { get; set; } = "GLOBAL"; // "GLOBAL" | "BRANCH"
+    public ulong? BranchId { get; set; }
+    public string? BranchName { get; set; }
+    public string StartTime { get; set; } = "00:00"; // "HH:mm"
+    public string EndTime { get; set; } = "00:00";   // "HH:mm"
+    public uint BreakDuration { get; set; }
     public bool IsOvernight { get; set; }
-    public double WorkHours { get; set; }
-    public string Status { get; set; } = "ACTIVE"; // "ACTIVE" / "INACTIVE"
+    public bool IsActive { get; set; } = true;
+    public double PaidHours { get; set; }
+    public double NightHours { get; set; }
+    public int? UsedByBranchCount { get; set; } // Chỉ có khi ca GLOBAL
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
     // Aliases for backward compatibility
+    public uint BreakMinutes { get => BreakDuration; set => BreakDuration = value; }
+    public double WorkHours { get => PaidHours; set => PaidHours = value; }
+    public string Status { get => IsActive ? "ACTIVE" : "INACTIVE"; set => IsActive = value == "ACTIVE"; }
     public int ShiftId => (int)Id;
     public string Code => TemplateCode;
     public string ShiftCode => TemplateCode;
     public string ShiftName => Name;
-    public uint BreakDurationMinutes => BreakMinutes;
-    public bool IsActive => Status == "ACTIVE";
+    public uint BreakDurationMinutes => BreakDuration;
     public bool IsSystemDefault => new[] { "CA_SANG", "CA_CHIEU", "CA_DEM" }.Contains(TemplateCode.ToUpper());
 }
 
 public class ShiftDto : ShiftTemplateDto { }
 
 /// <summary>
-/// DTO tạo mẫu ca chuẩn mới (Operations Admin).
+/// Kết quả xử lý nghiệp vụ khung ca với mã lỗi và thông tin chi tiết.
+/// </summary>
+public class ShiftOperationResult<T>
+{
+    public bool Success { get; set; }
+    public int StatusCode { get; set; } = 200;
+    public string? Code { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public T? Data { get; set; }
+    public object? Details { get; set; }
+    public int? AffectedBranchCount { get; set; }
+    public int? FutureAssignmentCount { get; set; }
+
+    public static ShiftOperationResult<T> Ok(T data, string message = "Thao tác thành công.") =>
+        new() { Success = true, StatusCode = 200, Data = data, Message = message };
+
+    public static ShiftOperationResult<T> Created(T data, string message = "Tạo thành công.") =>
+        new() { Success = true, StatusCode = 201, Data = data, Message = message };
+
+    public static ShiftOperationResult<T> BadRequest(string code, string message, object? details = null) =>
+        new() { Success = false, StatusCode = 400, Code = code, Message = message, Details = details };
+
+    public static ShiftOperationResult<T> NotFound(string message = "Không tìm thấy dữ liệu.") =>
+        new() { Success = false, StatusCode = 404, Code = "NOT_FOUND", Message = message };
+
+    public static ShiftOperationResult<T> Conflict(string code, string message, object? details = null, int? affectedBranchCount = null, int? futureAssignmentCount = null) =>
+        new() { Success = false, StatusCode = 409, Code = code, Message = message, Details = details, AffectedBranchCount = affectedBranchCount, FutureAssignmentCount = futureAssignmentCount };
+
+    public static ShiftOperationResult<T> Locked(string code, string message, object? details = null) =>
+        new() { Success = false, StatusCode = 423, Code = code, Message = message, Details = details };
+
+    public static ShiftOperationResult<T> Forbidden(string message = "Không có quyền truy cập chi nhánh này.") =>
+        new() { Success = false, StatusCode = 403, Code = "FORBIDDEN", Message = message };
+}
+
+public class ShiftOperationResult : ShiftOperationResult<object> { }
+
+/// <summary>
+/// DTO phân trang trả về cho danh sách ShiftTemplateDto.
+/// </summary>
+public class PagedResult<T>
+{
+    public List<T> Items { get; set; } = new List<T>();
+    public int TotalCount { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 10;
+    public int TotalPages => PageSize > 0 ? (int)Math.Ceiling((double)TotalCount / PageSize) : 0;
+}
+
+/// <summary>
+/// DTO thống kê khung ca (GET /api/shift-templates/stats).
+/// </summary>
+public class ShiftTemplateStatsDto
+{
+    public int TotalGlobalShifts { get; set; }
+    public int BranchesUsingGlobal { get; set; }
+    public int BranchesUsingCustom { get; set; }
+    public int OvernightShifts { get; set; }
+}
+
+/// <summary>
+/// DTO ca hiệu lực của chi nhánh (GET /api/branches/{id}/effective-shifts).
+/// </summary>
+public class BranchEffectiveShiftsDto
+{
+    public ulong BranchId { get; set; }
+    public string BranchName { get; set; } = string.Empty;
+    public string ShiftMode { get; set; } = "GLOBAL"; // "GLOBAL" | "CUSTOM"
+    public string Source { get; set; } = "GLOBAL";    // "GLOBAL" | "CUSTOM"
+    public List<ShiftTemplateDto> Shifts { get; set; } = new List<ShiftTemplateDto>();
+}
+
+/// <summary>
+/// DTO cập nhật chế độ ca của chi nhánh (PATCH /api/branches/{id}/shift-mode).
+/// </summary>
+public class BranchShiftModeRequest
+{
+    private string _mode = string.Empty;
+    public string Mode
+    {
+        get => _mode;
+        set => _mode = value;
+    }
+
+    public string ShiftMode
+    {
+        get => _mode;
+        set => _mode = value;
+    }
+
+    public bool Confirm { get; set; } = false;
+}
+
+/// <summary>
+/// DTO phần tử trong bộ chọn chi nhánh (GET /api/branches?shiftMode=&q=).
+/// </summary>
+public class BranchSelectorItemDto
+{
+    public ulong Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string BranchCode { get; set; } = string.Empty;
+    public string ShiftMode { get; set; } = "GLOBAL";
+    public int ActiveCustomShiftCount { get; set; }
+}
+
+/// <summary>
+/// Request tạo mẫu ca (POST /api/shift-templates).
+/// </summary>
+public class CreateShiftTemplateRequest
+{
+    public string Scope { get; set; } = "GLOBAL"; // "GLOBAL" | "BRANCH"
+    public ulong? BranchId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string? ShiftType { get; set; } // "SANG" | "CHIEU" | "DEM" | "KHAC"
+    public string StartTime { get; set; } = string.Empty; // "HH:mm"
+    public string EndTime { get; set; } = string.Empty;   // "HH:mm"
+    public uint BreakDuration { get; set; } = 0;
+    public bool IsActive { get; set; } = true;
+    public string? TemplateCode { get; set; } // Optional: Ca riêng tự sinh theo tiền tố chi nhánh, ca chung tự sinh hoặc admin nhập
+}
+
+/// <summary>
+/// Request cập nhật mẫu ca (PUT /api/shift-templates/{id}?confirm=false|true).
+/// </summary>
+public class UpdateShiftTemplateRequest
+{
+    public string? Name { get; set; }
+    public string? Description { get; set; }
+    public string? ShiftType { get; set; }
+    public string? StartTime { get; set; }
+    public string? EndTime { get; set; }
+    public uint? BreakDuration { get; set; }
+    public bool? IsActive { get; set; }
+}
+
+/// <summary>
+/// Request cập nhật cờ active của mẫu ca (PATCH /api/shift-templates/{id}/active?confirm=false|true).
+/// </summary>
+public class UpdateShiftTemplateActiveRequest
+{
+    public bool IsActive { get; set; }
+}
+
+/// <summary>
+/// DTO tạo mẫu ca chuẩn mới (Operations Admin) - Giữ tương thích ngược.
 /// </summary>
 public class CreateShiftTemplateDto
 {
     private string _templateCode = string.Empty;
-    /// <summary>
-    /// Mã mẫu ca viết hoa duy nhất (Ví dụ: CA_SANG, CA_CHIEU, CA_DEM).
-    /// </summary>
     public string TemplateCode 
     { 
         get => !string.IsNullOrWhiteSpace(_templateCode) ? _templateCode : (!string.IsNullOrWhiteSpace(Code) ? Code : (ShiftCode ?? string.Empty));
@@ -52,9 +205,6 @@ public class CreateShiftTemplateDto
     public string? ShiftCode { get; set; }
 
     private string _name = string.Empty;
-    /// <summary>
-    /// Tên ca làm việc (Ví dụ: Ca Sáng, Ca Chiều, Ca Đêm).
-    /// </summary>
     public string Name 
     { 
         get => !string.IsNullOrWhiteSpace(_name) ? _name : (ShiftName ?? string.Empty);
@@ -63,26 +213,15 @@ public class CreateShiftTemplateDto
     public string? ShiftName { get; set; }
 
     public string? Description { get; set; }
+    public string Scope { get; set; } = "GLOBAL";
+    public ulong? BranchId { get; set; }
+    public string? ShiftType { get; set; }
 
-    /// <summary>
-    /// Giờ bắt đầu ca (HH:mm:ss).
-    /// </summary>
     public TimeOnly StartTime { get; set; }
-
-    /// <summary>
-    /// Giờ kết thúc ca (HH:mm:ss).
-    /// </summary>
     public TimeOnly EndTime { get; set; }
-
-    /// <summary>
-    /// Cờ đánh dấu ca làm việc xuyên đêm qua ngày hôm sau.
-    /// </summary>
     public bool IsOvernight { get; set; } = false;
 
     private uint _breakMinutes;
-    /// <summary>
-    /// Thời gian nghỉ giữa ca (Số phút).
-    /// </summary>
     public uint BreakMinutes 
     { 
         get => _breakMinutes > 0 ? _breakMinutes : (BreakDurationMinutes ?? 0);
@@ -94,7 +233,7 @@ public class CreateShiftTemplateDto
 }
 
 /// <summary>
-/// DTO cập nhật mẫu ca chuẩn (Operations Admin).
+/// DTO cập nhật mẫu ca chuẩn (Operations Admin) - Giữ tương thích ngược.
 /// </summary>
 public class UpdateShiftTemplateDto
 {
@@ -107,6 +246,7 @@ public class UpdateShiftTemplateDto
     public string? ShiftName { get; set; }
 
     public string? Description { get; set; }
+    public string? ShiftType { get; set; }
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
     public bool IsOvernight { get; set; }
@@ -123,7 +263,7 @@ public class UpdateShiftTemplateDto
 }
 
 /// <summary>
-/// DTO cập nhật trạng thái mẫu ca chuẩn (ACTIVE / INACTIVE).
+/// DTO cập nhật trạng thái mẫu ca chuẩn (ACTIVE / INACTIVE) - Giữ tương thích ngược.
 /// </summary>
 public class UpdateShiftTemplateStatusDto
 {

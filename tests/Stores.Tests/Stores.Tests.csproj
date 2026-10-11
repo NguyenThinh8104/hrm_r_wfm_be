@@ -28,6 +28,7 @@
     <ProjectReference Include="..\..\Domain\Domain.csproj" />
     <ProjectReference Include="..\..\Shared\Shared.csproj" />
     <ProjectReference Include="..\..\modules\Stores\Stores.csproj" />
+    <ProjectReference Include="..\..\modules\Shifts\Shifts.csproj" />
   </ItemGroup>
 
 </Project>

@@ -106,8 +106,14 @@ public class Branch
     [System.ComponentModel.DataAnnotations.ConcurrencyCheck]
     public Guid RowVersion { get; set; } = Guid.NewGuid();
 
+    /// <summary>
+    /// Chế độ áp dụng khung ca của chi nhánh: 'GLOBAL' (dùng ca chung) hoặc 'CUSTOM' (dùng ca riêng). Mặc định là 'GLOBAL'.
+    /// </summary>
+    public string ShiftMode { get; set; } = "GLOBAL"; // "GLOBAL" | "CUSTOM"
+
     public ICollection<User> Users { get; set; } = new List<User>();
     public ICollection<KioskDevice> Kiosks { get; set; } = new List<KioskDevice>();
     public ICollection<WorkSchedule> WorkSchedules { get; set; } = new List<WorkSchedule>();
     public ICollection<BranchLockLog> LockLogs { get; set; } = new List<BranchLockLog>();
+    public ICollection<ShiftTemplate> ShiftTemplates { get; set; } = new List<ShiftTemplate>();
 }

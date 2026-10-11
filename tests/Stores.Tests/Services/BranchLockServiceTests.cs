@@ -234,28 +234,6 @@ public class BranchLockServiceTests : IDisposable
     // =========================================================================
     // 4. Khóa chi nhánh: Sai mã xác nhận chi nhánh (400 Bad Request)
     // =========================================================================
-    [Fact]
-    public async Task LockBranchAsync_WhenConfirmBranchCodeMismatches_ReturnsBadRequest()
-    {
-        // Arrange
-        var branch = await CreateSampleBranchAsync(code: "CN_HN01");
-        var request = new LockBranchRequestDto
-        {
-            Reason = "Sửa chữa nâng cấp cơ sở vật chất toàn bộ cửa hàng",
-            ConfirmBranchCode = "WRONG_CODE",
-            StaffHandlingMode = "KeepAndBlock",
-            FutureShiftHandling = "Cancel"
-        };
-
-        // Act
-        var result = await _service.LockBranchAsync(branch.Id, request, "Admin", 1);
-
-        // Assert
-        result.Success.Should().BeFalse();
-        result.StatusCode.Should().Be(400);
-        result.Message.Should().Contain("Mã xác nhận");
-    }
-
     // =========================================================================
     // 5. Khóa chi nhánh: Thiếu lý do hoặc lý do quá ngắn < 10 ký tự (400 Bad Request)
     // =========================================================================
@@ -270,10 +248,7 @@ public class BranchLockServiceTests : IDisposable
         var branch = await CreateSampleBranchAsync(code: "CN_DN01");
         var request = new LockBranchRequestDto
         {
-            Reason = invalidReason,
-            ConfirmBranchCode = "CN_DN01",
-            StaffHandlingMode = "KeepAndBlock",
-            FutureShiftHandling = "Cancel"
+            Reason = invalidReason
         };
 
         // Act
@@ -285,35 +260,6 @@ public class BranchLockServiceTests : IDisposable
         result.Message.Should().Contain("Lý do khóa");
     }
 
-    // =========================================================================
-    // 6. Khóa chi nhánh: Chuyển nhân sự sang chi nhánh đích đang bị khóa (400 Bad Request)
-    // =========================================================================
-    [Fact]
-    public async Task LockBranchAsync_WhenTargetBranchIsLocked_ReturnsBadRequest()
-    {
-        // Arrange
-        var sourceBranch = await CreateSampleBranchAsync(id: 10, code: "CN_SRC", name: "Chi nhánh Nguồn");
-        var targetBranch = await CreateSampleBranchAsync(id: 20, code: "CN_DST", name: "Chi nhánh Đích Đang Khóa", status: "INACTIVE");
-
-        var request = new LockBranchRequestDto
-        {
-            Reason = "Tạm dừng hoạt động để bảo dưỡng hệ thống điện lạnh",
-            ConfirmBranchCode = "CN_SRC",
-            StaffHandlingMode = "TransferTemporarily",
-            TransferToBranchId = targetBranch.Id,
-            FutureShiftHandling = "Cancel"
-        };
-
-        // Act
-        var result = await _service.LockBranchAsync(sourceBranch.Id, request, "Admin", 1);
-
-        // Assert
-        result.Success.Should().BeFalse();
-        result.StatusCode.Should().Be(400);
-        result.Message.Should().Contain("không ở trạng thái Hoạt động");
-    }
-
-    // =========================================================================
     // 7. Khóa chi nhánh: Không cho khóa nếu chi nhánh đã ở trạng thái khóa (400 Bad Request)
     // =========================================================================
     [Fact]
@@ -387,50 +333,39 @@ public class BranchLockServiceTests : IDisposable
     }
 
     // =========================================================================
-    // 9. Khóa chi nhánh thành công: Đổi status, ghi log, chuyển nhân sự & ca
+    // =========================================================================
+    // 9. Khóa chi nhánh thành công: Đổi status, khóa tài khoản từ Store Manager trở xuống, hủy ca tương lai & ghi log
     // =========================================================================
     [Fact]
     public async Task LockBranchAsync_Success_LocksBranchAndCreatesLog()
     {
         // Arrange
         var sourceBranch = await CreateSampleBranchAsync(id: 100, code: "CN_100", name: "Chi nhánh 100");
-        var targetBranch = await CreateSampleBranchAsync(id: 200, code: "CN_200", name: "Chi nhánh 200", status: "ACTIVE");
 
-        var user = new User
+        var userManager = new User
         {
             Id = 300,
-            EmployeeCode = "NV300",
-            FullName = "Lê Văn C",
+            EmployeeCode = "SM300",
+            FullName = "Nguyễn Quản Lý",
             HomeBranchId = sourceBranch.Id,
+            RoleId = 3, // STORE_MANAGER
             Status = "ACTIVE"
         };
-        _context.Users.Add(user);
-
-        // Ca làm việc trong tương lai
-        var futureDate = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime).AddDays(5);
-        var futureSchedule = new WorkSchedule
+        var userStaff = new User
         {
-            Id = 400,
-            BranchId = sourceBranch.Id,
-            ShiftTemplateId = 1,
-            WorkDate = futureDate,
-            Status = "PUBLISHED",
-            CreatedBy = 1,
-            ShiftAssignments = new List<ShiftAssignment>
-            {
-                new ShiftAssignment { Id = 4000, UserId = user.Id, AssignedRoleId = 1, Status = "CONFIRMED" }
-            }
+            Id = 301,
+            EmployeeCode = "NV301",
+            FullName = "Lê Nhân Viên",
+            HomeBranchId = sourceBranch.Id,
+            RoleId = 5, // CASHIER
+            Status = "ACTIVE"
         };
-        _context.WorkSchedules.Add(futureSchedule);
+        _context.Users.AddRange(userManager, userStaff);
         await _context.SaveChangesAsync();
 
         var request = new LockBranchRequestDto
         {
-            Reason = "Khóa tạm thời để cải tạo toàn diện mặt bằng theo tiêu chuẩn mới",
-            ConfirmBranchCode = "CN_100",
-            StaffHandlingMode = "TransferTemporarily",
-            TransferToBranchId = targetBranch.Id,
-            FutureShiftHandling = "Cancel"
+            Reason = "Khóa tạm thời để cải tạo toàn diện mặt bằng theo tiêu chuẩn mới"
         };
 
         // Act
@@ -452,19 +387,12 @@ public class BranchLockServiceTests : IDisposable
         var kiosk = await _context.KioskDevices.FirstAsync(k => k.BranchId == sourceBranch.Id);
         kiosk.Status.Should().Be("BLOCKED");
 
-        // Kiểm tra Lệnh điều động tạm thời (TemporaryDispatch) được sinh tự động
-        var dispatch = await _context.TemporaryDispatches.FirstOrDefaultAsync(d => d.UserId == user.Id);
-        dispatch.Should().NotBeNull();
-        dispatch!.SourceBranchId.Should().Be(sourceBranch.Id);
-        dispatch.TargetBranchId.Should().Be(targetBranch.Id);
-        dispatch.Status.Should().Be("APPROVED");
+        // Kiểm tra Tài khoản nhân sự từ Store Manager trở xuống bị khóa (INACTIVE)
+        var updatedManager = await _context.Users.FindAsync(userManager.Id);
+        updatedManager!.Status.Should().Be("INACTIVE");
 
-        // Kiểm tra Ca làm việc tương lai bị hủy (CANCELLED)
-        var cancelledSchedule = await _context.WorkSchedules
-            .Include(ws => ws.ShiftAssignments)
-            .FirstAsync(ws => ws.Id == futureSchedule.Id);
-        cancelledSchedule.Status.Should().Be("CANCELLED");
-        cancelledSchedule.ShiftAssignments.First().Status.Should().Be("CANCELLED");
+        var updatedStaff = await _context.Users.FindAsync(userStaff.Id);
+        updatedStaff!.Status.Should().Be("INACTIVE");
 
         // Kiểm tra BranchLockLog
         var log = await _context.BranchLockLogs.FirstOrDefaultAsync(l => l.BranchId == sourceBranch.Id);
@@ -472,12 +400,40 @@ public class BranchLockServiceTests : IDisposable
         log!.Action.Should().Be("Lock");
         log.Reason.Should().Be(request.Reason);
         log.PerformedBy.Should().Be("Quản trị viên Vũ");
-        log.StaffHandlingMode.Should().Be("TransferTemporarily");
-        log.FutureShiftHandling.Should().Be("Cancel");
-        log.TransferredToBranchId.Should().Be(targetBranch.Id);
+        log.StaffHandlingMode.Should().Be("LOCK_ACCOUNTS");
     }
 
-    // =========================================================================
+    [Fact]
+    public async Task CheckLockConditionsAsync_WhenFutureShiftExists_ReturnsActiveShiftsBlocker()
+    {
+        // Arrange
+        var branch = await CreateSampleBranchAsync();
+        var template = new ShiftTemplate { Id = 10, Name = "Ca Sáng", TemplateCode = "S10", StartTime = new TimeOnly(6, 0), EndTime = new TimeOnly(14, 0) };
+        _context.ShiftTemplates.Add(template);
+
+        var futureDate = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime).AddDays(3);
+        var futureSchedule = new WorkSchedule
+        {
+            Id = 500,
+            BranchId = branch.Id,
+            ShiftTemplateId = template.Id,
+            WorkDate = futureDate,
+            Status = "PUBLISHED",
+            CreatedBy = 1
+        };
+        _context.WorkSchedules.Add(futureSchedule);
+        await _context.SaveChangesAsync();
+
+        // Act
+        var result = await _service.CheckLockConditionsAsync(branch.Id);
+
+        // Assert
+        result.CanLock.Should().BeFalse();
+        result.Blockers.Should().Contain(b => b.Code == "ACTIVE_SHIFTS");
+        var blocker = result.Blockers.First(b => b.Code == "ACTIVE_SHIFTS");
+        blocker.Count.Should().Be(1);
+    }
+
     // 10. Mở khóa chi nhánh: Khi chi nhánh đang ACTIVE trả về 400 Bad Request
     // =========================================================================
     [Fact]

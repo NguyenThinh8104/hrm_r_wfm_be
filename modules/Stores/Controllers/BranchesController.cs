@@ -18,27 +18,42 @@ public class BranchesController : ControllerBase
 {
     private readonly IBranchService _branchService;
     private readonly IBranchLockService _branchLockService;
+    private readonly Modules.Shifts.Interfaces.IShiftService _shiftService;
 
-    public BranchesController(IBranchService branchService, IBranchLockService branchLockService)
+    public BranchesController(
+        IBranchService branchService, 
+        IBranchLockService branchLockService,
+        Modules.Shifts.Interfaces.IShiftService shiftService)
     {
         _branchService = branchService;
         _branchLockService = branchLockService;
+        _shiftService = shiftService;
     }
 
     /// <summary>
-    /// [Operations Admin] Lấy danh sách toàn bộ các chi nhánh cửa hàng trong hệ thống (hỗ trợ lọc status, tier & search).
+    /// [Operations Admin] Lấy danh sách toàn bộ các chi nhánh cửa hàng trong hệ thống (hỗ trợ lọc status, tier & search, hoặc shiftMode phục vụ selector).
     /// </summary>
     /// <param name="status">Lọc theo trạng thái hoạt động (ACTIVE / INACTIVE).</param>
     /// <param name="search">Tìm kiếm theo mã chi nhánh, tên hoặc địa chỉ.</param>
     /// <param name="tier">Lọc theo phân cấp chi nhánh (1 = Tier 1: Lớn, 2 = Tier 2: Tiêu chuẩn, 3 = Tier 3: Nhỏ).</param>
+    /// <param name="shiftMode">Lọc theo chế độ ca (GLOBAL / CUSTOM) để lấy danh sách gọn cho modal / selector.</param>
+    /// <param name="q">Từ khóa tìm kiếm gọn.</param>
     [HttpGet]
     [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
-    public async Task<ActionResult<ApiResponse<List<BranchDto>>>> GetAllBranches(
+    public async Task<IActionResult> GetAllBranches(
         [FromQuery] string? status = null, 
         [FromQuery] string? search = null,
-        [FromQuery] BranchTier? tier = null)
+        [FromQuery] BranchTier? tier = null,
+        [FromQuery] string? shiftMode = null,
+        [FromQuery] string? q = null)
     {
-        var result = await _branchService.GetAllBranchesAsync(status, search, tier);
+        if (!string.IsNullOrWhiteSpace(shiftMode))
+        {
+            var selectorResult = await _shiftService.GetBranchesForSelectorAsync(shiftMode, q ?? search);
+            return Ok(ApiResponse<List<Modules.Shifts.DTOs.BranchSelectorItemDto>>.Ok(selectorResult, "Lấy danh sách chi nhánh thành công."));
+        }
+
+        var result = await _branchService.GetAllBranchesAsync(status, search ?? q, tier);
         return Ok(result);
     }
 
@@ -307,5 +322,105 @@ public class BranchesController : ControllerBase
         var result = await _branchService.UpdateBranchStaffCountAsync(id, dto.StaffCount);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Lấy danh sách ca làm việc có hiệu lực tại chi nhánh (dựa theo shiftMode GLOBAL hoặc CUSTOM).
+    /// GET /api/branches/{id}/effective-shifts
+    /// </summary>
+    [HttpGet("{id}/effective-shifts")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
+    public async Task<IActionResult> GetBranchEffectiveShifts(ulong id)
+    {
+        var currentUserId = GetCurrentUserId();
+        var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+
+        var result = await _shiftService.GetBranchEffectiveShiftsAsync(id, currentUserId, currentUserRole);
+        if (!result.Success)
+        {
+            return StatusCode(result.StatusCode, new
+            {
+                code = result.Code ?? "ERROR",
+                message = result.Message,
+                details = result.Details
+            });
+        }
+
+        return Ok(result.Data);
+    }
+
+    /// <summary>
+    /// Lấy danh sách toàn bộ ca riêng (custom shifts) của chi nhánh.
+    /// GET /api/branches/{id}/custom-shifts
+    /// </summary>
+    [HttpGet("{id}/custom-shifts")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
+    public async Task<IActionResult> GetBranchCustomShifts(ulong id)
+    {
+        var currentUserRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+
+        // Phân quyền cho StoreManager
+        if (!string.IsNullOrWhiteSpace(currentUserRole) &&
+            (currentUserRole.Equals("StoreManager", StringComparison.OrdinalIgnoreCase) ||
+             currentUserRole.Equals("STORE_MANAGER", StringComparison.OrdinalIgnoreCase)))
+        {
+            var storeIdClaim = User.FindFirst("StoreId")?.Value;
+            if (ulong.TryParse(storeIdClaim, out var storeId) && storeId != id)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    code = "FORBIDDEN",
+                    message = "Store Manager chỉ được xem ca của chi nhánh mình phụ trách."
+                });
+            }
+        }
+
+        var result = await _shiftService.GetBranchCustomShiftsAsync(id);
+        if (!result.Success)
+        {
+            return StatusCode(result.StatusCode, new
+            {
+                code = result.Code ?? "ERROR",
+                message = result.Message,
+                details = result.Details
+            });
+        }
+
+        return Ok(result.Data);
+    }
+
+    /// <summary>
+    /// [Operations Admin] Chuyển đổi chế độ ca của chi nhánh (GLOBAL <-> CUSTOM).
+    /// PATCH /api/branches/{id}/shift-mode
+    /// </summary>
+    [HttpPatch("{id}/shift-mode")]
+    [HttpPut("{id}/shift-mode")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
+    public async Task<IActionResult> UpdateBranchShiftMode(ulong id, [FromBody] Modules.Shifts.DTOs.BranchShiftModeRequest request)
+    {
+        var currentUserId = GetCurrentUserId();
+        var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+        var result = await _shiftService.UpdateBranchShiftModeAsync(id, request.ShiftMode, request.Confirm, currentUserId, ipAddress);
+        if (!result.Success)
+        {
+            return StatusCode(result.StatusCode, new
+            {
+                code = result.Code ?? "ERROR",
+                message = result.Message,
+                futureAssignmentCount = result.FutureAssignmentCount,
+                details = result.Details
+            });
+        }
+
+        return Ok(result.Data);
+    }
+
+    private ulong? GetCurrentUserId()
+    {
+        var idStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value 
+            ?? User.FindFirst("EmployeeId")?.Value 
+            ?? User.FindFirst("sub")?.Value;
+        return ulong.TryParse(idStr, out var id) ? id : null;
     }
 }

@@ -1783,12 +1783,12 @@ public class ShiftService : IShiftService
             .ToListAsync();
 
         // 1. Nếu người dùng chỉ chọn một số mẫu ca (dto.TemplateIds có giá trị), 
-        // dọn sạch các ca DRAFT của những mẫu ca KHÔNG được chọn trong các ngày tương lai
+        // dọn sạch các ca DRAFT của những mẫu ca KHÔNG được chọn trong tuần
         if (dto.TemplateIds != null && dto.TemplateIds.Any())
         {
             var selectedTemplateIdSet = templates.Select(t => t.Id).ToHashSet();
             var unselectedDraftSchedules = existingSchedules
-                .Where(ws => ws.Status == "DRAFT" && ws.WorkDate > today && !selectedTemplateIdSet.Contains(ws.ShiftTemplateId))
+                .Where(ws => ws.Status == "DRAFT" && !selectedTemplateIdSet.Contains(ws.ShiftTemplateId))
                 .ToList();
 
             if (unselectedDraftSchedules.Any())
@@ -1821,8 +1821,8 @@ public class ShiftService : IShiftService
                 var key = $"{template.Id}_{workDate:yyyy-MM-dd}";
                 if (existingDict.TryGetValue(key, out var existing))
                 {
-                    // Cập nhật định mức cho các ca DRAFT trong tương lai
-                    if (existing.Status == "DRAFT" && workDate > today)
+                    // Cập nhật định mức cho các ca DRAFT
+                    if (existing.Status == "DRAFT")
                     {
                         existing.RequiredCashier = dto.DefaultRequiredCashier;
                         existing.RequiredSales = dto.DefaultRequiredSales;
@@ -1835,26 +1835,23 @@ public class ShiftService : IShiftService
                 }
                 else
                 {
-                    // Chỉ khởi tạo ca mới cho các ngày tương lai
-                    if (workDate > today)
+                    // Khởi tạo ca DRAFT mới
+                    newSchedules.Add(new WorkSchedule
                     {
-                        newSchedules.Add(new WorkSchedule
-                        {
-                            BranchId = dto.BranchId,
-                            ShiftTemplateId = template.Id,
-                            WorkDate = workDate,
-                            SnapshotShiftName = template.Name,
-                            SnapshotStartTime = template.StartTime,
-                            SnapshotEndTime = template.EndTime,
-                            SnapshotIsOvernight = template.IsOvernight,
-                            RequiredCashier = dto.DefaultRequiredCashier,
-                            RequiredSales = dto.DefaultRequiredSales,
-                            RequiredSecurity = dto.DefaultRequiredSecurity,
-                            Status = "DRAFT",
-                            CreatedBy = createdByUserId,
-                            CreatedAt = DateTime.UtcNow
-                        });
-                    }
+                        BranchId = dto.BranchId,
+                        ShiftTemplateId = template.Id,
+                        WorkDate = workDate,
+                        SnapshotShiftName = template.Name,
+                        SnapshotStartTime = template.StartTime,
+                        SnapshotEndTime = template.EndTime,
+                        SnapshotIsOvernight = template.IsOvernight,
+                        RequiredCashier = dto.DefaultRequiredCashier,
+                        RequiredSales = dto.DefaultRequiredSales,
+                        RequiredSecurity = dto.DefaultRequiredSecurity,
+                        Status = "DRAFT",
+                        CreatedBy = createdByUserId,
+                        CreatedAt = DateTime.UtcNow
+                    });
                 }
             }
         }

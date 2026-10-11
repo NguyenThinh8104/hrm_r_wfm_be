@@ -146,13 +146,16 @@ public class ShiftsController : ControllerBase
     /// Lấy danh sách mẫu ca chuẩn hệ thống.
     /// Logic đặc biệt: Cho phép truy cập công khai (AllowAnonymous), tùy chọn lấy cả các ca đã ngưng hoạt động (includeInactive = true).
     /// </summary>
+    /// <param name="branchId">Mã chi nhánh (nếu có để lấy đúng bộ ca hiệu lực GLOBAL / CUSTOM của chi nhánh)</param>
     /// <param name="includeInactive">Cờ tùy chọn: True lấy cả ca ngưng hoạt động, False chỉ lấy ca active (Mặc định False)</param>
     /// <returns>ApiResponse chứa danh sách ShiftDto</returns>
     [HttpGet("templates")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<List<ShiftDto>>>> GetShiftTemplates([FromQuery] bool includeInactive = false)
+    public async Task<ActionResult<ApiResponse<List<ShiftDto>>>> GetShiftTemplates(
+        [FromQuery] ulong? branchId = null,
+        [FromQuery] bool includeInactive = false)
     {
-        var result = await _shiftService.GetAllShiftTemplatesAsync(includeInactive);
+        var result = await _shiftService.GetAllShiftTemplatesAsync(branchId, includeInactive);
         return Ok(result);
     }
 

@@ -862,12 +862,29 @@ public class ShiftService : IShiftService
         return ApiResponse<List<ShiftTemplateDto>>.Ok(dtos, "Lấy danh sách mẫu ca chuẩn thành công.");
     }
 
-    public async Task<ApiResponse<List<ShiftDto>>> GetAllShiftTemplatesAsync(bool includeInactive = false)
+    public async Task<ApiResponse<List<ShiftDto>>> GetAllShiftTemplatesAsync(ulong? branchId = null, bool includeInactive = false)
     {
         var query = _context.ShiftTemplates.AsQueryable();
         if (!includeInactive)
         {
             query = query.Where(st => st.IsActive);
+        }
+
+        if (branchId.HasValue && branchId.Value > 0)
+        {
+            var branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == branchId.Value);
+            if (branch != null)
+            {
+                var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
+                if (isGlobal)
+                {
+                    query = query.Where(st => st.Scope == "GLOBAL");
+                }
+                else
+                {
+                    query = query.Where(st => st.Scope == "BRANCH" && st.BranchId == branch.Id);
+                }
+            }
         }
 
         var templates = await query
@@ -1524,9 +1541,21 @@ public class ShiftService : IShiftService
         }
         else
         {
-            templates = await _context.ShiftTemplates
-                .Where(st => st.IsActive)
-                .ToListAsync();
+            var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
+            if (isGlobal)
+            {
+                templates = await _context.ShiftTemplates
+                    .Where(st => st.Scope == "GLOBAL" && st.IsActive)
+                    .OrderBy(st => st.StartTime)
+                    .ToListAsync();
+            }
+            else
+            {
+                templates = await _context.ShiftTemplates
+                    .Where(st => st.Scope == "BRANCH" && st.BranchId == branch.Id && st.IsActive)
+                    .OrderBy(st => st.StartTime)
+                    .ToListAsync();
+            }
         }
 
         if (!templates.Any())
@@ -1733,7 +1762,7 @@ public class ShiftService : IShiftService
                 weekStatus = "PARTIAL";
         }
 
-        var activeTemplatesRes = await GetAllShiftTemplatesAsync(false);
+        var activeTemplatesRes = await GetAllShiftTemplatesAsync(branchId, false);
 
         var matrix = new WeeklyScheduleMatrixDto
         {
@@ -1800,7 +1829,10 @@ public class ShiftService : IShiftService
                 }
 
                 // Kiểm tra điều động nhân sự (UC 4 & UC 2.1)
-                if (user.HomeBranchId != dto.BranchId)
+                ulong trueHomeBranchId = user.OriginalHomeBranchId ?? user.HomeBranchId ?? 0;
+                bool isAtHomeBranch = trueHomeBranchId == dto.BranchId;
+
+                if (!isAtHomeBranch)
                 {
                     var incomingDispatch = await _context.TemporaryDispatches
                         .Include(d => d.DispatchEmployees)
@@ -1821,11 +1853,25 @@ public class ShiftService : IShiftService
 
                         if (futureDispatch != null)
                         {
-                            errors.Add($"NV '{user.FullName}' được điều chuyển từ ngày {futureDispatch.StartDate:dd/MM}. Không thể xếp ca ngày {workDate:dd/MM}.");
+                            errors.Add($"NV '{user.FullName}' được điều chuyển từ ngày {futureDispatch.StartDate:dd/MM} đến {futureDispatch.EndDate:dd/MM}. Không thể xếp ca ngày {workDate:dd/MM}.");
                         }
                         else
                         {
-                            errors.Add($"NV '{user.FullName}' không thuộc chi nhánh và không có lệnh điều động ngày {workDate:dd/MM}.");
+                            var expiredDispatch = await _context.TemporaryDispatches
+                                .Include(d => d.DispatchEmployees)
+                                .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                                       && d.TargetBranchId == dto.BranchId 
+                                                       && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                                       && d.EndDate < workDate);
+
+                            if (expiredDispatch != null)
+                            {
+                                errors.Add($"Lệnh điều chuyển của NV '{user.FullName}' tại chi nhánh này đã kết thúc ngày {expiredDispatch.EndDate:dd/MM}. Không thể xếp ca ngày {workDate:dd/MM} do quá hạn điều chuyển.");
+                            }
+                            else
+                            {
+                                errors.Add($"NV '{user.FullName}' không thuộc chi nhánh và không có lệnh điều động ngày {workDate:dd/MM}.");
+                            }
                         }
                         continue;
                     }
@@ -1843,7 +1889,7 @@ public class ShiftService : IShiftService
 
                     if (outgoingDispatch != null)
                     {
-                        errors.Add($"NV '{user.FullName}' đã được điều chuyển sang '{outgoingDispatch.TargetBranch.Name}' ngày {workDate:dd/MM}.");
+                        errors.Add($"NV '{user.FullName}' đã được điều chuyển sang '{outgoingDispatch.TargetBranch?.Name ?? "cơ sở khác"}' ngày {workDate:dd/MM}.");
                         continue;
                     }
                 }
@@ -2174,18 +2220,29 @@ public class ShiftService : IShiftService
                     employeeAvailableDates[emp.Id] = new HashSet<DateOnly>();
                 }
 
-                var inDisp = incomingDispatches.FirstOrDefault(x => x.UserId == emp.Id);
-                if (inDisp != null)
+                ulong empHomeBranchId = emp.OriginalHomeBranchId ?? emp.HomeBranchId ?? 0;
+                bool isEmpAtHomeBranch = empHomeBranchId == dto.BranchId;
+
+                // Nếu là nhân sự điều chuyển đến (khác chi nhánh gốc)
+                if (!isEmpAtHomeBranch)
                 {
-                    // Nhân sự điều chuyển đến: Chỉ khả dụng từ ngày bắt đầu đến ngày kết thúc điều chuyển
-                    if (workDate >= inDisp.StartDate && workDate <= inDisp.EndDate)
+                    var inDisp = incomingDispatches.FirstOrDefault(x => 
+                        (x.UserId == emp.Id || x.DispatchEmployees.Any(de => de.UserId == emp.Id && de.Status == "APPROVED"))
+                        && x.StartDate <= workDate && workDate <= x.EndDate);
+
+                    if (inDisp != null)
                     {
+                        // Chỉ khả dụng trong khoảng [StartDate, EndDate]
                         employeeAvailableDates[emp.Id].Add(workDate);
                     }
                     continue;
                 }
 
-                var outDisp = outgoingDispatches.FirstOrDefault(x => x.UserId == emp.Id && x.StartDate <= workDate && workDate <= x.EndDate);
+                // Nhân sự thuộc cơ sở gốc: Kiểm tra xem ngày này có bị điều chuyển đi nơi khác không
+                var outDisp = outgoingDispatches.FirstOrDefault(x => 
+                    (x.UserId == emp.Id || x.DispatchEmployees.Any(de => de.UserId == emp.Id && de.Status == "APPROVED")) 
+                    && x.StartDate <= workDate && workDate <= x.EndDate);
+
                 if (outDisp != null)
                 {
                     // Ngày này đang làm việc ở cơ sở khác, không khả dụng ở đây
@@ -2493,7 +2550,10 @@ public class ShiftService : IShiftService
 
         // Kiểm tra phân quyền điều động nhân sự (UC 4 & UC 2.1)
         ulong targetBranchId = (ulong)request.StoreId;
-        if (user.HomeBranchId != targetBranchId)
+        ulong trueHomeBranchId = user.OriginalHomeBranchId ?? user.HomeBranchId ?? 0;
+        bool isAtHomeBranch = trueHomeBranchId == targetBranchId;
+
+        if (!isAtHomeBranch)
         {
             var incomingDispatch = await _context.TemporaryDispatches
                 .Include(d => d.SourceBranch)
@@ -2506,7 +2566,7 @@ public class ShiftService : IShiftService
 
             if (incomingDispatch == null)
             {
-                // Kiểm tra xem có lệnh điều chuyển nhưng chưa đến ngày bắt đầu không
+                // 1. Kiểm tra xem có lệnh điều chuyển nhưng chưa đến ngày bắt đầu không (StartDate > WorkDate)
                 var futureDispatch = await _context.TemporaryDispatches
                     .Include(d => d.DispatchEmployees)
                     .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
@@ -2517,7 +2577,21 @@ public class ShiftService : IShiftService
                 if (futureDispatch != null)
                 {
                     return ApiResponse<ShiftAssignmentDto>.Fail(
-                        $"Nhân viên '{user.FullName}' được điều chuyển từ ngày {futureDispatch.StartDate:dd/MM/yyyy}. Chỉ có thể xếp lịch cho nhân sự từ ngày điều chuyển trở đi!");
+                        $"Nhân viên '{user.FullName}' được điều chuyển từ ngày {futureDispatch.StartDate:dd/MM/yyyy} đến {futureDispatch.EndDate:dd/MM/yyyy}. Chỉ có thể xếp lịch cho nhân sự từ ngày {futureDispatch.StartDate:dd/MM/yyyy} trở đi!");
+                }
+
+                // 2. Kiểm tra xem lệnh điều chuyển đã kết thúc/hết hạn chưa (EndDate < WorkDate)
+                var expiredDispatch = await _context.TemporaryDispatches
+                    .Include(d => d.DispatchEmployees)
+                    .FirstOrDefaultAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
+                                           && d.TargetBranchId == targetBranchId 
+                                           && (d.Status == "APPROVED" || d.Status == "PARTIAL") 
+                                           && d.EndDate < request.WorkDate);
+
+                if (expiredDispatch != null)
+                {
+                    return ApiResponse<ShiftAssignmentDto>.Fail(
+                        $"Lệnh điều chuyển của nhân viên '{user.FullName}' tại chi nhánh này chỉ có hiệu lực từ ngày {expiredDispatch.StartDate:dd/MM/yyyy} đến {expiredDispatch.EndDate:dd/MM/yyyy}. Không thể xếp lịch vào ngày {request.WorkDate:dd/MM/yyyy} do đã quá hạn điều chuyển!");
                 }
 
                 return ApiResponse<ShiftAssignmentDto>.Fail(
@@ -2539,7 +2613,7 @@ public class ShiftService : IShiftService
             if (outgoingDispatch != null)
             {
                 return ApiResponse<ShiftAssignmentDto>.Fail(
-                    $"Nhân viên '{user.FullName}' đã được điều chuyển sang '{outgoingDispatch.TargetBranch.Name}' từ ngày {outgoingDispatch.StartDate:dd/MM/yyyy} đến {outgoingDispatch.EndDate:dd/MM/yyyy}. Không thể xếp lịch tại cơ sở gốc trong thời gian này!");
+                    $"Nhân viên '{user.FullName}' đã được điều chuyển sang '{outgoingDispatch.TargetBranch?.Name ?? "cơ sở khác"}' từ ngày {outgoingDispatch.StartDate:dd/MM/yyyy} đến {outgoingDispatch.EndDate:dd/MM/yyyy}. Không thể xếp lịch tại cơ sở gốc trong thời gian này!");
             }
         }
 
@@ -3715,8 +3789,9 @@ public class ShiftService : IShiftService
     private async Task<ulong> GetEffectiveBranchIdAsync(ulong userId, DateOnly workDate)
     {
         var dispatch = await _context.Set<Domain.Entities.TemporaryDispatch>()
-            .Where(d => d.UserId == userId
-                     && d.Status == "APPROVED"
+            .Include(d => d.DispatchEmployees)
+            .Where(d => (d.UserId == userId || d.DispatchEmployees.Any(de => de.UserId == userId && de.Status == "APPROVED"))
+                     && (d.Status == "APPROVED" || d.Status == "PARTIAL")
                      && d.StartDate <= workDate
                      && d.EndDate >= workDate)
             .FirstOrDefaultAsync();
@@ -3727,7 +3802,7 @@ public class ShiftService : IShiftService
         }
 
         var user = await _context.Users.FindAsync(userId);
-        return user?.HomeBranchId ?? 0;
+        return user?.OriginalHomeBranchId ?? user?.HomeBranchId ?? 0;
     }
 
     /// <summary>

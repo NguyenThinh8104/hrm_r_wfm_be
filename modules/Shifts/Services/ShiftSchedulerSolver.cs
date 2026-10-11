@@ -159,18 +159,39 @@ public class ShiftSchedulerSolver
             }
         }
 
-        // Ràng buộc 2: Nghỉ sau ca đêm (Nhân viên làm ca đêm ngày d thì ngày d+1 bắt buộc nghỉ ca sáng)
-        int nightShiftIdx = templates.FindIndex(t => t.IsOvernight || t.TemplateCode.Contains("DEM") || t.TemplateCode.Contains("NIGHT") || t.StartTime >= new TimeOnly(20, 0));
-        int morningShiftIdx = templates.FindIndex(t => t.TemplateCode.Contains("SANG") || t.TemplateCode.Contains("MORNING") || t.StartTime <= new TimeOnly(8, 0));
-
-        if (nightShiftIdx >= 0 && morningShiftIdx >= 0 && nightShiftIdx != morningShiftIdx)
+        // Ràng buộc 2: Nghỉ tối thiểu 12 giờ giữa 2 ca của 2 ngày liên tiếp (Khoảng cách giữa giờ kết thúc ca ngày d và giờ bắt đầu ca ngày d+1 phải >= 12 giờ)
+        // Ví dụ: Làm ca đêm hôm nay (00:00 - 06:00 hoặc 22:00 - 06:00) thì hôm sau ca sáng (06:00) và ca chiều (12:00) đều chưa đủ 12h nghỉ nên không được làm.
+        for (int s1 = 0; s1 < numShifts; s1++)
         {
-            for (int e = 0; e < numEmployees; e++)
+            var t1 = templates[s1];
+            // Xác định thời điểm kết thúc tương đối của ca t1 (tính bằng phút từ 00:00 ngày d)
+            int start1Min = t1.StartTime.Hour * 60 + t1.StartTime.Minute;
+            int end1Min = t1.EndTime.Hour * 60 + t1.EndTime.Minute;
+            if (t1.IsOvernight || end1Min <= start1Min)
             {
-                for (int d = 0; d < numDays - 1; d++)
+                end1Min += 24 * 60; // Ca qua đêm kết thúc vào ngày d+1
+            }
+
+            for (int s2 = 0; s2 < numShifts; s2++)
+            {
+                var t2 = templates[s2];
+                // Thời điểm bắt đầu của ca t2 vào ngày d+1 (tính bằng phút từ 00:00 ngày d)
+                int start2Min = 24 * 60 + (t2.StartTime.Hour * 60 + t2.StartTime.Minute);
+
+                // Khoảng cách nghỉ tính bằng giờ
+                double restGapHours = (start2Min - end1Min) / 60.0;
+
+                // Nếu thời gian nghỉ giữa ca s1 (ngày d) và ca s2 (ngày d+1) nhỏ hơn 12 giờ
+                if (restGapHours < 12.0)
                 {
-                    // x[e, d, night] + x[e, d+1, morning] <= 1
-                    model.Add(x[(e, d, nightShiftIdx)] + x[(e, d + 1, morningShiftIdx)] <= 1);
+                    for (int e = 0; e < numEmployees; e++)
+                    {
+                        for (int d = 0; d < numDays - 1; d++)
+                        {
+                            // x[e, d, s1] + x[e, d+1, s2] <= 1: không được làm cả 2 ca này
+                            model.Add(x[(e, d, s1)] + x[(e, d + 1, s2)] <= 1);
+                        }
+                    }
                 }
             }
         }

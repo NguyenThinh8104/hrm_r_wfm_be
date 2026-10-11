@@ -1908,6 +1908,22 @@ public class ShiftService : IShiftService
                     continue;
                 }
 
+                // Kiểm tra khoảng nghỉ tối thiểu 12 giờ giữa 2 ca của 2 ngày liên tiếp
+                var restCheck = await CheckMinRestBetweenShiftsAsync(
+                    workDate,
+                    user.Id,
+                    null,
+                    shiftTemplate.StartTime,
+                    shiftTemplate.EndTime,
+                    shiftTemplate.IsOvernight,
+                    isRequester: false);
+
+                if (!restCheck.IsValid)
+                {
+                    errors.Add($"NV '{user.FullName}' không thể gán ca ngày {workDate:dd/MM}: {restCheck.ErrorMessage}");
+                    continue;
+                }
+
                 // Tìm hoặc tạo WorkSchedule
                 var schedule = await _context.WorkSchedules
                     .FirstOrDefaultAsync(ws => ws.BranchId == dto.BranchId 
@@ -2648,6 +2664,21 @@ public class ShiftService : IShiftService
                 return ApiResponse<ShiftAssignmentDto>.Fail(
                     $"Nhân viên '{user.FullName}' đã được điều chuyển sang '{outgoingDispatch.TargetBranch?.Name ?? "cơ sở khác"}' từ ngày {outgoingDispatch.StartDate:dd/MM/yyyy} đến {outgoingDispatch.EndDate:dd/MM/yyyy}. Không thể xếp lịch tại cơ sở gốc trong thời gian này!");
             }
+        }
+
+        // Kiểm tra khoảng nghỉ tối thiểu 12 giờ giữa 2 ca của 2 ngày liên tiếp
+        var restCheck = await CheckMinRestBetweenShiftsAsync(
+            request.WorkDate,
+            user.Id,
+            null,
+            shiftTemplate.StartTime,
+            shiftTemplate.EndTime,
+            shiftTemplate.IsOvernight,
+            isRequester: false);
+
+        if (!restCheck.IsValid)
+        {
+            return ApiResponse<ShiftAssignmentDto>.Fail(restCheck.ErrorMessage ?? "Vi phạm khoảng nghỉ tối thiểu 12 giờ giữa 2 ca liên tiếp.");
         }
 
         var schedule = await _context.WorkSchedules

@@ -1655,6 +1655,7 @@ public class UserService : IUserService
                     {
                         _logger.LogError(ex, "Lỗi khi thực thi tiến trình gửi email ngầm sau khi import nhân sự");
                     }
+                    await Task.Delay(2500); 
                 });
             }
         }

@@ -167,7 +167,26 @@ public class DispatchService : IDispatchService
             {
                 return ApiResponse<bool>.Fail("Đơn đề nghị điều động này đã được bên gửi thu hồi để chỉnh sửa. Bạn không thể phê duyệt tại thời điểm này.");
             }
+            if (dispatch.Status == "EXPIRED")
+            {
+                return ApiResponse<bool>.Fail("Đơn đề nghị điều động này đã quá hạn thời gian điều chuyển. Không thể phê duyệt.");
+            }
             return ApiResponse<bool>.Fail($"Lệnh này đã được xử lý trước đó (Trạng thái hiện tại: {dispatch.Status}).");
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (dispatch.EndDate < today)
+        {
+            dispatch.Status = "EXPIRED";
+            if (dispatch.DispatchEmployees != null)
+            {
+                foreach (var de in dispatch.DispatchEmployees)
+                {
+                    if (de.Status == "PENDING") de.Status = "EXPIRED";
+                }
+            }
+            await _context.SaveChangesAsync();
+            return ApiResponse<bool>.Fail($"Lệnh điều động này đã quá hạn thời gian điều chuyển (kết thúc ngày {dispatch.EndDate:dd/MM/yyyy}). Hệ thống đã chuyển sang trạng thái Quá hạn và không thể phê duyệt nữa.");
         }
 
         // Đảm bảo có danh sách DispatchEmployees (nếu dữ liệu cũ chỉ có UserId trên bảng mẹ)
@@ -383,10 +402,40 @@ public class DispatchService : IDispatchService
     }
 
     /// <summary>
+    /// Tự động cập nhật các phiếu điều động đang chờ duyệt (PENDING hoặc RECALLED) nhưng đã quá hạn thời gian điều chuyển (EndDate < today) sang EXPIRED.
+    /// </summary>
+    private async Task ExpireOverduePendingDispatchesAsync()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var expiredDispatches = await _context.TemporaryDispatches
+            .Include(d => d.DispatchEmployees)
+            .Where(d => (d.Status == "PENDING" || d.Status == "RECALLED") && d.EndDate < today)
+            .ToListAsync();
+
+        if (expiredDispatches.Any())
+        {
+            foreach (var exp in expiredDispatches)
+            {
+                exp.Status = "EXPIRED";
+                if (exp.DispatchEmployees != null)
+                {
+                    foreach (var de in exp.DispatchEmployees)
+                    {
+                        if (de.Status == "PENDING") de.Status = "EXPIRED";
+                    }
+                }
+            }
+            await _context.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>
     /// Lấy danh sách lệnh điều động theo chi nhánh (gồm cả chiều cho mượn và chiều nhận).
     /// </summary>
     public async Task<ApiResponse<List<DispatchRecordDto>>> GetDispatchesByStoreAsync(int storeId)
     {
+        await ExpireOverduePendingDispatchesAsync();
+
         var dispatches = await _context.TemporaryDispatches
             .Include(d => d.User).ThenInclude(u => u.Role)
             .Include(d => d.SourceBranch)
@@ -408,6 +457,8 @@ public class DispatchService : IDispatchService
     /// </summary>
     public async Task<ApiResponse<List<DispatchRecordDto>>> GetAllDispatchesAsync(string? status, int? storeId)
     {
+        await ExpireOverduePendingDispatchesAsync();
+
         var query = _context.TemporaryDispatches
             .Include(d => d.User).ThenInclude(u => u.Role)
             .Include(d => d.SourceBranch)
@@ -443,6 +494,8 @@ public class DispatchService : IDispatchService
     /// </summary>
     public async Task<ApiResponse<DispatchNetworkMetricsDto>> GetNetworkMetricsAsync(DateOnly? fromDate, DateOnly? toDate)
     {
+        await ExpireOverduePendingDispatchesAsync();
+
         var today = DateOnly.FromDateTime(DateTime.Now);
         var query = _context.TemporaryDispatches
             .Include(d => d.SourceBranch)
@@ -736,7 +789,7 @@ public class DispatchService : IDispatchService
             return ApiResponse<bool>.Fail("Không tìm thấy lệnh điều động cần hủy.");
         }
 
-        if (dispatch.Status != "PENDING" && dispatch.Status != "RECALLED")
+        if (dispatch.Status != "PENDING" && dispatch.Status != "RECALLED" && dispatch.Status != "EXPIRED")
         {
             return ApiResponse<bool>.Fail($"Không thể hủy đơn đã được xử lý (Trạng thái hiện tại: {dispatch.Status}).");
         }

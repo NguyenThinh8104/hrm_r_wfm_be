@@ -26,6 +26,31 @@ public class DispatchSyncService : IDispatchSyncService
         try
         {
             var today = DateOnly.FromDateTime(DateTime.Now);
+            bool hasChanges = false;
+
+            // 0. Tự động chuyển các đơn điều động còn ở trạng thái PENDING hoặc RECALLED nhưng đã quá hạn thời gian điều chuyển (EndDate < today) sang EXPIRED
+            var expiredPendingDispatches = await _context.TemporaryDispatches
+                .Include(d => d.DispatchEmployees)
+                .Where(d => (d.Status == "PENDING" || d.Status == "RECALLED") && d.EndDate < today)
+                .ToListAsync();
+
+            if (expiredPendingDispatches.Any())
+            {
+                foreach (var exp in expiredPendingDispatches)
+                {
+                    exp.Status = "EXPIRED";
+                    if (exp.DispatchEmployees != null)
+                    {
+                        foreach (var de in exp.DispatchEmployees)
+                        {
+                            if (de.Status == "PENDING") de.Status = "EXPIRED";
+                        }
+                    }
+                    hasChanges = true;
+                    _logger.LogInformation("Lệnh điều động #{Id} ({FromBranch} -> {ToBranch}) đã hết hạn thời gian điều chuyển (EndDate: {EndDate}), tự động chuyển sang trạng thái EXPIRED.",
+                        exp.Id, exp.SourceBranchId, exp.TargetBranchId, exp.EndDate);
+                }
+            }
 
             // 1. Lấy tất cả các lệnh điều động đang có hiệu lực hôm nay (APPROVED hoặc PARTIAL)
             var activeDispatches = await _context.TemporaryDispatches
@@ -52,7 +77,6 @@ public class DispatchSyncService : IDispatchSyncService
                 }
             }
 
-            bool hasChanges = false;
 
             // 2. Chuyển chi nhánh cho các nhân sự đang trong thời hạn điều động
             if (activeUserTargets.Any())

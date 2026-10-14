@@ -1080,28 +1080,10 @@ public class ShiftService : IShiftService
         return dto;
     }
 
-    private async Task LogAuditAsync(ulong? actorId, string action, string targetTable, ulong targetId, object? oldValues, object? newValues, string? ipAddress)
+    private Task LogAuditAsync(ulong? actorId, string action, string targetTable, ulong targetId, object? oldValues, object? newValues, string? ipAddress)
     {
-        try
-        {
-            var audit = new SystemAuditLog
-            {
-                ActorId = actorId ?? 1,
-                Action = action,
-                TargetTable = targetTable,
-                TargetId = targetId,
-                OldValues = oldValues != null ? JsonSerializer.Serialize(oldValues) : null,
-                NewValues = newValues != null ? JsonSerializer.Serialize(newValues) : null,
-                IpAddress = ipAddress,
-                Timestamp = DateTime.UtcNow
-            };
-            _context.SystemAuditLogs.Add(audit);
-            await _context.SaveChangesAsync();
-        }
-        catch
-        {
-            // Tránh crash nếu audit logging gặp lỗi tạm thời
-        }
+        _logger.LogInformation("Audit: Actor {ActorId} performed {Action} on {TargetTable}:{TargetId} from IP {IpAddress}", actorId, action, targetTable, targetId, ipAddress);
+        return Task.CompletedTask;
     }
 
     // =========================================================

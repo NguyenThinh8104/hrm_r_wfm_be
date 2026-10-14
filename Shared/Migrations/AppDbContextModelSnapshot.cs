@@ -317,44 +317,6 @@ namespace Shared.Migrations
                     b.ToTable("branch_tiers", (string)null);
                 });
 
-            modelBuilder.Entity("Domain.Entities.CashHandover", b =>
-                {
-                    b.Property<ulong>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("Id"));
-
-                    b.Property<ulong>("CashierId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<decimal>("ClosingActualCash")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<string>("DiscrepancyReason")
-                        .HasColumnType("longtext");
-
-                    b.Property<decimal>("OpeningCash")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.Property<ulong>("ShiftHandoverId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<decimal>("SystemExpectedCash")
-                        .HasColumnType("decimal(65,30)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CashierId");
-
-                    b.HasIndex("ShiftHandoverId");
-
-                    b.ToTable("cash_handovers", (string)null);
-                });
-
             modelBuilder.Entity("Domain.Entities.DispatchEmployee", b =>
                 {
                     b.Property<ulong>("Id")
@@ -524,44 +486,6 @@ namespace Shared.Migrations
                     b.ToTable("roles", (string)null);
                 });
 
-            modelBuilder.Entity("Domain.Entities.SecurityHandover", b =>
-                {
-                    b.Property<ulong>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<bool>("IsShutterClosed")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<bool>("IsWarehouseLocked")
-                        .HasColumnType("tinyint(1)");
-
-                    b.Property<ushort>("OvernightVehicleCount")
-                        .HasColumnType("smallint unsigned");
-
-                    b.Property<ulong>("SecurityGuardId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<string>("SecurityNotes")
-                        .HasColumnType("longtext");
-
-                    b.Property<ulong>("ShiftHandoverId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SecurityGuardId");
-
-                    b.HasIndex("ShiftHandoverId");
-
-                    b.ToTable("security_handovers", (string)null);
-                });
-
             modelBuilder.Entity("Domain.Entities.ShiftAssignment", b =>
                 {
                     b.Property<ulong>("Id")
@@ -597,40 +521,6 @@ namespace Shared.Migrations
                     b.HasIndex("UserId", "ScheduleId");
 
                     b.ToTable("shift_assignments", (string)null);
-                });
-
-            modelBuilder.Entity("Domain.Entities.ShiftHandover", b =>
-                {
-                    b.Property<ulong>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("Id"));
-
-                    b.Property<string>("GeneralNotes")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("HandoverStatus")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<ulong>("ScheduleId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<ulong>("ShiftLeaderId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<DateTime?>("SignedAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ScheduleId")
-                        .IsUnique();
-
-                    b.HasIndex("ShiftLeaderId");
-
-                    b.ToTable("shift_handovers", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Entities.ShiftSwapRequest", b =>
@@ -773,49 +663,6 @@ namespace Shared.Migrations
                         {
                             t.HasCheckConstraint("CK_shift_templates_Scope_BranchId", "(Scope = 'GLOBAL' AND BranchId IS NULL) OR (Scope = 'BRANCH' AND BranchId IS NOT NULL)");
                         });
-                });
-
-            modelBuilder.Entity("Domain.Entities.SystemAuditLog", b =>
-                {
-                    b.Property<ulong>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint unsigned");
-
-                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<ulong>("Id"));
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasColumnType("varchar(255)");
-
-                    b.Property<ulong>("ActorId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<string>("IpAddress")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("NewValues")
-                        .HasColumnType("longtext");
-
-                    b.Property<string>("OldValues")
-                        .HasColumnType("longtext");
-
-                    b.Property<ulong>("TargetId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.Property<string>("TargetTable")
-                        .IsRequired()
-                        .HasColumnType("longtext");
-
-                    b.Property<DateTime>("Timestamp")
-                        .HasColumnType("datetime(6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ActorId");
-
-                    b.HasIndex("Timestamp", "Action");
-
-                    b.ToTable("system_audit_logs", (string)null);
                 });
 
             modelBuilder.Entity("Domain.Entities.TemporaryDispatch", b =>
@@ -1080,25 +927,6 @@ namespace Shared.Migrations
                     b.Navigation("TransferredToBranch");
                 });
 
-            modelBuilder.Entity("Domain.Entities.CashHandover", b =>
-                {
-                    b.HasOne("Domain.Entities.User", "Cashier")
-                        .WithMany()
-                        .HasForeignKey("CashierId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Domain.Entities.ShiftHandover", "ShiftHandover")
-                        .WithMany("CashHandovers")
-                        .HasForeignKey("ShiftHandoverId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Cashier");
-
-                    b.Navigation("ShiftHandover");
-                });
-
             modelBuilder.Entity("Domain.Entities.DispatchEmployee", b =>
                 {
                     b.HasOne("Domain.Entities.User", "ApprovedByUser")
@@ -1155,25 +983,6 @@ namespace Shared.Migrations
                     b.Navigation("Branch");
                 });
 
-            modelBuilder.Entity("Domain.Entities.SecurityHandover", b =>
-                {
-                    b.HasOne("Domain.Entities.User", "SecurityGuard")
-                        .WithMany()
-                        .HasForeignKey("SecurityGuardId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Domain.Entities.ShiftHandover", "ShiftHandover")
-                        .WithMany("SecurityHandovers")
-                        .HasForeignKey("ShiftHandoverId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("SecurityGuard");
-
-                    b.Navigation("ShiftHandover");
-                });
-
             modelBuilder.Entity("Domain.Entities.ShiftAssignment", b =>
                 {
                     b.HasOne("Domain.Entities.Role", "AssignedRole")
@@ -1199,25 +1008,6 @@ namespace Shared.Migrations
                     b.Navigation("Schedule");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Domain.Entities.ShiftHandover", b =>
-                {
-                    b.HasOne("Domain.Entities.WorkSchedule", "Schedule")
-                        .WithOne("ShiftHandover")
-                        .HasForeignKey("Domain.Entities.ShiftHandover", "ScheduleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Domain.Entities.User", "ShiftLeader")
-                        .WithMany()
-                        .HasForeignKey("ShiftLeaderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Schedule");
-
-                    b.Navigation("ShiftLeader");
                 });
 
             modelBuilder.Entity("Domain.Entities.ShiftSwapRequest", b =>
@@ -1273,17 +1063,6 @@ namespace Shared.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Branch");
-                });
-
-            modelBuilder.Entity("Domain.Entities.SystemAuditLog", b =>
-                {
-                    b.HasOne("Domain.Entities.User", "Actor")
-                        .WithMany()
-                        .HasForeignKey("ActorId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Actor");
                 });
 
             modelBuilder.Entity("Domain.Entities.TemporaryDispatch", b =>
@@ -1408,13 +1187,6 @@ namespace Shared.Migrations
                     b.Navigation("AttendanceLog");
                 });
 
-            modelBuilder.Entity("Domain.Entities.ShiftHandover", b =>
-                {
-                    b.Navigation("CashHandovers");
-
-                    b.Navigation("SecurityHandovers");
-                });
-
             modelBuilder.Entity("Domain.Entities.ShiftTemplate", b =>
                 {
                     b.Navigation("WorkSchedules");
@@ -1433,8 +1205,6 @@ namespace Shared.Migrations
             modelBuilder.Entity("Domain.Entities.WorkSchedule", b =>
                 {
                     b.Navigation("ShiftAssignments");
-
-                    b.Navigation("ShiftHandover");
                 });
 #pragma warning restore 612, 618
         }

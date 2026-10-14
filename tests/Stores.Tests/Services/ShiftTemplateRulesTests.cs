@@ -115,10 +115,6 @@ public class ShiftTemplateRulesTests : IDisposable
         var updatedBranch = await _context.Branches.FindAsync(branch.Id);
         updatedBranch!.ShiftMode.Should().Be("CUSTOM");
 
-        // Verify audit log
-        var auditLog = await _context.SystemAuditLogs
-            .FirstOrDefaultAsync(l => l.Action == "UPDATE_BRANCH_SHIFT_MODE");
-        auditLog.Should().NotBeNull();
     }
 
     [Fact]

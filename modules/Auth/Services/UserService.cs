@@ -830,12 +830,7 @@ public class UserService : IUserService
         }
 
         // Điều kiện 2: Bắt buộc tuân thủ thời hạn lưu trữ đối soát 14 ngày (Áp dụng tuyệt đối cho mọi cấp quản trị, bao gồm cả Chủ doanh nghiệp)
-        var lastLockedLog = await _context.SystemAuditLogs
-            .Where(l => l.TargetTable == "users" && l.TargetId == userId && l.Action == "UPDATE_USER_STATUS" && l.NewValues != null && l.NewValues.Contains("\"INACTIVE\""))
-            .OrderByDescending(l => l.Timestamp)
-            .FirstOrDefaultAsync();
-
-        var lockedTime = lastLockedLog?.Timestamp ?? user.UpdatedAt;
+        var lockedTime = user.UpdatedAt;
         const int RetentionDays = 14;
         var lockedDuration = DateTime.UtcNow - lockedTime;
 
@@ -903,10 +898,6 @@ public class UserService : IUserService
             await _context.DispatchEmployees.Where(de => de.UserId == userId).ExecuteDeleteAsync();
             await _context.TemporaryDispatches.Where(td => td.UserId == userId).ExecuteDeleteAsync();
 
-            // 4. Dọn dẹp bàn giao (Handovers)
-            await _context.CashHandovers.Where(ch => ch.CashierId == userId).ExecuteDeleteAsync();
-            await _context.SecurityHandovers.Where(sh => sh.SecurityGuardId == userId).ExecuteDeleteAsync();
-            await _context.ShiftHandovers.Where(sh => sh.ShiftLeaderId == userId).ExecuteDeleteAsync();
 
             // 5. Cập nhật các trường khóa ngoại non-nullable sang Admin (actorId) để tránh lỗi ràng buộc
             await _context.WorkSchedules.Where(ws => ws.CreatedBy == userId)
@@ -926,8 +917,7 @@ public class UserService : IUserService
             await _context.ShiftSwapRequests.Where(ssr => ssr.ReviewedBy == userId)
                 .ExecuteUpdateAsync(s => s.SetProperty(b => b.ReviewedBy, (ulong?)null));
 
-            // 7. Dọn dẹp log kiểm toán do user này thực hiện (Actor)
-            await _context.SystemAuditLogs.Where(a => a.ActorId == userId).ExecuteDeleteAsync();
+
 
             // 8. Xóa triệt để dòng người dùng khỏi bảng users trong MySQL CSDL
             _context.Users.Remove(user);
@@ -1669,29 +1659,10 @@ public class UserService : IUserService
         return ApiResponse<BulkImportResultDto>.Ok(result, message);
     }
 
-    private async Task LogAuditAsync(ulong actorId, string action, string targetTable, ulong targetId, object? oldValues, object? newValues, string? ipAddress)
+    private Task LogAuditAsync(ulong actorId, string action, string targetTable, ulong targetId, object? oldValues, object? newValues, string? ipAddress)
     {
-        try
-        {
-            var audit = new SystemAuditLog
-            {
-                ActorId = actorId,
-                Action = action,
-                TargetTable = targetTable,
-                TargetId = targetId,
-                OldValues = oldValues != null ? JsonSerializer.Serialize(oldValues) : null,
-                NewValues = newValues != null ? JsonSerializer.Serialize(newValues) : null,
-                IpAddress = ipAddress,
-                Timestamp = DateTime.UtcNow
-            };
-
-            _context.SystemAuditLogs.Add(audit);
-            await _context.SaveChangesAsync();
-        }
-        catch
-        {
-            // Tránh crash nếu audit logging gặp lỗi tạm thời
-        }
+        _logger.LogInformation("Audit: Actor {ActorId} performed {Action} on {TargetTable}:{TargetId} from IP {IpAddress}", actorId, action, targetTable, targetId, ipAddress);
+        return Task.CompletedTask;
     }
 
     private static string GetCellString(IXLCell cell)

@@ -27,10 +27,6 @@ public partial class AppDbContext : DbContext
     public DbSet<TemporaryDispatch> TemporaryDispatches { get; set; } = null!;
     public DbSet<DispatchEmployee> DispatchEmployees { get; set; } = null!;
     public DbSet<AttendanceLog> AttendanceLogs { get; set; } = null!;
-    public DbSet<ShiftHandover> ShiftHandovers { get; set; } = null!;
-    public DbSet<CashHandover> CashHandovers { get; set; } = null!;
-    public DbSet<SecurityHandover> SecurityHandovers { get; set; } = null!;
-    public DbSet<SystemAuditLog> SystemAuditLogs { get; set; } = null!;
     public DbSet<BranchTierEntity> BranchTiers { get; set; } = null!;
     public DbSet<BranchLockLog> BranchLockLogs { get; set; } = null!;
 
@@ -429,70 +425,5 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
-        // 13. shift_handovers
-        modelBuilder.Entity<ShiftHandover>(entity =>
-        {
-            entity.ToTable("shift_handovers");
-            entity.HasKey(e => e.Id);
-            entity.HasIndex(e => e.ScheduleId).IsUnique();
-
-            entity.HasOne(e => e.Schedule)
-                .WithOne(ws => ws.ShiftHandover)
-                .HasForeignKey<ShiftHandover>(e => e.ScheduleId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.ShiftLeader)
-                .WithMany()
-                .HasForeignKey(e => e.ShiftLeaderId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        // 14. cash_handovers
-        modelBuilder.Entity<CashHandover>(entity =>
-        {
-            entity.ToTable("cash_handovers");
-            entity.HasKey(e => e.Id);
-            entity.Ignore(e => e.DifferenceAmount);
-
-            entity.HasOne(e => e.ShiftHandover)
-                .WithMany(sh => sh.CashHandovers)
-                .HasForeignKey(e => e.ShiftHandoverId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.Cashier)
-                .WithMany()
-                .HasForeignKey(e => e.CashierId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        // 15. security_handovers
-        modelBuilder.Entity<SecurityHandover>(entity =>
-        {
-            entity.ToTable("security_handovers");
-            entity.HasKey(e => e.Id);
-
-            entity.HasOne(e => e.ShiftHandover)
-                .WithMany(sh => sh.SecurityHandovers)
-                .HasForeignKey(e => e.ShiftHandoverId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasOne(e => e.SecurityGuard)
-                .WithMany()
-                .HasForeignKey(e => e.SecurityGuardId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
-
-        // 17. system_audit_logs
-        modelBuilder.Entity<SystemAuditLog>(entity =>
-        {
-            entity.ToTable("system_audit_logs");
-            entity.HasKey(e => e.Id);
-            entity.HasIndex(e => new { e.Timestamp, e.Action });
-
-            entity.HasOne(e => e.Actor)
-                .WithMany()
-                .HasForeignKey(e => e.ActorId)
-                .OnDelete(DeleteBehavior.Restrict);
-        });
     }
 }

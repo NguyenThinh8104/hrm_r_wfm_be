@@ -4,7 +4,6 @@ using Microsoft.OpenApi.Models;
 using Modules.Attendance;
 using Modules.Auth;
 using Modules.Dispatch;
-using Modules.Handovers;
 using Modules.Shifts;
 using Modules.Stores;
 using Shared;
@@ -49,8 +48,7 @@ builder.Services
     .AddStoresModule()
     .AddShiftsModule()
     .AddAttendanceModule()
-    .AddDispatchModule()
-    .AddHandoversModule();
+    .AddDispatchModule();
 
 // 5. Đăng ký Controllers từ các Module
 builder.Services.AddControllers();

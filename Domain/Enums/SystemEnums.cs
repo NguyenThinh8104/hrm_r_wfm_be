@@ -55,13 +55,6 @@ public enum DispatchStatus
     Revoked = 6
 }
 
-public enum HandoverStatus
-{
-    Draft = 1,
-    Submitted = 2,
-    ApprovedByLeader = 3,
-    DiscrepancyReported = 4
-}
 
 public enum SwapRequestStatus
 {

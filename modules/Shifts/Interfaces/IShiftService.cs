@@ -53,7 +53,7 @@ public interface IShiftService
     /// Lấy danh sách tất cả các ca làm việc mẫu trong hệ thống (hỗ trợ lọc status: ACTIVE / INACTIVE).
     /// </summary>
     Task<ApiResponse<List<ShiftTemplateDto>>> GetAllShiftTemplatesAsync(string? status = null);
-    Task<ApiResponse<List<ShiftDto>>> GetAllShiftTemplatesAsync(bool includeInactive = false);
+    Task<ApiResponse<List<ShiftDto>>> GetAllShiftTemplatesAsync(ulong? branchId = null, bool includeInactive = false);
 
 
     // =========================================================
@@ -77,6 +77,11 @@ public interface IShiftService
     /// <param name="dto">DTO chứa ScheduleId và định mức số lượng nhân sự mới từng vị trí</param>
     /// <returns>ApiResponse chứa thông tin khung ca làm việc đã cập nhật chỉ tiêu (WorkScheduleDto)</returns>
     Task<ApiResponse<WorkScheduleDto>> UpdateScheduleRequirementAsync(UpdateScheduleRequirementDto dto);
+
+    /// <summary>
+    /// Xóa 1 bản ghi khung ca làm việc ở trạng thái DRAFT.
+    /// </summary>
+    Task<ApiResponse<bool>> DeleteScheduleAsync(ulong scheduleId);
 
     /// <summary>
     /// Truy vấn danh sách khung lịch làm việc kèm chỉ tiêu định mức nhu cầu nhân sự của chi nhánh trong tháng.

@@ -91,71 +91,6 @@ public class ShiftsController : ControllerBase
         return Ok(result);
     }
 
-    // ==========================================
-    // 1. Quản lý Mẫu Ca Chuẩn (Operations Admin)
-    // ==========================================
-
-
-    /// <summary>
-    /// [Operations Admin] Tạo mới mẫu ca làm việc chuẩn áp dụng cho toàn hệ thống cửa hàng.
-    /// Logic đặc biệt: Yêu cầu quyền OperationsAdmin hoặc BusinessOwner, tự động kiểm tra trùng mã TemplateCode và mã hóa chuỗi chữ hoa.
-    /// </summary>
-    /// <param name="dto">DTO thông tin mẫu ca mới (TemplateCode, Name, StartTime, EndTime, IsOvernight, BreakDurationMinutes)</param>
-    /// <returns>ApiResponse chứa thông tin mẫu ca vừa tạo thành công (ShiftDto)</returns>
-    [HttpPost("templates")]
-    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER")]
-    public async Task<ActionResult<ApiResponse<ShiftDto>>> CreateShiftTemplate([FromBody] CreateShiftTemplateDto dto)
-    {
-        var result = await _shiftService.CreateShiftTemplateAsync(dto);
-        if (!result.Success) return BadRequest(result);
-        return StatusCode(201, result);
-    }
-
-    /// <summary>
-    /// [Operations Admin] Cập nhật thông tin ca làm việc chuẩn.
-    /// Logic đặc biệt: Yêu cầu quyền OperationsAdmin/BusinessOwner, cập nhật khung giờ, cờ ca đêm và thời gian nghỉ giữa ca.
-    /// </summary>
-    /// <param name="id">Mã ID mẫu ca chuẩn cần sửa</param>
-    /// <param name="dto">DTO chứa dữ liệu mới cần cập nhật</param>
-    /// <returns>ApiResponse chứa thông tin mẫu ca sau khi sửa (ShiftDto)</returns>
-    [HttpPut("templates/{id}")]
-    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER")]
-    public async Task<ActionResult<ApiResponse<ShiftDto>>> UpdateShiftTemplate(uint id, [FromBody] UpdateShiftTemplateDto dto)
-    {
-        var result = await _shiftService.UpdateShiftTemplateAsync(id, dto);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// [Operations Admin] Vô hiệu hóa ca làm việc chuẩn.
-    /// Logic đặc biệt: Thực hiện soft delete (IsActive = false) để giữ lại lịch sử phân công và dữ liệu chấm công.
-    /// </summary>
-    /// <param name="id">Mã ID mẫu ca chuẩn cần vô hiệu hóa</param>
-    /// <returns>ApiResponse trả về boolean xác nhận thao tác thành công</returns>
-    [HttpDelete("templates/{id}")]
-    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER")]
-    public async Task<ActionResult<ApiResponse<bool>>> DeleteShiftTemplate(uint id)
-    {
-        var result = await _shiftService.DeleteShiftTemplateAsync(id);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Lấy danh sách mẫu ca chuẩn hệ thống.
-    /// Logic đặc biệt: Cho phép truy cập công khai (AllowAnonymous), tùy chọn lấy cả các ca đã ngưng hoạt động (includeInactive = true).
-    /// </summary>
-    /// <param name="includeInactive">Cờ tùy chọn: True lấy cả ca ngưng hoạt động, False chỉ lấy ca active (Mặc định False)</param>
-    /// <returns>ApiResponse chứa danh sách ShiftDto</returns>
-    [HttpGet("templates")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<List<ShiftDto>>>> GetShiftTemplates([FromQuery] bool includeInactive = false)
-    {
-        var result = await _shiftService.GetAllShiftTemplatesAsync(includeInactive);
-        return Ok(result);
-    }
-
     // =========================================================
     // 2. Khởi Tạo Khung Lịch & Định Mức Nhu Cầu (Store Manager & Admin)
     // =========================================================
@@ -199,9 +134,33 @@ public class ShiftsController : ControllerBase
             var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(targetBranchId.Value);
             if (!ok) return forbid!;
         }
+        else if (dto.BranchId.HasValue)
+        {
+            var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(dto.BranchId.Value);
+            if (!ok) return forbid!;
+        }
 
         dto.ScheduleId = scheduleId;
         var result = await _shiftService.UpdateScheduleRequirementAsync(dto);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Xóa 1 khung ca làm việc chưa công bố (DRAFT).
+    /// </summary>
+    [HttpDelete("schedules/{scheduleId}")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteSchedule(ulong scheduleId)
+    {
+        var targetBranchId = await _shiftService.GetBranchIdByScheduleIdAsync(scheduleId);
+        if (targetBranchId.HasValue)
+        {
+            var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(targetBranchId.Value);
+            if (!ok) return forbid!;
+        }
+
+        var result = await _shiftService.DeleteScheduleAsync(scheduleId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -578,162 +537,6 @@ public class ShiftsController : ControllerBase
         }
 
         var result = await _shiftService.GetEmployeeShiftsAsync(employeeId, sDate, eDate);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Tạo yêu cầu đổi ca làm việc.
-    /// </summary>
-    /// <param name="request">DTO tạo yêu cầu đổi ca trực</param>
-    /// <returns>ApiResponse chứa ShiftSwapRequestDto</returns>
-    [HttpPost("swap-request")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<ShiftSwapRequestDto>>> CreateSwapRequest([FromBody] CreateSwapRequestDto request)
-    {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value;
-        if (!int.TryParse(empIdClaim, out var empId))
-        {
-            return Unauthorized(ApiResponse<ShiftSwapRequestDto>.Fail("Không xác định được danh tính nhân viên."));
-        }
-
-        var result = await _shiftService.RequestShiftSwapAsync(empId, request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Quản lý duyệt hoặc từ chối yêu cầu đổi ca trực.
-    /// </summary>
-    /// <param name="request">DTO kết quả duyệt đổi ca</param>
-    /// <returns>ApiResponse trả về boolean</returns>
-    [HttpPost("swap-review")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
-    public async Task<ActionResult<ApiResponse<bool>>> ReviewSwapRequest([FromBody] ReviewSwapRequestDto request)
-    {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value;
-        int.TryParse(empIdClaim, out var managerEmpId);
-
-        var result = await _shiftService.ReviewShiftSwapAsync(managerEmpId, request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Đồng nghiệp (TargetUser) xác nhận hoặc từ chối đơn đổi/chuyển ca (Bước 1 luồng 2 bước).
-    /// </summary>
-    [HttpPost("swap-peer-review")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<bool>>> PeerReviewSwapRequest([FromBody] PeerReviewSwapRequestDto request)
-    {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value;
-        if (!int.TryParse(empIdClaim, out var empId))
-        {
-            return Unauthorized(ApiResponse<bool>.Fail("Không xác định được danh tính nhân viên."));
-        }
-
-        var result = await _shiftService.RespondToSwapRequestAsync(empId, request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Nhân viên tạo đơn hủy đơn đổi/chuyển/nghỉ ca đang chờ xử lý.
-    /// </summary>
-    [HttpPost("swap-cancel/{swapRequestId}")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<bool>>> CancelSwapRequest(int swapRequestId)
-    {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value;
-        if (!int.TryParse(empIdClaim, out var empId))
-        {
-            return Unauthorized(ApiResponse<bool>.Fail("Không xác định được danh tính nhân viên."));
-        }
-
-        var result = await _shiftService.CancelSwapRequestAsync(empId, swapRequestId);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Lấy danh sách các yêu cầu đổi ca trực của cửa hàng.
-    /// </summary>
-    /// <param name="storeId">ID cửa hàng</param>
-    /// <returns>ApiResponse chứa danh sách ShiftSwapRequestDto</returns>
-    [HttpGet("swap-requests/{storeId}")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
-    public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetSwapRequests(int storeId)
-    {
-        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync((ulong)storeId);
-        if (!ok) return forbid!;
-
-        var result = await _shiftService.GetSwapRequestsByStoreAsync((int)effId);
-        return Ok(result);
-    }
-
-
-    /// <summary>
-    /// Nhân viên lấy danh sách các yêu cầu đổi/chuyển ca của chính mình (đã gửi hoặc được nhờ).
-    /// </summary>
-    [HttpGet("my-swap-requests")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetMySwapRequests()
-    {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value;
-        if (!int.TryParse(empIdClaim, out var empId))
-        {
-            return Unauthorized(ApiResponse<List<ShiftSwapRequestDto>>.Fail("Không xác định được danh tính nhân viên."));
-        }
-
-        var result = await _shiftService.GetMySwapRequestsAsync(empId);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Lấy danh sách đồng nghiệp đang thực sự làm việc tại chi nhánh vào ngày cụ thể để nhân viên chọn khi đổi/chuyển ca.
-    /// Hỗ trợ nhân viên biệt phái: Bao gồm cả NV gốc của chi nhánh và NV từ chi nhánh khác được điều chuyển đến.
-    /// </summary>
-    [HttpGet("colleagues/{branchId}")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<List<ColleagueDto>>>> GetColleagues(int branchId, [FromQuery] string? workDate = null)
-    {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value;
-        int.TryParse(empIdClaim, out var empId);
-
-        DateOnly? parsedWorkDate = null;
-        if (!string.IsNullOrEmpty(workDate) && DateOnly.TryParse(workDate, out var wd))
-        {
-            parsedWorkDate = wd;
-        }
-
-        var result = await _shiftService.GetColleaguesForSwapAsync(empId, branchId, parsedWorkDate);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Lấy danh sách ca làm việc của một đồng nghiệp trong tương lai để chọn đổi.
-    /// </summary>
-    [HttpGet("colleague-shifts/{colleagueEmployeeId}")]
-    [Authorize]
-    public async Task<ActionResult<ApiResponse<List<ColleagueShiftDto>>>> GetColleagueShifts(int colleagueEmployeeId, [FromQuery] int? requestingAssignmentId = null)
-    {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
-            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("sub")?.Value;
-        int.TryParse(empIdClaim, out var empId);
-
-        var result = await _shiftService.GetColleagueShiftsAsync(empId, colleagueEmployeeId, requestingAssignmentId);
         return Ok(result);
     }
 }

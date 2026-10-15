@@ -1,12 +1,14 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Shared.Common;
 using Shared.Data;
 using Shared.Services;
 
-namespace API.Controllers;
+namespace Shared.Controllers;
 
 /// <summary>
 /// DTO phản hồi thông tin tệp tin đã tải lên thành công.

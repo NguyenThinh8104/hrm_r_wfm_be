@@ -47,7 +47,6 @@ public class EmployeeDetailDto
     public string? OriginalBranchName { get; set; }
     public DateOnly? DispatchEndDate { get; set; }
     public DateTime? LockedAt { get; set; }
-    public int? DaysUntilDeletable { get; set; }
 }
 
 public class CreateEmployeeDto
@@ -145,5 +144,15 @@ public class EmployeeRoleStatsDto
     public int Sales { get; set; }
     public int Security { get; set; }
     public int Manager { get; set; }
+}
+
+public class DuplicateCheckResultDto
+{
+    public bool IsEmployeeCodeDuplicate { get; set; }
+    public string? ExistingEmployeeName { get; set; }
+    public bool IsEmailDuplicate { get; set; }
+    public string? ExistingEmailOwnerName { get; set; }
+    public bool IsPhoneDuplicate { get; set; }
+    public string? ExistingPhoneOwnerName { get; set; }
 }
 

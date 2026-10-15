@@ -318,6 +318,9 @@ public class GenerateMonthlyScheduleDto
 public class UpdateScheduleRequirementDto
 {
     public ulong ScheduleId { get; set; }
+    public ulong? BranchId { get; set; }
+    public uint? ShiftTemplateId { get; set; }
+    public DateOnly? WorkDate { get; set; }
     public byte RequiredLeader { get; set; } = 1;
     public byte RequiredCashier { get; set; }
     public byte RequiredSales { get; set; }

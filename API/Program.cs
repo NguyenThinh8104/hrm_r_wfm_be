@@ -52,8 +52,9 @@ builder.Services
     .AddDispatchModule()
     .AddHandoversModule();
 
-// 5. Đăng ký Controllers từ các Module
-builder.Services.AddControllers();
+// 5. Đăng ký Controllers từ các Module & Shared
+builder.Services.AddControllers()
+    .AddApplicationPart(typeof(Shared.Controllers.FilesController).Assembly);
 
 // 6. Cấu hình Swagger UI / OpenAPI (.NET 8)
 builder.Services.AddEndpointsApiExplorer();

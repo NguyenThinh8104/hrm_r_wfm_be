@@ -16,10 +16,17 @@ namespace Modules.Auth.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly IUserService _userService;
+    private readonly IUserAccountService _accountService;
+    private readonly IEmployeeImportService _importService;
 
-    public UsersController(IUserService userService)
+    public UsersController(
+        IUserService userService,
+        IUserAccountService accountService,
+        IEmployeeImportService importService)
     {
         _userService = userService;
+        _accountService = accountService;
+        _importService = importService;
     }
 
     #region UC 1.4 - Quản lý Tài khoản & Phân quyền Vận hành (Store Manager)
@@ -56,7 +63,7 @@ public class UsersController : ControllerBase
     public async Task<ActionResult<ApiResponse<bool>>> ToggleUserStatus(ulong id, [FromBody] UpdateStatusDto dto)
     {
         var (actorId, _, _, ip) = GetCurrentUserInfo();
-        var result = await _userService.ToggleUserStatusAsync(id, dto, actorId, ip);
+        var result = await _accountService.ToggleUserStatusAsync(id, dto, actorId, ip);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -69,7 +76,7 @@ public class UsersController : ControllerBase
     public async Task<ActionResult<ApiResponse<ResetPasswordResultDto>>> ResetPassword(ulong id, [FromBody] ResetPasswordDto dto)
     {
         var (actorId, _, _, ip) = GetCurrentUserInfo();
-        var result = await _userService.ResetPasswordAsync(id, dto, actorId, ip);
+        var result = await _accountService.ResetPasswordAsync(id, dto, actorId, ip);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -135,6 +142,21 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
+    /// UC 1.5: Kiểm tra trùng lặp thông tin nhân sự (Mã NV, Email, SĐT) trong thời gian thực
+    /// </summary>
+    [HttpGet("check-duplicate")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<DuplicateCheckResultDto>>> CheckDuplicate(
+        [FromQuery] string? employeeCode,
+        [FromQuery] string? email,
+        [FromQuery] string? phone,
+        [FromQuery] ulong? excludeId)
+    {
+        var result = await _userService.CheckDuplicateAsync(employeeCode, email, phone, excludeId);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự (Đã bị khóa - Không cho phép chỉnh sửa hồ sơ sau khi tạo)
     /// </summary>
     [HttpPut("employees/{id}")]
@@ -147,17 +169,16 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// UC 1.5: Xóa tài khoản nhân sự (Chỉ thực hiện được khi tài khoản đã bị khóa)
+    /// UC 1.5 - Phương án 1: Xóa tài khoản nhân sự (Đã bị vô hiệu hóa theo chuẩn quản trị nhân sự Enterprise)
     /// </summary>
     [HttpDelete("employees/{id:long}")]
     [HttpDelete("{id:long}")]
     [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
-    public async Task<ActionResult<ApiResponse<bool>>> DeleteEmployee(ulong id)
+    public Task<ActionResult<ApiResponse<bool>>> DeleteEmployee(ulong id)
     {
-        var (actorId, role, _, ip) = GetCurrentUserInfo();
-        var result = await _userService.DeleteUserAsync(id, actorId, role, ip);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
+        return Task.FromResult<ActionResult<ApiResponse<bool>>>(
+            BadRequest(ApiResponse<bool>.Fail("Hệ thống không cho phép xóa tài khoản nhân sự nhằm bảo đảm tính toàn vẹn dữ liệu đối soát bảng công, tiền lương và kiểm toán doanh nghiệp. Vui lòng sử dụng tính năng 'Khóa tài khoản' để chấm dứt hoạt động của nhân sự."))
+        );
     }
 
     /// <summary>
@@ -169,7 +190,7 @@ public class UsersController : ControllerBase
     public async Task<IActionResult> DownloadEmployeeImportTemplate([FromQuery] int count = 5)
     {
         var safeCount = Math.Clamp(count, 1, 500);
-        var (fileBytes, contentType, fileName) = await _userService.GenerateEmployeeImportTemplateAsync(safeCount);
+        var (fileBytes, contentType, fileName) = await _importService.GenerateEmployeeImportTemplateAsync(safeCount);
         return File(fileBytes, contentType, fileName);
     }
 
@@ -184,7 +205,7 @@ public class UsersController : ControllerBase
     public async Task<ActionResult<ApiResponse<BulkImportResultDto>>> BulkImportEmployees([FromForm] BulkImportEmployeeRequestDto dto)
     {
         var (actorId, role, _, ip) = GetCurrentUserInfo();
-        var result = await _userService.BulkImportEmployeesAsync(dto, actorId, role, ip);
+        var result = await _importService.BulkImportEmployeesAsync(dto, actorId, role, ip);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -198,7 +219,7 @@ public class UsersController : ControllerBase
     [Authorize(Roles = "OPERATIONS_ADMIN,OperationsAdmin,Admin,ADMIN")]
     public async Task<IActionResult> ExportEmployeeImportErrors([FromBody] ExportImportErrorsRequestDto dto)
     {
-        var (fileBytes, contentType, fileName) = await _userService.GenerateImportErrorReportAsync(dto.Errors, dto.SourceFileName);
+        var (fileBytes, contentType, fileName) = await _importService.GenerateImportErrorReportAsync(dto.Errors, dto.SourceFileName);
         return File(fileBytes, contentType, fileName);
     }
 

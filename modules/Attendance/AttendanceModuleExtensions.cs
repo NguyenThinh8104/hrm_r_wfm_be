@@ -8,8 +8,11 @@ public static class AttendanceModuleExtensions
 {
     public static IServiceCollection AddAttendanceModule(this IServiceCollection services)
     {
+        services.AddScoped<IAttendanceOtpService, AttendanceOtpService>();
+        services.AddScoped<IKioskAttendanceService, KioskAttendanceService>();
+        services.AddScoped<IAttendanceAuditService, AttendanceAuditService>();
+        services.AddScoped<IAttendanceSelfService, AttendanceSelfService>();
         services.AddScoped<IAttendanceService, AttendanceService>();
         return services;
     }
 }
-

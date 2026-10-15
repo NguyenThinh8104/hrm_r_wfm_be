@@ -8,9 +8,6 @@ public interface IUserService
     // UC 1.4: Quản lý Tài khoản & Phân quyền Vận hành (Store Managers)
     Task<ApiResponse<List<StoreManagerDto>>> GetStoreManagersAsync();
     Task<ApiResponse<StoreManagerDto>> CreateStoreManagerAsync(CreateStoreManagerDto dto, ulong actorId, string? ipAddress);
-    Task<ApiResponse<bool>> ToggleUserStatusAsync(ulong userId, UpdateStatusDto dto, ulong actorId, string? ipAddress);
-    Task<ApiResponse<ResetPasswordResultDto>> ResetPasswordAsync(ulong userId, ResetPasswordDto dto, ulong actorId, string? ipAddress);
-
     // UC 1.5: Quản lý Hồ sơ & Hợp đồng Nhân sự Toàn chuỗi
     Task<ApiResponse<List<EmployeeDetailDto>>> GetEmployeesAsync(EmployeeFilterDto filter, ulong actorId, string actorRole, ulong? actorBranchId);
     Task<ApiResponse<EmployeeStatsDto>> GetEmployeeStatsAsync(ulong? branchId, ulong actorId, string actorRole, ulong? actorBranchId);
@@ -18,13 +15,8 @@ public interface IUserService
     Task<ApiResponse<EmployeeDetailDto>> CreateEmployeeAsync(CreateEmployeeDto dto, ulong actorId, string actorRole, ulong? actorBranchId, string? ipAddress);
     Task<ApiResponse<EmployeeDetailDto>> UpdateEmployeeAsync(ulong userId, UpdateEmployeeDto dto, ulong actorId, string actorRole, ulong? actorBranchId, string? ipAddress);
 
-    // UC 1.5 - Bổ sung: Import nhân sự hàng loạt bằng file Excel
-    Task<ApiResponse<BulkImportResultDto>> BulkImportEmployeesAsync(BulkImportEmployeeRequestDto dto, ulong actorId, string actorRole, string? ipAddress);
-    Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync(int count = 5);
-    Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateImportErrorReportAsync(List<ImportRowErrorDto> errors, string? sourceFileName);
-
-    // UC 1.5 - Xóa tài khoản nhân sự (Chỉ xóa khi đã khóa)
-    Task<ApiResponse<bool>> DeleteUserAsync(ulong userId, ulong actorId, string actorRole, string? ipAddress);
+    // Kiểm tra trùng lặp danh tính (Mã NV, Email, SĐT)
+    Task<ApiResponse<DuplicateCheckResultDto>> CheckDuplicateAsync(string? employeeCode, string? email, string? phone, ulong? excludeId);
 
     // Danh mục Roles & Chi nhánh
     Task<ApiResponse<List<RoleDto>>> GetRolesAsync();

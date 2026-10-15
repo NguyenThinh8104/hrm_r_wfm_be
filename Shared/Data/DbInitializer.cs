@@ -86,6 +86,44 @@ public static class DbInitializer
                     alterCmd.ExecuteNonQuery();
                 }
 
+                // Tự động bổ sung các cột khóa/mở cơ sở (Branch Lock) nếu chưa có
+                if (!branchCols.Contains("LockedAt"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `LockedAt` DATETIME(6) NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+                if (!branchCols.Contains("LockedBy"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `LockedBy` VARCHAR(255) NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+                if (!branchCols.Contains("LockReason"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `LockReason` VARCHAR(1000) NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+                if (!branchCols.Contains("UnlockedAt"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `UnlockedAt` DATETIME(6) NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+                if (!branchCols.Contains("UnlockedBy"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `UnlockedBy` VARCHAR(255) NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+                if (!branchCols.Contains("RowVersion"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `branches` ADD COLUMN `RowVersion` char(36) COLLATE ascii_general_ci NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';";
+                    alterCmd.ExecuteNonQuery();
+                }
+
                 // Loại bỏ bảng headcount_import_requests cũ nếu còn tồn tại
                 try
                 {
@@ -126,6 +164,29 @@ public static class DbInitializer
                     alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `RefreshTokenExpiryTime` DATETIME(6) NULL;";
                     alterCmd.ExecuteNonQuery();
                 }
+            }
+
+            // Tự động tạo bảng branch_lock_logs nếu chưa có
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS `branch_lock_logs` (
+                        `Id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        `BranchId` BIGINT UNSIGNED NOT NULL,
+                        `Action` VARCHAR(50) NOT NULL,
+                        `Reason` VARCHAR(1000) NULL,
+                        `PerformedBy` VARCHAR(255) NULL,
+                        `PerformedAt` DATETIME(6) NOT NULL,
+                        `AffectedEmployeeCount` INT NOT NULL DEFAULT 0,
+                        `StaffHandlingMode` VARCHAR(100) NULL,
+                        `FutureShiftHandling` VARCHAR(100) NULL,
+                        `TransferredToBranchId` BIGINT UNSIGNED NULL,
+                        PRIMARY KEY (`Id`),
+                        KEY `IX_branch_lock_logs_BranchId` (`BranchId`),
+                        KEY `IX_branch_lock_logs_PerformedAt` (`PerformedAt`),
+                        KEY `IX_branch_lock_logs_TransferredToBranchId` (`TransferredToBranchId`)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+                command.ExecuteNonQuery();
             }
 
             // Check branch_tiers table

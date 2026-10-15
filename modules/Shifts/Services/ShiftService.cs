@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using Domain.Constants;
@@ -829,19 +829,38 @@ public class ShiftService : IShiftService
             return ApiResponse<bool>.Fail("Không tìm thấy mẫu ca làm việc.");
         }
 
-        var hasSchedules = await _context.WorkSchedules.AnyAsync(ws => ws.ShiftTemplateId == id);
-        if (!hasSchedules)
+        var schedules = await _context.WorkSchedules
+            .Include(ws => ws.ShiftAssignments)
+            .Where(ws => ws.ShiftTemplateId == id)
+            .ToListAsync();
+
+        var hasAttendance = schedules.Any(ws => ws.ShiftAssignments != null && ws.ShiftAssignments.Any(sa => sa.AttendanceLog != null));
+
+        if (!hasAttendance)
         {
+            if (schedules.Any())
+            {
+                foreach (var ws in schedules)
+                {
+                    if (ws.ShiftAssignments != null && ws.ShiftAssignments.Any())
+                    {
+                        _context.ShiftAssignments.RemoveRange(ws.ShiftAssignments);
+                    }
+                }
+                _context.WorkSchedules.RemoveRange(schedules);
+            }
+
             _context.ShiftTemplates.Remove(template);
             await _context.SaveChangesAsync();
             return ApiResponse<bool>.Ok(true, "Đã xóa hoàn toàn khung ca mẫu khỏi hệ thống.");
         }
 
+        // Nếu đã có dữ liệu chấm công thực tế gắn liền, thực hiện ngưng áp dụng (soft delete) để bảo toàn dữ liệu chấm công
         template.IsActive = false;
         template.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return ApiResponse<bool>.Ok(true, "Khung ca đã có lịch phân công nên đã chuyển sang ngừng áp dụng.");
+        return ApiResponse<bool>.Ok(true, "Khung ca đã có dữ liệu chấm công thực tế nên đã chuyển sang ngừng áp dụng.");
     }
 
     /// <summary>

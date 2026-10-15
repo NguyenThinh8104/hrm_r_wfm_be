@@ -10,6 +10,8 @@ public static class AuthModuleExtensions
     {
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IEmployeeImportService, EmployeeImportService>();
+        services.AddScoped<IUserAccountService, UserAccountService>();
         return services;
     }
 }

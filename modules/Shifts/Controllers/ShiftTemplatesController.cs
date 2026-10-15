@@ -15,9 +15,9 @@ namespace Modules.Shifts.Controllers;
 [Route("api/shift-templates")]
 public class ShiftTemplatesController : ControllerBase
 {
-    private readonly IShiftService _shiftService;
+    private readonly IShiftTemplateService _shiftService;
 
-    public ShiftTemplatesController(IShiftService shiftService)
+    public ShiftTemplatesController(IShiftTemplateService shiftService)
     {
         _shiftService = shiftService;
     }

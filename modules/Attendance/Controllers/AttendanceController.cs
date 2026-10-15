@@ -4,45 +4,26 @@ using Microsoft.AspNetCore.Mvc;
 using Modules.Attendance.DTOs;
 using Modules.Attendance.Interfaces;
 using Shared.Common;
-using Shared.Common.Constants;
 
 namespace Modules.Attendance.Controllers;
 
 /// <summary>
-/// API Controller quản lý điểm danh, nhật ký và báo cáo gian lận dành cho Web Quản trị.
+/// API Controller quản lý điểm danh, theo dõi quân số trực tiếp và tra cứu chuyên cần dành cho Web Quản trị & Nhân viên.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class AttendanceController : ControllerBase
 {
-    private readonly IAttendanceService _attendanceService;
+    private readonly IAttendanceAuditService _attendanceAuditService;
+    private readonly IAttendanceSelfService _attendanceSelfService;
 
-    public AttendanceController(IAttendanceService attendanceService)
+    public AttendanceController(
+        IAttendanceAuditService attendanceAuditService,
+        IAttendanceSelfService attendanceSelfService)
     {
-        _attendanceService = attendanceService;
+        _attendanceAuditService = attendanceAuditService;
+        _attendanceSelfService = attendanceSelfService;
     }
-
-    /// <summary>
-    /// [ShiftLeader/Manager] Trưởng ca hoặc Quản lý báo cáo hành vi gian lận / vắng mặt điểm danh.
-    /// </summary>
-    /// <param name="request">DTO chứa AttendanceId và lý do báo cáo gian lận</param>
-    /// <returns>Xác nhận tạo báo cáo ngoại lệ điểm danh</returns>
-
-    [HttpPost("report-fraud")]
-    [Authorize(Roles = "SHIFT_LEADER,STORE_MANAGER")]
-    public async Task<ActionResult<ApiResponse<bool>>> ReportFraud([FromBody] ReportAttendanceFraudDto request)
-    {
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value;
-        if (!int.TryParse(empIdClaim, out var leaderEmpId))
-        {
-            return Unauthorized(ApiResponse<bool>.Fail(AttendanceMessages.LeaderIdentityNotFound));
-        }
-
-        var result = await _attendanceService.ReportFraudAsync(leaderEmpId, request);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
-    }
-
 
     /// <summary>
     /// [ShiftLeader/Manager/OpsAdmin] Theo dõi quân số ca trực thời gian thực kèm Presigned Temp URL xem ảnh Kiosk S3.
@@ -57,19 +38,7 @@ public class AttendanceController : ControllerBase
             ? DateOnly.FromDateTime(DateTime.Now)
             : parsedDate;
 
-        var result = await _attendanceService.GetLiveRosterAsync(storeId, targetDate);
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// [StoreManager/OpsAdmin] Phân xử khiếu nại cờ vi phạm (Khôi phục giờ công hoặc Bác bỏ).
-    /// </summary>
-    [HttpPost("resolve-fraud")]
-    [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN")]
-    public async Task<ActionResult<ApiResponse<bool>>> ResolveFraud([FromBody] ResolveFraudDto request)
-    {
-        var result = await _attendanceService.ResolveFraudAsync(request);
-        if (!result.Success) return BadRequest(result);
+        var result = await _attendanceAuditService.GetLiveRosterAsync(storeId, targetDate);
         return Ok(result);
     }
 
@@ -89,7 +58,7 @@ public class AttendanceController : ControllerBase
             ? DateOnly.FromDateTime(DateTime.Now)
             : parsedDate;
 
-        var result = await _attendanceService.GetAttendanceHistoryAsync(storeId, targetDate);
+        var result = await _attendanceAuditService.GetAttendanceHistoryAsync(storeId, targetDate);
         return Ok(result);
     }
 
@@ -108,7 +77,7 @@ public class AttendanceController : ControllerBase
             ? GetMondayOfWeek(DateOnly.FromDateTime(DateTime.Now))
             : parsedDate;
 
-        var result = await _attendanceService.GetMyWeeklyScheduleAsync(userId.Value, startDate);
+        var result = await _attendanceSelfService.GetMyWeeklyScheduleAsync(userId.Value, startDate);
         return Ok(result);
     }
 
@@ -130,7 +99,7 @@ public class AttendanceController : ControllerBase
         int targetMonth = month is >= 1 and <= 12 ? month.Value : now.Month;
         int targetYear = year is > 2000 ? year.Value : now.Year;
 
-        var result = await _attendanceService.GetMyAttendanceHistoryAsync(userId.Value, targetMonth, targetYear);
+        var result = await _attendanceSelfService.GetMyAttendanceHistoryAsync(userId.Value, targetMonth, targetYear);
         return Ok(result);
     }
 
@@ -147,4 +116,3 @@ public class AttendanceController : ControllerBase
         return date.AddDays(-1 * diff);
     }
 }
-

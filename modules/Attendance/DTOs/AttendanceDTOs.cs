@@ -38,11 +38,6 @@ public class LiveRosterDto
 }
 
 
-public class ResolveFraudDto
-{
-    public ulong AttendanceId { get; set; }
-    public bool IsApproved { get; set; }
-}
 
 public class KioskCheckInDto
 {
@@ -162,12 +157,6 @@ public class PresignedUrlResponseDto
     public DateTime ExpiresAt { get; set; }
 }
 
-public class ReportAttendanceFraudDto
-{
-    public int AttendanceId { get; set; }
-    public string Reason { get; set; } = string.Empty;
-    public string ExceptionType { get; set; } = "Fraud";
-}
 
 public class AttendanceRecordDto
 {

@@ -19,9 +19,8 @@ namespace Stores.Tests.Services;
 public class ShiftTemplateRulesTests : IDisposable
 {
     private readonly AppDbContext _context;
-    private readonly Mock<IEmailService> _emailMock;
-    private readonly Mock<ILogger<ShiftService>> _loggerMock;
-    private readonly ShiftService _service;
+    private readonly Mock<ILogger<ShiftTemplateService>> _loggerMock;
+    private readonly ShiftTemplateService _service;
 
     public ShiftTemplateRulesTests()
     {
@@ -30,9 +29,8 @@ public class ShiftTemplateRulesTests : IDisposable
             .Options;
 
         _context = new AppDbContext(options);
-        _emailMock = new Mock<IEmailService>();
-        _loggerMock = new Mock<ILogger<ShiftService>>();
-        _service = new ShiftService(_context, _emailMock.Object, _loggerMock.Object);
+        _loggerMock = new Mock<ILogger<ShiftTemplateService>>();
+        _service = new ShiftTemplateService(_context, _loggerMock.Object);
     }
 
     public void Dispose()

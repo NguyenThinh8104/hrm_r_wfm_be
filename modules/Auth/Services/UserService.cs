@@ -268,16 +268,6 @@ public class UserService : IUserService
             })
             .ToListAsync();
 
-        var now = DateTime.UtcNow;
-        foreach (var emp in employees)
-        {
-            if (emp.Status == "INACTIVE" && emp.LockedAt.HasValue)
-            {
-                var daysPassed = (int)Math.Floor((now - emp.LockedAt.Value).TotalDays);
-                emp.DaysUntilDeletable = Math.Max(0, 14 - daysPassed);
-            }
-        }
-
         return ApiResponse<List<EmployeeDetailDto>>.Ok(employees, "Lấy danh sách hồ sơ nhân sự thành công.");
     }
 
@@ -378,10 +368,7 @@ public class UserService : IUserService
             IsDispatched = user.OriginalHomeBranchId != null,
             OriginalHomeBranchId = user.OriginalHomeBranchId,
             OriginalBranchName = user.OriginalHomeBranch?.Name,
-            LockedAt = user.Status == "INACTIVE" ? user.UpdatedAt : null,
-            DaysUntilDeletable = user.Status == "INACTIVE"
-                ? Math.Max(0, 14 - (int)Math.Floor((DateTime.UtcNow - user.UpdatedAt).TotalDays))
-                : null
+            LockedAt = user.Status == "INACTIVE" ? user.UpdatedAt : null
         });
     }
 
@@ -646,6 +633,17 @@ public class UserService : IUserService
             UpdatedAt = user.UpdatedAt
         }, "Cập nhật thông tin hồ sơ nhân sự thành công.");
     }
+
+    /// <summary>
+    /// UC 1.5 - Phương án 1: Xóa tài khoản nhân sự (Đã bị vô hiệu hóa theo chuẩn quản trị nhân sự Enterprise).
+    /// </summary>
+    public Task<ApiResponse<bool>> DeleteUserAsync(ulong userId, ulong actorId, string actorRole, string? ipAddress)
+    {
+        return Task.FromResult(
+            ApiResponse<bool>.Fail("Hệ thống không cho phép xóa tài khoản nhân sự nhằm bảo đảm tính toàn vẹn dữ liệu đối soát bảng công, tiền lương và kiểm toán doanh nghiệp. Vui lòng sử dụng tính năng 'Khóa tài khoản' để chấm dứt hoạt động của nhân sự.")
+        );
+    }
+
     #endregion
 
     #region Metadata & Helper Methods

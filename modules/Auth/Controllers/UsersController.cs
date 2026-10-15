@@ -162,17 +162,16 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// UC 1.5: Xóa tài khoản nhân sự (Chỉ thực hiện được khi tài khoản đã bị khóa)
+    /// UC 1.5 - Phương án 1: Xóa tài khoản nhân sự (Đã bị vô hiệu hóa theo chuẩn quản trị nhân sự Enterprise)
     /// </summary>
     [HttpDelete("employees/{id:long}")]
     [HttpDelete("{id:long}")]
     [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
-    public async Task<ActionResult<ApiResponse<bool>>> DeleteEmployee(ulong id)
+    public Task<ActionResult<ApiResponse<bool>>> DeleteEmployee(ulong id)
     {
-        var (actorId, role, _, ip) = GetCurrentUserInfo();
-        var result = await _userService.DeleteUserAsync(id, actorId, role, ip);
-        if (!result.Success) return BadRequest(result);
-        return Ok(result);
+        return Task.FromResult<ActionResult<ApiResponse<bool>>>(
+            BadRequest(ApiResponse<bool>.Fail("Hệ thống không cho phép xóa tài khoản nhân sự nhằm bảo đảm tính toàn vẹn dữ liệu đối soát bảng công, tiền lương và kiểm toán doanh nghiệp. Vui lòng sử dụng tính năng 'Khóa tài khoản' để chấm dứt hoạt động của nhân sự."))
+        );
     }
 
     /// <summary>

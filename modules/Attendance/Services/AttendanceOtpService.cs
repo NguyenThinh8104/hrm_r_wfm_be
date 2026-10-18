@@ -54,6 +54,7 @@ public class AttendanceOtpService : IAttendanceOtpService
                 .FirstOrDefaultAsync(sa => sa.UserId == userId &&
                                            sa.Schedule.WorkDate == today &&
                                            sa.Schedule.BranchId == activeDispatch.TargetBranchId &&
+                                           sa.Schedule.Status == "PUBLISHED" &&
                                            (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED"));
 
             if (dispatchedShift == null)
@@ -72,6 +73,7 @@ public class AttendanceOtpService : IAttendanceOtpService
                     .ThenInclude(s => s.Branch)
                 .FirstOrDefaultAsync(sa => sa.UserId == userId &&
                                            sa.Schedule.WorkDate == today &&
+                                           sa.Schedule.Status == "PUBLISHED" &&
                                            (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED"));
 
             if (regularShift == null)

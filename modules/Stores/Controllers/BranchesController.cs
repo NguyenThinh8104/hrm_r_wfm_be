@@ -13,6 +13,8 @@ namespace Modules.Stores.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/branches")]
+[Route("api/v1/branches")]
+[Route("api/stores")]
 public class BranchesController : ControllerBase
 {
     private readonly IBranchService _branchService;

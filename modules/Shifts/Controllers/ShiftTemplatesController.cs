@@ -194,6 +194,85 @@ public class ShiftTemplatesController : ControllerBase
         return Ok(new { success = true, message = "Xóa khung ca thành công." });
     }
 
+    /// <summary>
+    /// Lấy danh sách ca hiệu lực của chi nhánh (tùy theo ShiftMode là GLOBAL hay CUSTOM).
+    /// GET /api/branches/{branchId}/effective-shifts
+    /// </summary>
+    [HttpGet("/api/branches/{branchId}/effective-shifts")]
+    [HttpGet("/api/v1/branches/{branchId}/effective-shifts")]
+    [HttpGet("/api/stores/{branchId}/effective-shifts")]
+    [Authorize]
+    public async Task<ActionResult> GetBranchEffectiveShifts(ulong branchId)
+    {
+        var role = User.FindFirst(ClaimTypes.Role)?.Value;
+        var result = await _shiftService.GetBranchEffectiveShiftsAsync(branchId, GetCurrentUserId(), role);
+        if (!result.Success)
+        {
+            return StatusCode(result.StatusCode, new
+            {
+                code = result.Code ?? "ERROR",
+                message = result.Message,
+                details = result.Details
+            });
+        }
+        return Ok(result.Data);
+    }
+
+    /// <summary>
+    /// Lấy toàn bộ ca riêng của chi nhánh (bất kể chi nhánh đang ở chế độ GLOBAL hay CUSTOM).
+    /// GET /api/branches/{branchId}/custom-shifts
+    /// </summary>
+    [HttpGet("/api/branches/{branchId}/custom-shifts")]
+    [HttpGet("/api/v1/branches/{branchId}/custom-shifts")]
+    [HttpGet("/api/stores/{branchId}/custom-shifts")]
+    [Authorize]
+    public async Task<ActionResult> GetBranchCustomShifts(ulong branchId)
+    {
+        var result = await _shiftService.GetBranchCustomShiftsAsync(branchId);
+        if (!result.Success)
+        {
+            return StatusCode(result.StatusCode, new
+            {
+                code = result.Code ?? "ERROR",
+                message = result.Message,
+                details = result.Details
+            });
+        }
+        return Ok(result.Data);
+    }
+
+    /// <summary>
+    /// [Operations Admin] Cập nhật chế độ ca của chi nhánh (GLOBAL sang CUSTOM hoặc ngược lại).
+    /// PATCH /api/branches/{branchId}/shift-mode
+    /// </summary>
+    [HttpPatch("/api/branches/{branchId}/shift-mode")]
+    [HttpPatch("/api/v1/branches/{branchId}/shift-mode")]
+    [HttpPatch("/api/stores/{branchId}/shift-mode")]
+    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
+    public async Task<ActionResult> UpdateBranchShiftMode(
+        ulong branchId,
+        [FromBody] BranchShiftModeRequest request)
+    {
+        var result = await _shiftService.UpdateBranchShiftModeAsync(
+            branchId,
+            request.Mode,
+            request.Confirm,
+            GetCurrentUserId(),
+            GetIpAddress());
+
+        if (!result.Success)
+        {
+            return StatusCode(result.StatusCode, new
+            {
+                code = result.Code ?? "ERROR",
+                message = result.Message,
+                futureAssignmentCount = result.FutureAssignmentCount,
+                details = result.Details
+            });
+        }
+        return Ok(result.Data);
+    }
+
     private ulong? GetCurrentUserId()
     {
         var idStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value

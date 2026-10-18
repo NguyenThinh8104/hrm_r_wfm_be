@@ -98,54 +98,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
     public async Task<ApiResponse<AuthResponseDto>> KioskLoginAsync(KioskLoginRequestDto request)
     {
-        if (string.IsNullOrWhiteSpace(request.EmployeeCode) || string.IsNullOrWhiteSpace(request.PinCode))
-        {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.KIOSK_LOGIN_REQUIRED);
-        }
-
-        var user = await _context.Users
-            .Include(u => u.Role)
-            .Include(u => u.HomeBranch)
-            .FirstOrDefaultAsync(u => u.EmployeeCode.ToLower() == request.EmployeeCode.Trim().ToLower() && u.Status == "ACTIVE");
-
-        if (user == null)
-        {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.EMPLOYEE_NOT_FOUND);
-        }
-
-        if (string.IsNullOrEmpty(user.KioskPinHash) || !PasswordHasher.Verify(request.PinCode.Trim(), user.KioskPinHash))
-        {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.PIN_INVALID);
-        }
-
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        var isDispatched = await _context.TemporaryDispatches
-            .AnyAsync(d => (d.UserId == user.Id || d.DispatchEmployees.Any(de => de.UserId == user.Id && de.Status == "APPROVED"))
-                        && d.TargetBranchId == (ulong)request.StoreId 
-                        && d.StartDate <= today && d.EndDate >= today 
-                        && (d.Status == "APPROVED" || d.Status == "PARTIAL"));
-
-        if (user.HomeBranchId != (ulong)request.StoreId && !isDispatched)
-        {
-            return ApiResponse<AuthResponseDto>.Fail(string.Format(AuthMessages.NOT_ASSIGNED_TO_BRANCH, user.FullName));
-        }
-
-        var (token, expiresAt) = _jwtTokenService.GenerateAccessToken(user);
-        var (refreshToken, refreshExpiresAt) = _jwtTokenService.GenerateRefreshToken();
-
-        user.RefreshToken = refreshToken;
-        user.RefreshTokenExpiryTime = refreshExpiresAt;
-        await _context.SaveChangesAsync();
-
-        var summary = MapUserSummary(user);
-
-        return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
-        {
-            Token = token,
-            RefreshToken = refreshToken,
-            ExpiresAt = expiresAt,
-            User = summary
-        }, AuthMessages.KIOSK_LOGIN_SUCCESS);
+        return await Task.FromResult(ApiResponse<AuthResponseDto>.Fail(AuthMessages.KIOSK_PIN_DEPRECATED));
     }
 
     public async Task<ApiResponse<UserSummaryDto>> GetCurrentUserAsync(int userId)

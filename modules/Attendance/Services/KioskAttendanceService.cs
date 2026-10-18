@@ -17,20 +17,17 @@ namespace Modules.Attendance.Services;
 public class KioskAttendanceService : IKioskAttendanceService
 {
     private readonly AppDbContext _context;
-    private readonly IPasswordHasher _passwordHasher;
     private readonly TimeProvider _timeProvider;
     private readonly IRedisOtpService _redisOtpService;
     private readonly IS3StorageService _s3StorageService;
 
     public KioskAttendanceService(
         AppDbContext context,
-        IPasswordHasher passwordHasher,
         TimeProvider timeProvider,
         IRedisOtpService redisOtpService,
         IS3StorageService s3StorageService)
     {
         _context = context;
-        _passwordHasher = passwordHasher;
         _timeProvider = timeProvider;
         _redisOtpService = redisOtpService;
         _s3StorageService = s3StorageService;
@@ -698,16 +695,7 @@ public class KioskAttendanceService : IKioskAttendanceService
         if (user == null || string.IsNullOrWhiteSpace(inputCode)) return false;
         var trimmedCode = inputCode.Trim();
 
-        // 1. Kiểm tra mã xác thực OTP 60s trên Redis trước
-        var isOtpValid = await _redisOtpService.VerifyOtpAsync(user.Id, trimmedCode, consume: consumeOtp);
-        if (isOtpValid) return true;
-
-        // 2. Dự phòng: Kiểm tra Mã PIN cá nhân nếu có
-        if (!string.IsNullOrEmpty(user.KioskPinHash) && _passwordHasher.Verify(trimmedCode, user.KioskPinHash))
-        {
-            return true;
-        }
-
-        return false;
+        // Kiểm tra mã xác thực OTP 60s trên Redis
+        return await _redisOtpService.VerifyOtpAsync(user.Id, trimmedCode, consume: consumeOtp);
     }
 }

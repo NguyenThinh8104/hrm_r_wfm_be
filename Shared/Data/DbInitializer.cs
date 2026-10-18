@@ -556,7 +556,6 @@ public static class DbInitializer
         if (userCount < 20)
         {
             var defaultPasswordHash = PasswordHasher.Hash("Password@123");
-            var defaultPinHash = PasswordHasher.Hash("1234");
             
             var existingEmails = context.Users.Select(u => u.Email.ToLower()).ToHashSet();
             var existingPhones = context.Users.Select(u => u.Phone).Where(p => !string.IsNullOrEmpty(p)).ToHashSet();
@@ -590,7 +589,6 @@ public static class DbInitializer
                     Email = "owner@rwfm.vn",
                     Phone = phone,
                     PasswordHash = defaultPasswordHash,
-                    KioskPinHash = defaultPinHash,
                     RoleId = 1, // BUSINESS_OWNER
                     EmploymentType = "FULL_TIME",
                     HomeBranchId = null,
@@ -609,7 +607,6 @@ public static class DbInitializer
                     Email = "ops.admin@rwfm.vn",
                     Phone = phone,
                     PasswordHash = defaultPasswordHash,
-                    KioskPinHash = defaultPinHash,
                     RoleId = 2, // OPERATIONS_ADMIN
                     EmploymentType = "FULL_TIME",
                     HomeBranchId = null,
@@ -649,7 +646,6 @@ public static class DbInitializer
                             Email = mgrEmail,
                             Phone = GetUniquePhone(bId, 3, 1),
                             PasswordHash = defaultPasswordHash,
-                            KioskPinHash = defaultPinHash,
                             RoleId = 3, // STORE_MANAGER
                             EmploymentType = "FULL_TIME",
                             HomeBranchId = bId,
@@ -677,7 +673,6 @@ public static class DbInitializer
                                 Email = email,
                                 Phone = GetUniquePhone(bId, 4, i),
                                 PasswordHash = defaultPasswordHash,
-                                KioskPinHash = defaultPinHash,
                                 RoleId = 4, // SHIFT_LEADER
                                 EmploymentType = "FULL_TIME",
                                 HomeBranchId = bId,
@@ -706,7 +701,6 @@ public static class DbInitializer
                                 Email = email,
                                 Phone = GetUniquePhone(bId, 5, i),
                                 PasswordHash = defaultPasswordHash,
-                                KioskPinHash = defaultPinHash,
                                 RoleId = 5, // CASHIER
                                 EmploymentType = i % 2 == 0 ? "PART_TIME" : "FULL_TIME",
                                 HomeBranchId = bId,
@@ -735,7 +729,6 @@ public static class DbInitializer
                                 Email = email,
                                 Phone = GetUniquePhone(bId, 6, i),
                                 PasswordHash = defaultPasswordHash,
-                                KioskPinHash = defaultPinHash,
                                 RoleId = 6, // SALES_STAFF
                                 EmploymentType = i % 3 == 0 ? "PART_TIME" : "FULL_TIME",
                                 HomeBranchId = bId,
@@ -764,7 +757,6 @@ public static class DbInitializer
                                 Email = email,
                                 Phone = GetUniquePhone(bId, 7, i),
                                 PasswordHash = defaultPasswordHash,
-                                KioskPinHash = defaultPinHash,
                                 RoleId = 7, // SECURITY_GUARD
                                 EmploymentType = "FULL_TIME",
                                 HomeBranchId = bId,

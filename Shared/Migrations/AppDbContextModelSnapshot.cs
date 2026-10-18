@@ -781,9 +781,6 @@ namespace Shared.Migrations
                     b.Property<ulong?>("HomeBranchId")
                         .HasColumnType("bigint unsigned");
 
-                    b.Property<string>("KioskPinHash")
-                        .HasColumnType("longtext");
-
                     b.Property<ulong?>("OriginalHomeBranchId")
                         .HasColumnType("bigint unsigned");
 

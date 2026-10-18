@@ -780,6 +780,12 @@ public static class DbInitializer
 
             if (usersToSeed.Count > 0)
             {
+                var seedCreatedAt = DateTime.UtcNow.AddDays(-30);
+                usersToSeed.ForEach(u =>
+                {
+                    u.CreatedAt = seedCreatedAt;
+                    u.UpdatedAt = seedCreatedAt;
+                });
                 context.Users.AddRange(usersToSeed);
                 context.SaveChanges();
             }

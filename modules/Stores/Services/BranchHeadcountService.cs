@@ -82,7 +82,9 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
     /// </summary>
     public async Task<ApiResponse<BranchHeadcountStatusDto>> GetBranchHeadcountStatusAsync(ulong branchId)
     {
-        var branch = await _context.Branches.FindAsync(branchId);
+        var branch = await _context.Branches
+            .Include(b => b.Tier)
+            .FirstOrDefaultAsync(b => b.Id == branchId);
         if (branch == null)
         {
             return ApiResponse<BranchHeadcountStatusDto>.Fail("Không tìm thấy chi nhánh cửa hàng.");
@@ -114,10 +116,13 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
         var inactiveCount = await _context.Users
             .CountAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && u.Status == "INACTIVE");
 
-        var standardQuota = HeadcountConstants.GetStandardQuota(branch.BranchTier);
+        var standardTierQuota = HeadcountConstants.GetStandardQuota(branch.BranchTier);
+        var effectiveQuota = branch.StaffCount > 0
+            ? branch.StaffCount
+            : (branch.Tier != null && branch.Tier.MaxStaffCount.HasValue ? branch.Tier.MaxStaffCount.Value : standardTierQuota);
 
         // Định biên CHỈ áp dụng đối với nhân sự cơ hữu, tránh việc điều động làm sai lệch trần định biên
-        var availableQuotaSlots = Math.Max(0, standardQuota - officialHeadcount);
+        var availableQuotaSlots = Math.Max(0, effectiveQuota - officialHeadcount);
 
         var result = new BranchHeadcountStatusDto
         {
@@ -126,9 +131,9 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             BranchName = branch.Name,
             BranchTierName = branch.BranchTier.ToString(),
             BranchTierValue = (int)branch.BranchTier,
-            StandardQuota = standardQuota,
-            StaffCount = 0,
-            EffectiveQuota = standardQuota,
+            StandardQuota = effectiveQuota,
+            StaffCount = branch.StaffCount,
+            EffectiveQuota = effectiveQuota,
             CurrentHeadcount = officialHeadcount, // Nhân sự cơ hữu chính thức áp vào định biên
             OfficialHeadcount = officialHeadcount,
             DispatchedInCount = dispatchedInCount,
@@ -136,8 +141,8 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             ActualWorkingCount = actualWorkingCount,
             InactiveCount = inactiveCount,
             AvailableQuotaSlots = availableQuotaSlots,
-            IsQuotaReached = officialHeadcount >= standardQuota,
-            CanCreateDirectly = officialHeadcount < standardQuota,
+            IsQuotaReached = officialHeadcount >= effectiveQuota,
+            CanCreateDirectly = officialHeadcount < effectiveQuota,
             HasActiveStoreManager = activeStoreManager != null,
             ActiveStoreManagerId = activeStoreManager?.Id,
             ActiveStoreManagerName = activeStoreManager?.FullName,

@@ -13,6 +13,8 @@ public static class AttendanceModuleExtensions
         services.AddScoped<IAttendanceAuditService, AttendanceAuditService>();
         services.AddScoped<IAttendanceSelfService, AttendanceSelfService>();
         services.AddScoped<IAttendanceService, AttendanceService>();
+        services.AddScoped<IStoreManagerMonthlyAttendanceService, StoreManagerMonthlyAttendanceService>();
+        services.AddScoped<AttendanceExportService>();
         return services;
     }
 }

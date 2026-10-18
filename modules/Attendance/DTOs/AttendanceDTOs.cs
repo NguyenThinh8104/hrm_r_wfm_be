@@ -30,11 +30,10 @@ public class LiveRosterDto
     public DateTime? CheckOutTime { get; set; }
     public string? CheckInPhotoPresignedUrl { get; set; }
     public string? CheckOutPhotoPresignedUrl { get; set; }
-    public bool IsFraudFlagged { get; set; }
-    public string? FraudReason { get; set; }
-    public string? ReportedByName { get; set; }
     public bool IsLate { get; set; }
     public string Status { get; set; } = "ABSENT";
+    public string? CheckInStatus { get; set; }
+    public string? CheckOutStatus { get; set; }
 }
 
 

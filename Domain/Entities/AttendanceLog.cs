@@ -18,7 +18,7 @@ public class AttendanceLog
     public string? CheckOutPhotoKey { get; set; }
 
     /// <summary>
-    /// Trạng thái hợp nhất: PENDING (1), PRESENT (2), LATE (3), COMPLETED (4), COMPLETED_LATE (5).
+    /// Trạng thái vòng đời phiên ca: PENDING (1), PRESENT (2), COMPLETED (3).
     /// </summary>
     public AttendanceLogStatus Status { get; set; } = AttendanceLogStatus.PENDING;
 
@@ -46,10 +46,6 @@ public class AttendanceLog
     public double? ActualWorkMinutes => CheckOutTime.HasValue ? (CheckOutTime.Value - CheckInTime).TotalMinutes : null;
 
     [NotMapped]
-    public bool IsLate => Status == AttendanceLogStatus.LATE || Status == AttendanceLogStatus.COMPLETED_LATE;
-    public bool IsFraudFlagged { get; set; } = false;
-    public ulong? FraudFlaggedBy { get; set; }
-    public User? FraudFlaggedByUser { get; set; }
-    public string? FraudReason { get; set; }
+    public bool IsLate => CheckInStatus == CheckInStatus.LATE;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

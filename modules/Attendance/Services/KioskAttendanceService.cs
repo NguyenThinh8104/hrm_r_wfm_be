@@ -563,7 +563,7 @@ public class KioskAttendanceService : IKioskAttendanceService
                 int lateMins = (int)Math.Max(1, Math.Round((log.CheckInTime - shiftStartDt).TotalMinutes));
                 log.CheckInStatus = CheckInStatus.LATE;
                 log.LateMinutes = lateMins;
-                log.Status = AttendanceLogStatus.LATE;
+                log.Status = AttendanceLogStatus.PRESENT;
                 detailedMessage = string.Format(AttendanceMessages.CheckInLateDetailedSuccess, log.CheckInTime.ToString("HH:mm:ss"), lateMins, shiftStartDt.ToString("HH:mm"));
             }
         }
@@ -607,9 +607,7 @@ public class KioskAttendanceService : IKioskAttendanceService
             }
 
             isLate = log.IsLate;
-            log.Status = (log.CheckInStatus == CheckInStatus.LATE || log.Status == AttendanceLogStatus.LATE || log.Status == AttendanceLogStatus.COMPLETED_LATE)
-                ? AttendanceLogStatus.COMPLETED_LATE
-                : AttendanceLogStatus.COMPLETED;
+            log.Status = AttendanceLogStatus.COMPLETED;
 
             if (assignment != null)
             {
@@ -684,7 +682,7 @@ public class KioskAttendanceService : IKioskAttendanceService
 
             log.CheckOutTime = null;
             log.CheckOutStatus = null;
-            log.Status = (log.CheckInStatus == CheckInStatus.LATE) ? AttendanceLogStatus.LATE : AttendanceLogStatus.PRESENT;
+            log.Status = AttendanceLogStatus.PRESENT;
             if (log.Assignment != null)
             {
                 log.Assignment.Status = "CONFIRMED";

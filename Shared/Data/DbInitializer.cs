@@ -254,7 +254,7 @@ public static class DbInitializer
                 if (!attCols.Contains("Status"))
                 {
                     using var alterCmd = connection.CreateCommand();
-                    alterCmd.CommandText = "ALTER TABLE `attendance_logs` ADD COLUMN `Status` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1: PENDING, 2: PRESENT, 3: LATE, 4: COMPLETED, 5: COMPLETED_LATE';";
+                    alterCmd.CommandText = "ALTER TABLE `attendance_logs` ADD COLUMN `Status` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1: PENDING, 2: PRESENT, 3: COMPLETED';";
                     alterCmd.ExecuteNonQuery();
                 }
             }

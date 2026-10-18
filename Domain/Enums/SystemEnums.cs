@@ -41,7 +41,6 @@ public enum AttendanceStatus
     Valid = 1,
     Late = 2,
     EarlyDeparture = 3,
-    FlaggedFraud = 4,
     CancelledByLeader = 5
 }
 
@@ -55,14 +54,6 @@ public enum DispatchStatus
     Revoked = 6
 }
 
-public enum HandoverStatus
-{
-    Draft = 1,
-    Submitted = 2,
-    ApprovedByLeader = 3,
-    DiscrepancyReported = 4
-}
-
 public enum SwapRequestStatus
 {
     Pending = 1,
@@ -72,16 +63,15 @@ public enum SwapRequestStatus
 }
 
 /// <summary>
-/// Trạng thái hợp nhất của bản ghi chấm công (kết hợp cả workflow và chuyên cần).
+/// Trạng thái vòng đời phiên chấm công (Session Lifecycle).
 /// Lưu dưới dạng TINYINT UNSIGNED (1 byte) trong database.
+/// Chi tiết chuyên cần được quản lý độc lập tại CheckInStatus và CheckOutStatus.
 /// </summary>
 public enum AttendanceLogStatus : byte
 {
     PENDING = 1,          // Đã tạo record (OTP xác thực thành công), chờ upload ảnh
-    PRESENT = 2,          // Upload ảnh thành công, vào ca đúng giờ (trong 5p ân hạn)
-    LATE = 3,             // Upload ảnh thành công, vào ca muộn (> 5p ân hạn)
-    COMPLETED = 4,        // Đã hoàn tất check-out ra ca (vào ca đúng giờ)
-    COMPLETED_LATE = 5    // Đã hoàn tất check-out ra ca (vào ca đi muộn)
+    PRESENT = 2,          // Upload ảnh thành công, đang có mặt trong ca làm việc
+    COMPLETED = 3         // Đã hoàn tất check-out ra ca
 }
 
 /// <summary>

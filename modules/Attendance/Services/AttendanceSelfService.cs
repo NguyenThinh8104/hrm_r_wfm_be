@@ -182,7 +182,9 @@ public class AttendanceSelfService : IAttendanceSelfService
                 ActualWorkMinutes = actualMinutes.HasValue ? Math.Round(actualMinutes.Value, 1) : null,
                 Status = status,
                 IsLate = isLate,
-                IsDispatched = isDispatched
+                IsDispatched = isDispatched,
+                CheckInStatus = a.AttendanceLog?.CheckInStatus.ToString(),
+                CheckOutStatus = a.AttendanceLog?.CheckOutStatus?.ToString()
             });
         }
 

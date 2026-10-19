@@ -164,6 +164,30 @@ public static class DbInitializer
                     alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `RefreshTokenExpiryTime` DATETIME(6) NULL;";
                     alterCmd.ExecuteNonQuery();
                 }
+
+                if (!userCols.Contains("KioskPinHash"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `KioskPinHash` LONGTEXT NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                if (!userCols.Contains("OriginalHomeBranchId"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `users` ADD COLUMN `OriginalHomeBranchId` BIGINT UNSIGNED NULL;";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                // Cập nhật mã PIN Kiosk mặc định "1234" cho các tài khoản chưa có mã PIN
+                try
+                {
+                    var defaultPinHash = PasswordHasher.Hash("1234");
+                    using var updatePinCmd = connection.CreateCommand();
+                    updatePinCmd.CommandText = $"UPDATE `users` SET `KioskPinHash` = '{defaultPinHash}' WHERE `KioskPinHash` IS NULL;";
+                    updatePinCmd.ExecuteNonQuery();
+                }
+                catch { }
             }
 
             // Tự động tạo bảng branch_lock_logs nếu chưa có

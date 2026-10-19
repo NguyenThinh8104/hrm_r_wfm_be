@@ -61,12 +61,33 @@ public class KioskAttendanceService : IKioskAttendanceService
         }
 
         var today = DateOnly.FromDateTime(_timeProvider.GetLocalNow().DateTime);
+        var yesterday = today.AddDays(-1);
 
-        var assignment = await _context.ShiftAssignments
+        var candidateAssignments = await _context.ShiftAssignments
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
             .Include(sa => sa.AttendanceLog)
-            .FirstOrDefaultAsync(sa => sa.UserId == user.Id && sa.Schedule.BranchId == (ulong)request.StoreId && sa.Schedule.WorkDate == today && sa.Schedule.Status == "PUBLISHED" && (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED"));
+            .Where(sa => sa.UserId == user.Id &&
+                         sa.Schedule.BranchId == (ulong)request.StoreId &&
+                         sa.Schedule.Status == "PUBLISHED" &&
+                         (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED") &&
+                         (sa.Schedule.WorkDate == today || sa.Schedule.WorkDate == yesterday))
+            .OrderBy(sa => sa.Schedule.WorkDate)
+            .ToListAsync();
+
+        var assignment = candidateAssignments.FirstOrDefault(sa =>
+        {
+            if (sa.Schedule.WorkDate == yesterday)
+            {
+                var isOvernight = sa.Schedule.EffectiveIsOvernight
+                               || (sa.Schedule.ShiftTemplate != null && sa.Schedule.ShiftTemplate.IsOvernight)
+                               || sa.Schedule.SnapshotIsOvernight == true
+                               || sa.Schedule.EffectiveEndTime < sa.Schedule.EffectiveStartTime;
+
+                return isOvernight && (sa.AttendanceLog == null || !sa.AttendanceLog.CheckOutTime.HasValue);
+            }
+            return false;
+        }) ?? candidateAssignments.FirstOrDefault(sa => sa.Schedule.WorkDate == today);
 
         var log = assignment?.AttendanceLog;
 
@@ -90,17 +111,37 @@ public class KioskAttendanceService : IKioskAttendanceService
     /// <inheritdoc />
     public async Task<ApiResponse<List<KioskEmployeeRosterDto>>> GetKioskRosterAsync(int storeId, DateOnly date)
     {
+        var yesterday = date.AddDays(-1);
+
         var assignments = await _context.ShiftAssignments
             .Include(sa => sa.User)
                 .ThenInclude(u => u.Role)
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
             .Include(sa => sa.AttendanceLog)
-            .Where(sa => sa.Schedule.BranchId == (ulong)storeId && sa.Schedule.WorkDate == date && sa.Schedule.Status == "PUBLISHED" && sa.Status != "DRAFT" && sa.Status != "CANCELLED")
-            .OrderBy(sa => sa.Schedule.ShiftTemplate.StartTime)
+            .Where(sa => sa.Schedule.BranchId == (ulong)storeId &&
+                         sa.Schedule.Status == "PUBLISHED" &&
+                         sa.Status != "DRAFT" &&
+                         sa.Status != "CANCELLED" &&
+                         (sa.Schedule.WorkDate == date || sa.Schedule.WorkDate == yesterday))
+            .OrderBy(sa => sa.Schedule.WorkDate)
             .ToListAsync();
 
-        var result = assignments.Select(sa =>
+        var validAssignments = assignments.Where(sa =>
+        {
+            if (sa.Schedule.WorkDate == date) return true;
+
+            var startTime = sa.Schedule.EffectiveStartTime;
+            var endTime = sa.Schedule.EffectiveEndTime;
+            var isOvernight = sa.Schedule.EffectiveIsOvernight
+                           || (sa.Schedule.ShiftTemplate != null && sa.Schedule.ShiftTemplate.IsOvernight)
+                           || sa.Schedule.SnapshotIsOvernight == true
+                           || endTime < startTime;
+
+            return isOvernight;
+        }).ToList();
+
+        var result = validAssignments.Select(sa =>
         {
             var att = sa.AttendanceLog;
             return new KioskEmployeeRosterDto
@@ -223,19 +264,51 @@ public class KioskAttendanceService : IKioskAttendanceService
         var today = DateOnly.FromDateTime(now);
         var yesterday = today.AddDays(-1);
 
-        var activeAssignments = await _context.ShiftAssignments
+        var candidateAssignments = await _context.ShiftAssignments
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.Branch)
             .Include(sa => sa.AttendanceLog)
             .Where(sa => sa.UserId == user.Id &&
-                         sa.Schedule.BranchId == kiosk.BranchId &&
                          sa.Schedule.Status == "PUBLISHED" &&
                          (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED") &&
-                         (sa.Schedule.WorkDate == today ||
-                          ((sa.Schedule.SnapshotIsOvernight ?? sa.Schedule.ShiftTemplate.IsOvernight) && sa.Schedule.WorkDate == yesterday)))
+                         (sa.Schedule.WorkDate == today || sa.Schedule.WorkDate == yesterday))
             .OrderBy(sa => sa.Schedule.WorkDate)
-            .ThenBy(sa => sa.Schedule.SnapshotStartTime ?? sa.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
+
+        var branchAssignments = candidateAssignments
+            .Where(sa => sa.Schedule.BranchId == kiosk.BranchId)
+            .ToList();
+
+        if (branchAssignments.Count == 0)
+        {
+            var otherShift = candidateAssignments.FirstOrDefault();
+            if (otherShift != null)
+            {
+                return ApiResponse<AttendanceRecordDto>.Fail(
+                    string.Format(AttendanceMessages.NoShiftToday, user.FullName, today.ToString("dd/MM/yyyy")) +
+                    $" (Lưu ý: Bạn đang có ca làm việc tại chi nhánh '{otherShift.Schedule.Branch?.Name ?? otherShift.Schedule.BranchId.ToString()}').");
+            }
+
+            return ApiResponse<AttendanceRecordDto>.Fail(
+                string.Format(AttendanceMessages.NoShiftToday, user.FullName, today.ToString("dd/MM/yyyy")));
+        }
+
+        // Lọc các ca hợp lệ: Ca hôm nay hoặc ca đêm hôm qua
+        var activeAssignments = branchAssignments.Where(sa =>
+        {
+            if (sa.Schedule.WorkDate == today) return true;
+
+            var startTime = sa.Schedule.EffectiveStartTime;
+            var endTime = sa.Schedule.EffectiveEndTime;
+            var isOvernight = sa.Schedule.EffectiveIsOvernight
+                           || (sa.Schedule.ShiftTemplate != null && sa.Schedule.ShiftTemplate.IsOvernight)
+                           || sa.Schedule.SnapshotIsOvernight == true
+                           || endTime < startTime;
+
+            return isOvernight;
+        }).ToList();
 
         if (activeAssignments.Count == 0)
         {
@@ -281,7 +354,8 @@ public class KioskAttendanceService : IKioskAttendanceService
 
         var matchedShift = shiftTimeWindows
             .Where(w => w.IsWithinWindow)
-            .OrderBy(w => Math.Abs((w.StartDt - now).TotalMinutes))
+            .OrderByDescending(w => w.Assignment.Schedule.WorkDate == yesterday)
+            .ThenBy(w => Math.Abs((w.StartDt - now).TotalMinutes))
             .FirstOrDefault();
 
         if (matchedShift == null)
@@ -417,16 +491,31 @@ public class KioskAttendanceService : IKioskAttendanceService
         var today = DateOnly.FromDateTime(now);
         var yesterday = today.AddDays(-1);
 
-        var log = await _context.AttendanceLogs
+        var candidateLogs = await _context.AttendanceLogs
             .Include(al => al.Assignment)
                 .ThenInclude(sa => sa.Schedule)
                     .ThenInclude(s => s.ShiftTemplate)
             .Where(al => al.Assignment.UserId == user.Id &&
                          al.CheckOutPhotoKey == null &&
-                         (al.Assignment.Schedule.WorkDate == today ||
-                          ((al.Assignment.Schedule.SnapshotIsOvernight ?? al.Assignment.Schedule.ShiftTemplate.IsOvernight) && al.Assignment.Schedule.WorkDate == yesterday)))
+                         (al.Assignment.Schedule.WorkDate == today || al.Assignment.Schedule.WorkDate == yesterday))
             .OrderByDescending(al => al.CheckInTime)
-            .FirstOrDefaultAsync();
+            .ToListAsync();
+
+        var log = candidateLogs.FirstOrDefault(al =>
+        {
+            if (al.Assignment.Schedule.WorkDate == yesterday)
+            {
+                var startTime = al.Assignment.Schedule.EffectiveStartTime;
+                var endTime = al.Assignment.Schedule.EffectiveEndTime;
+                var isOvernight = al.Assignment.Schedule.EffectiveIsOvernight
+                               || (al.Assignment.Schedule.ShiftTemplate != null && al.Assignment.Schedule.ShiftTemplate.IsOvernight)
+                               || al.Assignment.Schedule.SnapshotIsOvernight == true
+                               || endTime < startTime;
+
+                return isOvernight;
+            }
+            return true;
+        });
 
         if (log == null)
         {
@@ -536,8 +625,9 @@ public class KioskAttendanceService : IKioskAttendanceService
         {
             log.CheckInPhotoKey = photoS3Key;
 
-            var shiftStartDt = template != null
-                ? workDate.ToDateTime(template.StartTime)
+            var effectiveStartTime = assignment?.Schedule?.EffectiveStartTime ?? (template != null ? template.StartTime : default);
+            var shiftStartDt = effectiveStartTime != default
+                ? workDate.ToDateTime(effectiveStartTime)
                 : log.CheckInTime;
 
             if (log.CheckInTime < shiftStartDt)
@@ -570,7 +660,16 @@ public class KioskAttendanceService : IKioskAttendanceService
             log.CheckOutPhotoKey = photoS3Key;
 
             DateTime shiftEndDt;
-            if (template != null)
+            if (assignment?.Schedule != null)
+            {
+                var effectiveEndTime = assignment.Schedule.EffectiveEndTime;
+                var effectiveStartTime = assignment.Schedule.EffectiveStartTime;
+                var isOvernight = assignment.Schedule.EffectiveIsOvernight || effectiveEndTime < effectiveStartTime;
+                shiftEndDt = isOvernight
+                    ? workDate.AddDays(1).ToDateTime(effectiveEndTime)
+                    : workDate.ToDateTime(effectiveEndTime);
+            }
+            else if (template != null)
             {
                 shiftEndDt = (template.IsOvernight || template.EndTime < template.StartTime)
                     ? workDate.AddDays(1).ToDateTime(template.EndTime)

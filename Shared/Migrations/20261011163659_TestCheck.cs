@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -11,9 +11,18 @@ namespace Shared.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "FK_shift_swap_requests_shift_assignments_TargetAssignmentId",
-                table: "shift_swap_requests");
+            migrationBuilder.Sql(@"
+                SET @fk_exists = (SELECT COUNT(*) FROM information_schema.table_constraints 
+                                  WHERE constraint_schema = DATABASE() 
+                                  AND table_name = 'shift_swap_requests' 
+                                  AND constraint_name = 'FK_shift_swap_requests_shift_assignments_TargetAssignmentId');
+                SET @sql = IF(@fk_exists > 0, 
+                    'ALTER TABLE `shift_swap_requests` DROP FOREIGN KEY `FK_shift_swap_requests_shift_assignments_TargetAssignmentId`', 
+                    'SELECT 1');
+                PREPARE stmt FROM @sql;
+                EXECUTE stmt;
+                DEALLOCATE PREPARE stmt;
+            ");
 
             migrationBuilder.AddColumn<TimeOnly>(
                 name: "SnapshotEndTime",

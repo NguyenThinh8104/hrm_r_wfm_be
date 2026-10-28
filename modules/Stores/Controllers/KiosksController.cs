@@ -40,7 +40,7 @@ public class KiosksController : ControllerBase
     /// [OpsAdmin/Owner/StoreManager/ShiftLeader] Lấy thông tin chi tiết một trạm Kiosk theo ID.
     /// </summary>
     [HttpGet("{id}")]
-    [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER,ShiftLeader,SHIFT_LEADER")]
+    [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,ADMIN,STORE_MANAGER,SHIFT_LEADER")]
     public async Task<ActionResult<ApiResponse<KioskDto>>> GetKioskById(ulong id)
     {
         var result = await _kioskService.GetKioskByIdAsync(id);
@@ -52,7 +52,7 @@ public class KiosksController : ControllerBase
     /// [StoreManager/OpsAdmin/Owner] Lấy danh sách các trạm Kiosk đã kích hoạt của một cửa hàng.
     /// </summary>
     [HttpGet("store/{storeId}")]
-    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER,StoreManager,ShiftLeader,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER,ADMIN")]
     public async Task<ActionResult<ApiResponse<List<KioskActivationResponseDto>>>> GetStoreKiosks(int storeId)
     {
         var result = await _kioskService.GetStoreKiosksAsync(storeId);

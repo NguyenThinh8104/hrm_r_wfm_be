@@ -25,7 +25,7 @@ public class KioskAuthController : ControllerBase
     }
 
     /// <summary>
-    /// [StoreManager/OpsAdmin/Owner] Tạo mã kích hoạt Kiosk OTP ngẫu nhiên (hiệu lực 15 phút).
+    /// [StoreManager] Tạo mã kích hoạt Kiosk OTP ngẫu nhiên (hiệu lực 15 phút).
     /// Được gọi từ Web Admin khi Store Manager muốn ghép nối máy Kiosk mới.
     /// </summary>
     [HttpPost("create-code")]

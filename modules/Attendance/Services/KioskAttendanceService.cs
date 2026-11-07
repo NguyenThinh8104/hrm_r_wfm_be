@@ -66,7 +66,7 @@ public class KioskAttendanceService : IKioskAttendanceService
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
             .Include(sa => sa.AttendanceLog)
-            .FirstOrDefaultAsync(sa => sa.UserId == user.Id && sa.Schedule.BranchId == (ulong)request.StoreId && sa.Schedule.WorkDate == today && sa.Status != "CANCELLED");
+            .FirstOrDefaultAsync(sa => sa.UserId == user.Id && sa.Schedule.BranchId == (ulong)request.StoreId && sa.Schedule.WorkDate == today && sa.Schedule.Status == "PUBLISHED" && (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED"));
 
         var log = assignment?.AttendanceLog;
 
@@ -96,7 +96,7 @@ public class KioskAttendanceService : IKioskAttendanceService
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
             .Include(sa => sa.AttendanceLog)
-            .Where(sa => sa.Schedule.BranchId == (ulong)storeId && sa.Schedule.WorkDate == date && sa.Status != "CANCELLED")
+            .Where(sa => sa.Schedule.BranchId == (ulong)storeId && sa.Schedule.WorkDate == date && sa.Schedule.Status == "PUBLISHED" && sa.Status != "DRAFT" && sa.Status != "CANCELLED")
             .OrderBy(sa => sa.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
 
@@ -229,7 +229,8 @@ public class KioskAttendanceService : IKioskAttendanceService
             .Include(sa => sa.AttendanceLog)
             .Where(sa => sa.UserId == user.Id &&
                          sa.Schedule.BranchId == kiosk.BranchId &&
-                         sa.Status != "CANCELLED" &&
+                         sa.Schedule.Status == "PUBLISHED" &&
+                         (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED") &&
                          (sa.Schedule.WorkDate == today ||
                           ((sa.Schedule.SnapshotIsOvernight ?? sa.Schedule.ShiftTemplate.IsOvernight) && sa.Schedule.WorkDate == yesterday)))
             .OrderBy(sa => sa.Schedule.WorkDate)

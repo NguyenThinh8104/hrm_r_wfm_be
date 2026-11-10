@@ -21,7 +21,6 @@ namespace Modules.Auth.Services;
 public class AuthService : IAuthService
 {
     private readonly AppDbContext _context;
-    private readonly JwtTokenService _jwtTokenService;
     private readonly IEmailService _emailService;
     private readonly IConfiguration _config;
     private readonly IMemoryCache _cache;
@@ -29,21 +28,20 @@ public class AuthService : IAuthService
 
     private const int OTP_EXPIRY_MINUTES = 5;
 
-public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmailService emailService, IConfiguration config, IMemoryCache cache, ILogger<AuthService> logger)
+public AuthService(AppDbContext context, IEmailService emailService, IConfiguration config, IMemoryCache cache, ILogger<AuthService> logger)
     {
         _context = context;
-        _jwtTokenService = jwtTokenService;
         _emailService = emailService;
         _config = config;
         _cache = cache;
         _logger = logger;
     }
 
-    public async Task<ApiResponse<AuthResponseDto>> LoginAsync(LoginRequestDto request)
+    public async Task<ApiResponse<WebLoginResult>> LoginAsync(LoginRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
         {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.USERNAME_PASSWORD_INVALID);
+            return ApiResponse<WebLoginResult>.Fail(AuthMessages.USERNAME_PASSWORD_INVALID);
         }
 
         var normalizedInput = request.Username.Trim();
@@ -59,7 +57,7 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
         if (user == null)
         {
             _logger.LogWarning("Đăng nhập thất bại: Không tìm thấy tài khoản với Username '{Username}'", request.Username);
-            return ApiResponse<AuthResponseDto>.Fail("Tên đăng nhập hoặc mật khẩu không chính xác.");
+            return ApiResponse<WebLoginResult>.Fail("Tên đăng nhập hoặc mật khẩu không chính xác.");
         }
 
         var rawPassword = request.Password ?? string.Empty;
@@ -70,30 +68,17 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (!isPasswordValid)
         {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.INVALID_CREDENTIALS);
+            return ApiResponse<WebLoginResult>.Fail(AuthMessages.INVALID_CREDENTIALS);
         }
 
         if (user.Status != "ACTIVE")
         {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ACCOUNT_LOCKED);
+            return ApiResponse<WebLoginResult>.Fail(AuthMessages.ACCOUNT_LOCKED);
         }
-
-        var (token, expiresAt) = _jwtTokenService.GenerateAccessToken(user);
-        var (refreshToken, refreshExpiresAt) = _jwtTokenService.GenerateRefreshToken();
-
-        user.RefreshToken = refreshToken;
-        user.RefreshTokenExpiryTime = refreshExpiresAt;
-        await _context.SaveChangesAsync();
 
         var summary = MapUserSummary(user);
 
-        return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
-        {
-            Token = token,
-            RefreshToken = refreshToken,
-            ExpiresAt = expiresAt,
-            User = summary
-        }, AuthMessages.LOGIN_SUCCESS);
+        return ApiResponse<WebLoginResult>.Ok(new WebLoginResult(summary, WebSessionIdentity.FromUser(user)), AuthMessages.LOGIN_SUCCESS);
     }
 
     public async Task<ApiResponse<AuthResponseDto>> KioskLoginAsync(KioskLoginRequestDto request)
@@ -240,11 +225,11 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
         throw new NotImplementedException();
     }
 
-    public async Task<ApiResponse<AuthResponseDto>> GoogleLoginAsync(GoogleLoginDTOs request)
+    public async Task<ApiResponse<WebLoginResult>> GoogleLoginAsync(GoogleLoginDTOs request)
     {
         if (string.IsNullOrWhiteSpace(request.IdToken))
         {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ID_TOKEN_REQUIRED);
+            return ApiResponse<WebLoginResult>.Fail(AuthMessages.ID_TOKEN_REQUIRED);
         }
 
         string? email = null;
@@ -310,12 +295,12 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (string.IsNullOrWhiteSpace(email))
         {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.GOOGLE_TOKEN_INVALID);
+            return ApiResponse<WebLoginResult>.Fail(AuthMessages.GOOGLE_TOKEN_INVALID);
         }
 
         if (!emailVerified)
         {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.GOOGLE_EMAIL_UNVERIFIED);
+            return ApiResponse<WebLoginResult>.Fail(AuthMessages.GOOGLE_EMAIL_UNVERIFIED);
         }
 
         var normalizedEmail = email.Trim().ToLowerInvariant();
@@ -326,73 +311,19 @@ public AuthService(AppDbContext context, JwtTokenService jwtTokenService, IEmail
 
         if (user == null)
         {
-            return ApiResponse<AuthResponseDto>.Fail(string.Format(AuthMessages.GOOGLE_ACCOUNT_NOT_FOUND, email));
+            return ApiResponse<WebLoginResult>.Fail(string.Format(AuthMessages.GOOGLE_ACCOUNT_NOT_FOUND, email));
         }
 
         if (user.Status != "ACTIVE")
         {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ACCOUNT_LOCKED);
+            return ApiResponse<WebLoginResult>.Fail(AuthMessages.ACCOUNT_LOCKED);
         }
-
-        var (token, expiresAt) = _jwtTokenService.GenerateAccessToken(user);
-        var (refreshToken, refreshExpiresAt) = _jwtTokenService.GenerateRefreshToken();
-
-        user.RefreshToken = refreshToken;
-        user.RefreshTokenExpiryTime = refreshExpiresAt;
-        await _context.SaveChangesAsync();
 
         var summary = MapUserSummary(user);
 
         _logger.LogInformation("Người dùng {FullName} ({Email}) đăng nhập Google thành công với vai trò {Role}.", user.FullName, user.Email, summary.Role);
 
-        return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
-        {
-            Token = token,
-            RefreshToken = refreshToken,
-            ExpiresAt = expiresAt,
-            User = summary
-        }, AuthMessages.GOOGLE_LOGIN_SUCCESS);
-    }
-
-    public async Task<ApiResponse<AuthResponseDto>> RefreshTokenAsync(string refreshToken)
-    {
-        if (string.IsNullOrWhiteSpace(refreshToken))
-        {
-            return ApiResponse<AuthResponseDto>.Fail("Refresh token không hợp lệ.");
-        }
-
-        var user = await _context.Users
-            .Include(u => u.Role)
-            .Include(u => u.HomeBranch)
-            .FirstOrDefaultAsync(u => u.RefreshToken == refreshToken);
-
-        if (user == null || user.RefreshTokenExpiryTime == null || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
-        {
-            return ApiResponse<AuthResponseDto>.Fail("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
-        }
-
-        if (user.Status != "ACTIVE")
-        {
-            return ApiResponse<AuthResponseDto>.Fail(AuthMessages.ACCOUNT_LOCKED);
-        }
-
-        // Cấp Access Token mới (15 phút) và xoay vòng Refresh Token (7 ngày)
-        var (newAccessToken, expiresAt) = _jwtTokenService.GenerateAccessToken(user);
-        var (newRefreshToken, refreshExpiresAt) = _jwtTokenService.GenerateRefreshToken();
-
-        user.RefreshToken = newRefreshToken;
-        user.RefreshTokenExpiryTime = refreshExpiresAt;
-        await _context.SaveChangesAsync();
-
-        var summary = MapUserSummary(user);
-
-        return ApiResponse<AuthResponseDto>.Ok(new AuthResponseDto
-        {
-            Token = newAccessToken,
-            RefreshToken = newRefreshToken,
-            ExpiresAt = expiresAt,
-            User = summary
-        }, "Làm mới phiên đăng nhập thành công.");
+        return ApiResponse<WebLoginResult>.Ok(new WebLoginResult(summary, WebSessionIdentity.FromUser(user)), AuthMessages.GOOGLE_LOGIN_SUCCESS);
     }
 
     public async Task<ApiResponse<bool>> RevokeTokenAsync(int userId)

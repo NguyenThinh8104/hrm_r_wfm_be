@@ -33,29 +33,52 @@ public class AttendanceOtpService : IAttendanceOtpService
         }
 
         var today = DateOnly.FromDateTime(DateTime.Now);
+        var yesterday = today.AddDays(-1);
 
-        // 1. Kiểm tra xem nhân viên có lệnh điều động tạm thời có hiệu lực hôm nay hay không
+        // 1. Kiểm tra xem nhân viên có lệnh điều động tạm thời có hiệu lực hôm nay hoặc ca đêm hôm qua hay không
         var activeDispatch = await _context.TemporaryDispatches
             .Include(td => td.TargetBranch)
             .Include(td => td.DispatchEmployees)
             .FirstOrDefaultAsync(td => (td.UserId == userId || td.DispatchEmployees.Any(de => de.UserId == userId && de.Status == "APPROVED")) &&
                                        (td.Status == "APPROVED" || td.Status == "PARTIAL") &&
                                        td.StartDate <= today &&
-                                       today <= td.EndDate);
+                                       yesterday <= td.EndDate);
 
         Branch? branch = null;
 
         if (activeDispatch != null)
         {
-            // Nếu có lệnh điều động sang TargetBranch, bắt buộc phải có ca trực được xếp lịch tại TargetBranch hôm nay
-            var dispatchedShift = await _context.ShiftAssignments
+            // Nếu có lệnh điều động sang TargetBranch, tìm ca trực hợp lệ hôm nay hoặc ca đêm bắt đầu từ hôm qua
+            var dispatchedShifts = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule)
+                    .ThenInclude(s => s.ShiftTemplate)
                 .Include(sa => sa.Schedule)
                     .ThenInclude(s => s.Branch)
-                .FirstOrDefaultAsync(sa => sa.UserId == userId &&
-                                           sa.Schedule.WorkDate == today &&
-                                           sa.Schedule.BranchId == activeDispatch.TargetBranchId &&
-                                           sa.Schedule.Status == "PUBLISHED" &&
-                                           (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED"));
+                .Include(sa => sa.AttendanceLog)
+                .Where(sa => sa.UserId == userId &&
+                             sa.Schedule.BranchId == activeDispatch.TargetBranchId &&
+                             sa.Schedule.Status == "PUBLISHED" &&
+                             (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED") &&
+                             (sa.Schedule.WorkDate == today || sa.Schedule.WorkDate == yesterday))
+                .OrderBy(sa => sa.Schedule.WorkDate)
+                .ToListAsync();
+
+            // Ưu tiên chọn ca đêm hôm qua nếu chưa hoàn tất check-out
+            var dispatchedShift = dispatchedShifts.FirstOrDefault(sa =>
+            {
+                if (sa.Schedule.WorkDate == yesterday)
+                {
+                    var startTime = sa.Schedule.EffectiveStartTime;
+                    var endTime = sa.Schedule.EffectiveEndTime;
+                    var isOvernight = sa.Schedule.EffectiveIsOvernight
+                                   || (sa.Schedule.ShiftTemplate != null && sa.Schedule.ShiftTemplate.IsOvernight)
+                                   || sa.Schedule.SnapshotIsOvernight == true
+                                   || endTime < startTime;
+
+                    return isOvernight && (sa.AttendanceLog == null || !sa.AttendanceLog.CheckOutTime.HasValue);
+                }
+                return false;
+            }) ?? dispatchedShifts.FirstOrDefault(sa => sa.Schedule.WorkDate == today);
 
             if (dispatchedShift == null)
             {
@@ -67,14 +90,36 @@ public class AttendanceOtpService : IAttendanceOtpService
         }
         else
         {
-            // Nếu không có lệnh điều động, tìm ca trực hợp lệ hôm nay của nhân viên
-            var regularShift = await _context.ShiftAssignments
+            // Nếu không có lệnh điều động, tìm ca trực hợp lệ hôm nay hoặc ca đêm bắt đầu từ hôm qua của nhân viên
+            var regularShifts = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule)
+                    .ThenInclude(s => s.ShiftTemplate)
                 .Include(sa => sa.Schedule)
                     .ThenInclude(s => s.Branch)
-                .FirstOrDefaultAsync(sa => sa.UserId == userId &&
-                                           sa.Schedule.WorkDate == today &&
-                                           sa.Schedule.Status == "PUBLISHED" &&
-                                           (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED"));
+                .Include(sa => sa.AttendanceLog)
+                .Where(sa => sa.UserId == userId &&
+                             sa.Schedule.Status == "PUBLISHED" &&
+                             (sa.Status == "PUBLISHED" || sa.Status == "CONFIRMED") &&
+                             (sa.Schedule.WorkDate == today || sa.Schedule.WorkDate == yesterday))
+                .OrderBy(sa => sa.Schedule.WorkDate)
+                .ToListAsync();
+
+            // Ưu tiên chọn ca đêm hôm qua nếu chưa hoàn tất check-out
+            var regularShift = regularShifts.FirstOrDefault(sa =>
+            {
+                if (sa.Schedule.WorkDate == yesterday)
+                {
+                    var startTime = sa.Schedule.EffectiveStartTime;
+                    var endTime = sa.Schedule.EffectiveEndTime;
+                    var isOvernight = sa.Schedule.EffectiveIsOvernight
+                                   || (sa.Schedule.ShiftTemplate != null && sa.Schedule.ShiftTemplate.IsOvernight)
+                                   || sa.Schedule.SnapshotIsOvernight == true
+                                   || endTime < startTime;
+
+                    return isOvernight && (sa.AttendanceLog == null || !sa.AttendanceLog.CheckOutTime.HasValue);
+                }
+                return false;
+            }) ?? regularShifts.FirstOrDefault(sa => sa.Schedule.WorkDate == today);
 
             if (regularShift == null)
             {

@@ -13,6 +13,8 @@ namespace Modules.Stores.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/kiosks")]
+[Route("api/v1/kiosks")]
+[Route("api/kiosk")]
 [Authorize]
 public class KiosksController : ControllerBase
 {

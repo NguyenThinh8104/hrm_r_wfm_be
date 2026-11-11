@@ -6,15 +6,14 @@ namespace Modules.Auth.Interfaces;
 public interface IAuthService
 {
 
-    Task<ApiResponse<AuthResponseDto>> LoginAsync(LoginRequestDto request);
+    Task<ApiResponse<WebLoginResult>> LoginAsync(LoginRequestDto request);
     Task<ApiResponse<AuthResponseDto>> KioskLoginAsync(KioskLoginRequestDto request);
     Task<ApiResponse<UserSummaryDto>> GetCurrentUserAsync(int userId);
     Task<ApiResponse<List<UserSummaryDto>>> GetStoreEmployeesAsync(int storeId);
     Task<ApiResponse<bool>> ForgotPasswordAsync(ForgotPasswordRequestDto request);
     Task<ApiResponse<bool>> VerifyOtpAsync(VerifyOtpRequestDto request);
     Task<ApiResponse<bool>> ResetPasswordAsync(ResetPasswordRequestDto request);
-    Task<ApiResponse<AuthResponseDto>> GoogleLoginAsync(GoogleLoginDTOs request);
-    Task<ApiResponse<AuthResponseDto>> RefreshTokenAsync(string refreshToken);
+    Task<ApiResponse<WebLoginResult>> GoogleLoginAsync(GoogleLoginDTOs request);
     Task<ApiResponse<bool>> RevokeTokenAsync(int userId);
     Task<ApiResponse<bool>> ChangePasswordAsync(int userId, ChangePasswordDto request);
     Task<ApiResponse<UserSummaryDto>> UpdateProfileAsync(int userId, UpdateProfileDto request);

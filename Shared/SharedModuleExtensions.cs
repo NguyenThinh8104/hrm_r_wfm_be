@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -52,11 +53,16 @@ public static class SharedModuleExtensions
         var issuer = configuration["Jwt:Issuer"] ?? "RWFM_API";
         var audience = configuration["Jwt:Audience"] ?? "RWFM_CLIENT";
 
-        services.AddAuthentication(options =>
+        services.AddScoped<WebSession>();
+        const string apiScheme = "ApiAuthentication";
+        services.AddAuthentication(apiScheme)
+        .AddPolicyScheme(apiScheme, apiScheme, options =>
         {
-            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.ForwardDefaultSelector = context => context.Request.Headers.ContainsKey("Authorization")
+                ? JwtBearerDefaults.AuthenticationScheme
+                : WebSession.Scheme;
         })
+        .AddScheme<AuthenticationSchemeOptions, WebSessionAuthenticationHandler>(WebSession.Scheme, _ => { })
         .AddJwtBearer(options =>
         {
             options.TokenValidationParameters = new TokenValidationParameters

@@ -9,11 +9,9 @@ namespace Modules.Stores.Controllers;
 
 /// <summary>
 /// Quản lý thiết bị Kiosk quầy — CRUD dành cho Admin và Store Manager (UC 1.2).
-/// Route chuẩn hóa: api/kiosks
 /// </summary>
 [ApiController]
 [Route("api/kiosks")]
-[Route("api/v1/kiosks")]
 [Route("api/kiosk")]
 [Authorize]
 public class KiosksController : ControllerBase

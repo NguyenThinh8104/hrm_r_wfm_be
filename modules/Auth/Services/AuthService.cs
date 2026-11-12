@@ -490,7 +490,7 @@ public AuthService(AppDbContext context, IEmailService emailService, IConfigurat
             list.Add(new NotificationItemDto
             {
                 Id = "sys-welcome",
-                Title = "Chào mừng bạn đến với hệ thống RWFM",
+                Title = "Chào mừng bạn đến với hệ thống RWFM Enterprise",
                 Message = "Tất cả thông báo thay đổi lịch phân ca, đổi ca và điều động sẽ hiển thị tại đây.",
                 Type = "INFO",
                 CreatedAt = DateTime.UtcNow,

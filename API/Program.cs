@@ -65,7 +65,7 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "R-WFM Platform API (Modular Architecture)",
+        Title = "RWFM Enterprise API",
         Version = "v1",
         Description = "Nền tảng Quản trị Nhân sự Vận hành Chuỗi Siêu thị Tiện lợi - Kiến trúc Modular Monolith (.NET 8)"
     });
@@ -129,7 +129,7 @@ app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "R-WFM API v1 (Modular)");
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "RWFM Enterprise API v1");
     c.RoutePrefix = "swagger";
 });
 

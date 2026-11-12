@@ -176,6 +176,57 @@ public class EmailService : IEmailService
         }
     }
 
+    public async Task<bool> SendBulkImportWelcomeEmailAsync(IReadOnlyCollection<string> recipientEmails)
+    {
+        try
+        {
+            var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
+            var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
+            var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "RWFM Enterprise";
+            var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
+            var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
+            var loginUrl = new Uri(_configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/login");
+            var resetUrl = WebUtility.HtmlEncode(new Uri(loginUrl, "/forgot-password").AbsoluteUri);
+
+            using var message = new MailMessage
+            {
+                From = new MailAddress(senderEmail, senderName),
+                Subject = "[RWFM Enterprise] Tài khoản nhân viên đã được tạo",
+                IsBodyHtml = true,
+                Body = $"""
+                    <h2>Chào mừng bạn đến với RWFM Enterprise</h2>
+                    <p>Tài khoản nhân viên của bạn đã được tạo.</p>
+                    <p>Để đặt mật khẩu lần đầu, hãy mở trang <a href="{resetUrl}">Khôi phục mật khẩu</a>, nhập email cá nhân đã đăng ký và xác thực bằng mã OTP được gửi tới hộp thư của bạn.</p>
+                    <p>Sau khi đặt mật khẩu, bạn có thể <a href="{WebUtility.HtmlEncode(loginUrl.AbsoluteUri)}">đăng nhập</a> bằng email đó.</p>
+                    <p>Nếu cần hỗ trợ, vui lòng liên hệ bộ phận Nhân sự.</p>
+                    """
+            };
+
+            foreach (var email in recipientEmails)
+            {
+                message.Bcc.Add(new MailAddress(email));
+            }
+
+            using var client = new SmtpClient(smtpServer, smtpPort)
+            {
+                EnableSsl = enableSsl,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(senderEmail, senderPassword),
+                DeliveryMethod = SmtpDeliveryMethod.Network
+            };
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await client.SendMailAsync(message, timeout.Token);
+            _logger.LogInformation("Đã gửi email chào mừng sau khi import cho {RecipientCount} nhân viên", message.Bcc.Count);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi email chào mừng sau khi import {RecipientCount} nhân viên", recipientEmails.Count);
+            return false;
+        }
+    }
+
     public async Task<bool> SendShiftChangeNotificationEmailAsync(string recipientEmail, string recipientName, string changeType, string shiftDetails, string effectiveDate, string note, string? status = null)
     {
         try

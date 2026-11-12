@@ -1,7 +1,6 @@
 using System.Text.Json;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Domain.Entities;
 using Modules.Auth.DTOs;
@@ -21,22 +20,19 @@ public class EmployeeImportService : IEmployeeImportService
     private readonly IEmailService _emailService;
     private readonly IBranchHeadcountService _headcountService;
     private readonly ILogger<EmployeeImportService> _logger;
-    private readonly IServiceScopeFactory _scopeFactory;
 
     public EmployeeImportService(
         AppDbContext context,
         IPasswordHasher passwordHasher,
         IEmailService emailService,
         IBranchHeadcountService headcountService,
-        ILogger<EmployeeImportService> logger,
-        IServiceScopeFactory scopeFactory)
+        ILogger<EmployeeImportService> logger)
     {
         _context = context;
         _passwordHasher = passwordHasher;
         _emailService = emailService;
         _headcountService = headcountService;
         _logger = logger;
-        _scopeFactory = scopeFactory;
     }
 
     public async Task<(byte[] FileBytes, string ContentType, string FileName)> GenerateEmployeeImportTemplateAsync(int count = 5)
@@ -570,7 +566,6 @@ public class EmployeeImportService : IEmployeeImportService
         // 4. Thẩm định định biên (Effective Quota) và tạo nhân sự cho các dòng hợp lệ
         var newUsersToInsert = new List<User>();
         var branchBatchCounter = new Dictionary<ulong, int>();
-        var emailQueueItems = new List<(string Email, string FullName, string Code, string RoleName, string BranchName, string PlainPass)>();
 
         foreach (var (row, role, branch) in validRowsToProcess)
         {
@@ -631,7 +626,6 @@ public class EmployeeImportService : IEmployeeImportService
             };
 
             newUsersToInsert.Add(user);
-            emailQueueItems.Add((normalizedEmail, row.FullName.Trim(), normalizedCode, role.RoleName, branch.Name, plainPass));
 
             result.SuccessEmployees.Add(new EmployeeDetailDto
             {
@@ -658,6 +652,7 @@ public class EmployeeImportService : IEmployeeImportService
         }
 
         // 5. Lưu vào CSDL
+        var welcomeEmailSent = false;
         if (newUsersToInsert.Count > 0)
         {
             _context.Users.AddRange(newUsersToInsert);
@@ -668,51 +663,20 @@ public class EmployeeImportService : IEmployeeImportService
                 TotalImported = newUsersToInsert.Count
             }, ipAddress);
 
-            // Tự động gửi Welcome Email thông báo tài khoản & mật khẩu khởi tạo cho nhân sự mới trong nền
-            if (emailQueueItems.Count > 0)
-            {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        using var scope = _scopeFactory.CreateScope();
-                        var scopedEmailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
-                        var logger = scope.ServiceProvider.GetRequiredService<ILogger<EmployeeImportService>>();
-
-                        foreach (var item in emailQueueItems)
-                        {
-                            try
-                            {
-                                await scopedEmailService.SendWelcomeEmailAsync(
-                                    item.Email,
-                                    item.FullName,
-                                    item.Code,
-                                    item.RoleName,
-                                    item.BranchName,
-                                    item.PlainPass
-                                );
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.LogError(ex, "Lỗi gửi welcome email cho nhân sự import {Email} ({Code})", item.Email, item.Code);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Lỗi khi thực thi tiến trình gửi email ngầm sau khi import nhân sự");
-                    }
-                    await Task.Delay(2500);
-                });
-            }
+            var recipientEmails = newUsersToInsert.Select(user => user.Email).ToArray();
+            welcomeEmailSent = await _emailService.SendBulkImportWelcomeEmailAsync(recipientEmails);
         }
 
         result.SuccessCount = newUsersToInsert.Count;
         result.FailureCount = result.Errors.Count;
 
-        var message = result.SuccessCount > 0
-            ? $"Import nhân sự hoàn tất: {result.SuccessCount} thành công (hệ thống đang tự động gửi email chào mừng kèm thông tin đăng nhập), {result.FailureCount} lỗi."
-            : $"Import nhân sự hoàn tất: {result.SuccessCount} thành công, {result.FailureCount} lỗi.";
+        var message = $"Import nhân sự hoàn tất: {result.SuccessCount} thành công, {result.FailureCount} lỗi.";
+        if (result.SuccessCount > 0)
+        {
+            message += welcomeEmailSent
+                ? " Đã gửi 1 email hướng dẫn đặt mật khẩu cho các tài khoản mới."
+                : " Tài khoản đã được lưu. Hệ thống chưa xác nhận gửi email thành công cho toàn bộ người nhận.";
+        }
         return ApiResponse<BulkImportResultDto>.Ok(result, message);
     }
 

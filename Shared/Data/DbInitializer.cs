@@ -229,7 +229,22 @@ public static class DbInitializer
                         `CreatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                         `UpdatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
                         PRIMARY KEY (`Id`)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+                command.ExecuteNonQuery();
+
+                // Đảm bảo dữ liệu mẫu chuẩn của branch_tiers luôn sẵn sàng
+                command.CommandText = @"
+                    INSERT INTO `branch_tiers` (`Id`, `TierName`, `Description`, `MinStaffCount`, `MaxStaffCount`, `Conditions`, `Benefits`, `CreatedAt`, `UpdatedAt`)
+                    VALUES 
+                    (1, 'Tier 1 - Đại Siêu Thị / Flagship', 'Chi nhánh quy mô lớn / đại siêu thị, định biên chuẩn tối đa 30 nhân sự', 20, 30, 'Diện tích sàn > 250m², doanh thu mục tiêu > 500tr/tháng, tối thiểu 20 nhân sự trực ca.', 'Được trang bị 2-4 máy Kiosk iPad, ưu tiên tiếp nhận nhân sự điều động tăng cường vào ca cao điểm, định biên chuẩn 30 nhân sự, phê duyệt nhanh các đề xuất tăng ca.', NOW(6), NOW(6)),
+                    (2, 'Tier 2 - Siêu Thị Tiêu Chuẩn / Standard', 'Chi nhánh tiêu chuẩn, định biên chuẩn tối đa 15 nhân sự', 10, 15, 'Diện tích sàn 100m² - 250m², doanh thu mục tiêu 200tr - 500tr/tháng, nhân sự từ 10 - 15 người.', 'Được cấp 1-2 máy Kiosk, định biên chuẩn 15 nhân sự, tự động lập lịch phân ca tối ưu công chuẩn 8 tiếng/ngày.', NOW(6), NOW(6)),
+                    (3, 'Tier 3 - Cửa Hàng Tiện Lợi Mini / Compact', 'Chi nhánh nhỏ / cửa hàng tiện lợi, định biên chuẩn tối đa 8 nhân sự', 4, 8, 'Diện tích sàn < 100m², nhân sự từ 4 - 8 người, trực ca theo mô hình kiêm nhiệm thu ngân & bán hàng.', 'Cấu hình Kiosk siêu tốc, quản lý linh hoạt ca gãy và chấm công mã OTP cá nhân linh động.', NOW(6), NOW(6))
+                    ON DUPLICATE KEY UPDATE 
+                        `TierName` = VALUES(`TierName`), 
+                        `MinStaffCount` = VALUES(`MinStaffCount`), 
+                        `MaxStaffCount` = VALUES(`MaxStaffCount`), 
+                        `Conditions` = VALUES(`Conditions`), 
+                        `Benefits` = VALUES(`Benefits`);";
                 command.ExecuteNonQuery();
             }
 

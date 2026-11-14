@@ -24,21 +24,21 @@ public class EmailService : IEmailService
             var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
             var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
             var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
-            var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "RWFM Enterprise";
             var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
             var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
 
             using var message = new MailMessage();
             message.From = new MailAddress(senderEmail, senderName);
             message.To.Add(new MailAddress(recipientEmail, recipientName));
-            message.Subject = $"[RWFM Support] Mã xác thực OTP đặt lại mật khẩu: {otpCode}";
+            message.Subject = $"[RWFM Enterprise] Mã xác thực OTP đặt lại mật khẩu: {otpCode}";
             message.IsBodyHtml = true;
             message.Priority = MailPriority.High;
 
             message.Body = $@"
             <div style='font-family: Arial, sans-serif; max-width: 550px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;'>
                 <div style='text-align: center; margin-bottom: 20px;'>
-                    <h2 style='color: #1e293b; margin: 0;'>RWFM Retail Platform</h2>
+                    <h2 style='color: #1e293b; margin: 0;'>RWFM Enterprise</h2>
                     <p style='color: #64748b; font-size: 14px;'>Hệ thống Quản trị Nhân sự Vận hành Chuỗi Siêu thị</p>
                 </div>
                 <p>Xin chào <strong>{recipientName}</strong>,</p>
@@ -86,7 +86,7 @@ public class EmailService : IEmailService
             var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
             var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
             var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
-            var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "RWFM Enterprise";
             var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
             var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
             var loginUrl = _configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/login";
@@ -94,7 +94,7 @@ public class EmailService : IEmailService
             using var message = new MailMessage();
             message.From = new MailAddress(senderEmail, senderName);
             message.To.Add(new MailAddress(recipientEmail, recipientName));
-            message.Subject = $"[R-WFM] Chào mừng bạn gia nhập - Thông tin tài khoản nhân sự ({employeeCode})";
+            message.Subject = $"[RWFM Enterprise] Chào mừng bạn gia nhập - Thông tin tài khoản nhân sự ({employeeCode})";
             message.IsBodyHtml = true;
             message.Priority = MailPriority.Normal;
 
@@ -104,7 +104,7 @@ public class EmailService : IEmailService
             message.Body = $@"
             <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
                 <div style='text-align: center; padding-bottom: 20px; border-bottom: 2px solid #3b82f6;'>
-                    <h2 style='color: #1e3a8a; margin: 0; font-size: 24px;'>R-WFM RETAIL PLATFORM</h2>
+                    <h2 style='color: #1e3a8a; margin: 0; font-size: 24px;'>RWFM Enterprise</h2>
                     <p style='color: #64748b; font-size: 14px; margin-top: 5px;'>Hệ thống Quản trị Nhân sự & Lập lịch Vận hành Chuỗi</p>
                 </div>
                 
@@ -152,7 +152,7 @@ public class EmailService : IEmailService
 
                 <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;' />
                 <p style='font-size: 12px; color: #94a3b8; text-align: center; margin: 0;'>
-                    Email này được gửi tự động từ Hệ thống Quản trị R-WFM. Mọi thắc mắc vui lòng liên hệ Bộ phận Nhân sự hoặc Quản lý Chi nhánh.
+                    Email này được gửi tự động từ Hệ thống Quản trị RWFM Enterprise. Mọi thắc mắc vui lòng liên hệ Bộ phận Nhân sự hoặc Quản lý Chi nhánh.
                 </p>
             </div>";
 
@@ -176,6 +176,57 @@ public class EmailService : IEmailService
         }
     }
 
+    public async Task<bool> SendBulkImportWelcomeEmailAsync(IReadOnlyCollection<string> recipientEmails)
+    {
+        try
+        {
+            var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
+            var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
+            var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "RWFM Enterprise";
+            var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
+            var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
+            var loginUrl = new Uri(_configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/login");
+            var resetUrl = WebUtility.HtmlEncode(new Uri(loginUrl, "/forgot-password").AbsoluteUri);
+
+            using var message = new MailMessage
+            {
+                From = new MailAddress(senderEmail, senderName),
+                Subject = "[RWFM Enterprise] Tài khoản nhân viên đã được tạo",
+                IsBodyHtml = true,
+                Body = $"""
+                    <h2>Chào mừng bạn đến với RWFM Enterprise</h2>
+                    <p>Tài khoản nhân viên của bạn đã được tạo.</p>
+                    <p>Để đặt mật khẩu lần đầu, hãy mở trang <a href="{resetUrl}">Khôi phục mật khẩu</a>, nhập email cá nhân đã đăng ký và xác thực bằng mã OTP được gửi tới hộp thư của bạn.</p>
+                    <p>Sau khi đặt mật khẩu, bạn có thể <a href="{WebUtility.HtmlEncode(loginUrl.AbsoluteUri)}">đăng nhập</a> bằng email đó.</p>
+                    <p>Nếu cần hỗ trợ, vui lòng liên hệ bộ phận Nhân sự.</p>
+                    """
+            };
+
+            foreach (var email in recipientEmails)
+            {
+                message.Bcc.Add(new MailAddress(email));
+            }
+
+            using var client = new SmtpClient(smtpServer, smtpPort)
+            {
+                EnableSsl = enableSsl,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(senderEmail, senderPassword),
+                DeliveryMethod = SmtpDeliveryMethod.Network
+            };
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await client.SendMailAsync(message, timeout.Token);
+            _logger.LogInformation("Đã gửi email chào mừng sau khi import cho {RecipientCount} nhân viên", message.Bcc.Count);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi gửi email chào mừng sau khi import {RecipientCount} nhân viên", recipientEmails.Count);
+            return false;
+        }
+    }
+
     public async Task<bool> SendShiftChangeNotificationEmailAsync(string recipientEmail, string recipientName, string changeType, string shiftDetails, string effectiveDate, string note, string? status = null)
     {
         try
@@ -183,7 +234,7 @@ public class EmailService : IEmailService
             var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
             var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
             var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
-            var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "RWFM Enterprise";
             var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
             var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
             var loginUrl = _configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/employee/my-calendar";
@@ -193,7 +244,7 @@ public class EmailService : IEmailService
             message.To.Add(new MailAddress(recipientEmail, recipientName));
             
             var displayStatus = status ?? "ĐÃ CẬP NHẬT";
-            message.Subject = $"[R-WFM] Thông báo thay đổi lịch làm việc: {changeType} ({displayStatus})";
+            message.Subject = $"[RWFM Enterprise] Thông báo thay đổi lịch làm việc: {changeType} ({displayStatus})";
             message.IsBodyHtml = true;
             message.Priority = MailPriority.High;
 
@@ -206,7 +257,7 @@ public class EmailService : IEmailService
             message.Body = $@"
             <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
                 <div style='text-align: center; padding-bottom: 20px; border-bottom: 2px solid {statusColor};'>
-                    <h2 style='color: #0f172a; margin: 0; font-size: 22px;'>R-WFM RETAIL PLATFORM</h2>
+                    <h2 style='color: #0f172a; margin: 0; font-size: 22px;'>RWFM Enterprise</h2>
                     <p style='color: #64748b; font-size: 13px; margin-top: 5px;'>Hệ thống Thông báo Lịch Trình Nhân sự Tự động</p>
                 </div>
                 
@@ -248,7 +299,7 @@ public class EmailService : IEmailService
 
                 <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
                 <p style='font-size: 12px; color: #94a3b8; text-align: center; margin: 0;'>
-                    Email này được gửi tự động từ Hệ thống Quản trị R-WFM. Mọi thắc mắc vui lòng liên hệ Quản lý Cửa hàng để được hỗ trợ.
+                    Email này được gửi tự động từ Hệ thống Quản trị RWFM Enterprise. Mọi thắc mắc vui lòng liên hệ Quản lý Cửa hàng để được hỗ trợ.
                 </p>
             </div>";
 
@@ -279,7 +330,7 @@ public class EmailService : IEmailService
             var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
             var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
             var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
-            var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "RWFM Enterprise";
             var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
             var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
 
@@ -288,8 +339,8 @@ public class EmailService : IEmailService
             message.To.Add(new MailAddress(recipientEmail, recipientName));
             bool isLocked = status == "INACTIVE";
             message.Subject = isLocked 
-                ? $"[RWFM] Thông báo khóa tài khoản nhân sự ({employeeCode})" 
-                : $"[RWFM] Thông báo kích hoạt lại tài khoản nhân sự ({employeeCode})";
+                ? $"[RWFM Enterprise] Thông báo khóa tài khoản nhân sự ({employeeCode})"
+                : $"[RWFM Enterprise] Thông báo kích hoạt lại tài khoản nhân sự ({employeeCode})";
             message.IsBodyHtml = true;
             message.Priority = MailPriority.High;
 
@@ -300,7 +351,7 @@ public class EmailService : IEmailService
             message.Body = $@"
             <div style='font-family: Arial, sans-serif; max-width: 580px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
                 <div style='text-align: center; padding-bottom: 16px; border-bottom: 2px solid {(isLocked ? "#dc2626" : "#16a34a")};'>
-                    <h2 style='color: #1e3a8a; margin: 0; font-size: 22px;'>R-WFM RETAIL PLATFORM</h2>
+                    <h2 style='color: #1e3a8a; margin: 0; font-size: 22px;'>RWFM Enterprise</h2>
                     <p style='color: #64748b; font-size: 13px; margin-top: 4px;'>Hệ thống Quản trị Nhân sự & Lập lịch Vận hành Chuỗi</p>
                 </div>
                 
@@ -332,7 +383,7 @@ public class EmailService : IEmailService
                     {(isLocked ? "Tài khoản của bạn hiện không thể đăng nhập hoặc điểm danh. Nếu có bất kỳ thắc mắc hoặc cần khiếu nại, vui lòng liên hệ ngay Quản lý Chi nhánh hoặc Bộ phận Nhân sự." : "Tài khoản của bạn đã được mở khóa bình thường. Bạn có thể đăng nhập vào ứng dụng để xem lịch ca làm việc.")}
                 </p>
                 <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
-                <p style='font-size: 12px; color: #94a3b8; text-align: center;'>Email được gửi tự động từ Hệ thống Quản trị Nhân sự R-WFM. Vui lòng không phản hồi thư này.</p>
+                <p style='font-size: 12px; color: #94a3b8; text-align: center;'>Email được gửi tự động từ Hệ thống Quản trị Nhân sự RWFM Enterprise. Vui lòng không phản hồi thư này.</p>
             </div>";
 
             using var client = new SmtpClient(smtpServer, smtpPort)
@@ -367,7 +418,7 @@ public class EmailService : IEmailService
             var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
             var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
             var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
-            var senderName = _configuration["EmailSettings:SenderName"] ?? "R-WFM Platform HR";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "RWFM Enterprise";
             var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
             var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
             var loginUrl = _configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/login";
@@ -375,7 +426,7 @@ public class EmailService : IEmailService
             using var message = new MailMessage();
             message.From = new MailAddress(senderEmail, senderName);
             message.To.Add(new MailAddress(recipientEmail, recipientName));
-            message.Subject = $"[RWFM] Thông báo cấp lại mật khẩu tài khoản ({employeeCode})";
+            message.Subject = $"[RWFM Enterprise] Thông báo cấp lại mật khẩu tài khoản ({employeeCode})";
             message.IsBodyHtml = true;
             message.Priority = MailPriority.High;
 
@@ -384,7 +435,7 @@ public class EmailService : IEmailService
             message.Body = $@"
             <div style='font-family: Arial, sans-serif; max-width: 580px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
                 <div style='text-align: center; padding-bottom: 16px; border-bottom: 2px solid #3b82f6;'>
-                    <h2 style='color: #1e3a8a; margin: 0; font-size: 22px;'>R-WFM RETAIL PLATFORM</h2>
+                    <h2 style='color: #1e3a8a; margin: 0; font-size: 22px;'>RWFM Enterprise</h2>
                     <p style='color: #64748b; font-size: 13px; margin-top: 4px;'>Hệ thống Quản trị Nhân sự & Lập lịch Vận hành Chuỗi</p>
                 </div>
                 
@@ -424,7 +475,7 @@ public class EmailService : IEmailService
                     ⚠️ <strong>Lưu ý bảo mật:</strong> Để đảm bảo an toàn, vui lòng đăng nhập và thực hiện đổi mật khẩu cá nhân ngay sau khi nhận được thông báo này.
                 </p>
                 <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
-                <p style='font-size: 12px; color: #94a3b8; text-align: center;'>Email được gửi tự động từ Hệ thống Quản trị Nhân sự R-WFM.</p>
+                <p style='font-size: 12px; color: #94a3b8; text-align: center;'>Email được gửi tự động từ Hệ thống Quản trị Nhân sự RWFM Enterprise.</p>
             </div>";
 
             using var client = new SmtpClient(smtpServer, smtpPort)

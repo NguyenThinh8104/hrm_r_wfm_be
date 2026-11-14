@@ -115,6 +115,9 @@ public class BranchSimpleDto
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string Status { get; set; } = "ACTIVE";
+    public int BranchTier { get; set; } = 2;
+    public int? TierId { get; set; }
+    public int StaffCount { get; set; }
 }
 
 public class EmployeeFilterDto

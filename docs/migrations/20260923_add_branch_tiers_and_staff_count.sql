@@ -1,6 +1,8 @@
 -- Migration: Add branch_tiers table, add StaffCount and TierId to branches, and create headcount_import_requests
 -- Date: 2026-09-23
 
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
 USE `rwfm_db`;
 
 -- 1. Bảng branch_tiers
@@ -21,10 +23,10 @@ CREATE TABLE IF NOT EXISTS `branch_tiers` (
 -- 2. Dữ liệu mẫu khởi tạo cho branch_tiers (nếu chưa có)
 INSERT INTO `branch_tiers` (`Id`, `TierName`, `Description`, `MinStaffCount`, `MaxStaffCount`, `Conditions`, `Benefits`, `CreatedAt`, `UpdatedAt`)
 VALUES 
-(1, 'Tier 1 (Flagship / Quy mô lớn)', 'Chi nhánh trung tâm, quy mô trên 50 nhân sự', 50, NULL, 'Doanh thu > 1 tỷ/tháng, nhân sự >= 50', 'Hạn mức Kiosk tối đa, ưu tiên điều động', NOW(6), NOW(6)),
-(2, 'Tier 2 (Standard / Tiêu chuẩn)', 'Chi nhánh tiêu chuẩn, quy mô 21-49 nhân sự', 21, 49, 'Doanh thu 500tr - 1 tỷ/tháng, nhân sự 21-49', 'Chính sách vận hành chuẩn', NOW(6), NOW(6)),
-(3, 'Tier 3 (Compact / Quy mô nhỏ)', 'Chi nhánh nhỏ / cửa hàng tiện lợi, dưới 20 nhân sự', 1, 20, 'Nhân sự 1-20', 'Chính sách tối giản chi phí', NOW(6), NOW(6))
-ON DUPLICATE KEY UPDATE `TierName` = VALUES(`TierName`);
+(1, 'Tier 1 - Đại Siêu Thị / Flagship', 'Chi nhánh quy mô lớn / đại siêu thị, định biên chuẩn tối đa 30 nhân sự', 20, 30, 'Diện tích sàn > 250m², doanh thu mục tiêu > 500tr/tháng, tối thiểu 20 nhân sự trực ca.', 'Được trang bị 2-4 máy Kiosk iPad, ưu tiên tiếp nhận nhân sự điều động tăng cường vào ca cao điểm, định biên chuẩn 30 nhân sự, phê duyệt nhanh các đề xuất tăng ca.', NOW(6), NOW(6)),
+(2, 'Tier 2 - Siêu Thị Tiêu Chuẩn / Standard', 'Chi nhánh tiêu chuẩn, định biên chuẩn tối đa 15 nhân sự', 10, 15, 'Diện tích sàn 100m² - 250m², doanh thu mục tiêu 200tr - 500tr/tháng, nhân sự từ 10 - 15 người.', 'Được cấp 1-2 máy Kiosk, định biên chuẩn 15 nhân sự, tự động lập lịch phân ca tối ưu công chuẩn 8 tiếng/ngày.', NOW(6), NOW(6)),
+(3, 'Tier 3 - Cửa Hàng Tiện Lợi Mini / Compact', 'Chi nhánh nhỏ / cửa hàng tiện lợi, định biên chuẩn tối đa 8 nhân sự', 4, 8, 'Diện tích sàn < 100m², nhân sự từ 4 - 8 người, trực ca theo mô hình kiêm nhiệm thu ngân & bán hàng.', 'Cấu hình Kiosk siêu tốc, quản lý linh hoạt ca gãy và chấm công mã OTP cá nhân linh động.', NOW(6), NOW(6))
+ON DUPLICATE KEY UPDATE `TierName` = VALUES(`TierName`), `MinStaffCount` = VALUES(`MinStaffCount`), `MaxStaffCount` = VALUES(`MaxStaffCount`), `Conditions` = VALUES(`Conditions`), `Benefits` = VALUES(`Benefits`);
 
 -- 3. Bổ sung các cột mới vào bảng branches
 -- Cột BranchTier (nếu chưa có)

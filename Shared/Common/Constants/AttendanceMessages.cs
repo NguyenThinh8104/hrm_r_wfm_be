@@ -13,7 +13,6 @@ public static class AttendanceMessages
     public const string CheckOutSuccess = "Check-out thành công lúc {0}. Hẹn gặp lại bạn!";
     public const string NotCheckedIn = "Chưa có lượt Check-in đầu ca hoặc đã Check-out trước đó.";
     public const string ShiftNotFound = "Không tìm thấy ca trực tương ứng.";
-    public const string FraudReportSuccess = "Đã ghi nhận báo cáo gian lận ca và chuyển ngoại lệ lên Cửa hàng trưởng.";
     public const string AttendanceRecordNotFound = "Không tìm thấy bản ghi chấm công.";
     public const string LeaderIdentityNotFound = "Không xác định được danh tính Trưởng ca.";
     public const string NoScheduleAtBranch = "Bạn không có lịch làm việc tại chi nhánh này trong ngày hôm nay. Vui lòng liên hệ Quản lý!";

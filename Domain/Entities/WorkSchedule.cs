@@ -35,5 +35,4 @@ public class WorkSchedule
     public bool EffectiveIsOvernight => SnapshotIsOvernight ?? ShiftTemplate?.IsOvernight ?? false;
 
     public ICollection<ShiftAssignment> ShiftAssignments { get; set; } = new List<ShiftAssignment>();
-    public ShiftHandover? ShiftHandover { get; set; }
 }

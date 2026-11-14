@@ -67,7 +67,6 @@ CREATE TABLE `users` (
     `Email` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
     `Phone` varchar(255) CHARACTER SET utf8mb4 NOT NULL,
     `PasswordHash` longtext CHARACTER SET utf8mb4 NOT NULL,
-    `KioskPinHash` longtext CHARACTER SET utf8mb4 NULL,
     `RoleId` tinyint unsigned NOT NULL,
     `EmploymentType` longtext CHARACTER SET utf8mb4 NOT NULL,
     `HomeBranchId` bigint unsigned NULL,

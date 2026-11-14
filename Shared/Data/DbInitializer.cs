@@ -293,8 +293,88 @@ public static class DbInitializer
                 if (!attCols.Contains("Status"))
                 {
                     using var alterCmd = connection.CreateCommand();
-                    alterCmd.CommandText = "ALTER TABLE `attendance_logs` ADD COLUMN `Status` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1: PENDING, 2: PRESENT, 3: LATE, 4: COMPLETED, 5: COMPLETED_LATE';";
+                    alterCmd.CommandText = "ALTER TABLE `attendance_logs` ADD COLUMN `Status` TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '1: PENDING, 2: PRESENT, 3: COMPLETED';";
                     alterCmd.ExecuteNonQuery();
+                }
+
+                // Dọn dẹp triệt để các cột Fraud đã bị loại bỏ khỏi Domain Model (tránh lỗi DbUpdateException do thiếu default value)
+                if (attCols.Contains("FraudFlaggedBy"))
+                {
+                    try
+                    {
+                        using var fkCmd = connection.CreateCommand();
+                        fkCmd.CommandText = @"
+                            SET @fk_exists = (SELECT COUNT(*) FROM information_schema.table_constraints 
+                                              WHERE constraint_schema = DATABASE() 
+                                              AND table_name = 'attendance_logs' 
+                                              AND constraint_name = 'FK_attendance_logs_users_FraudFlaggedBy');
+                            SET @sql = IF(@fk_exists > 0, 
+                                'ALTER TABLE `attendance_logs` DROP FOREIGN KEY `FK_attendance_logs_users_FraudFlaggedBy`', 
+                                'SELECT 1');
+                            PREPARE stmt FROM @sql;
+                            EXECUTE stmt;
+                            DEALLOCATE PREPARE stmt;";
+                        fkCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        using var idxCmd = connection.CreateCommand();
+                        idxCmd.CommandText = @"
+                            SET @idx_exists = (SELECT COUNT(*) FROM information_schema.statistics 
+                                               WHERE table_schema = DATABASE() 
+                                               AND table_name = 'attendance_logs' 
+                                               AND index_name = 'IX_attendance_logs_FraudFlaggedBy');
+                            SET @sql = IF(@idx_exists > 0, 
+                                'ALTER TABLE `attendance_logs` DROP INDEX `IX_attendance_logs_FraudFlaggedBy`', 
+                                'SELECT 1');
+                            PREPARE stmt FROM @sql;
+                            EXECUTE stmt;
+                            DEALLOCATE PREPARE stmt;";
+                        idxCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+
+                    try
+                    {
+                        using var dropCmd = connection.CreateCommand();
+                        dropCmd.CommandText = "ALTER TABLE `attendance_logs` DROP COLUMN `FraudFlaggedBy`;";
+                        dropCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+                }
+
+                if (attCols.Contains("FraudReason"))
+                {
+                    try
+                    {
+                        using var dropCmd = connection.CreateCommand();
+                        dropCmd.CommandText = "ALTER TABLE `attendance_logs` DROP COLUMN `FraudReason`;";
+                        dropCmd.ExecuteNonQuery();
+                    }
+                    catch { }
+                }
+
+                if (attCols.Contains("IsFraudFlagged"))
+                {
+                    try
+                    {
+                        using var dropCmd = connection.CreateCommand();
+                        dropCmd.CommandText = "ALTER TABLE `attendance_logs` DROP COLUMN `IsFraudFlagged`;";
+                        dropCmd.ExecuteNonQuery();
+                    }
+                    catch
+                    {
+                        // Fallback: nếu không drop được ngay thì set default = 0 để insert không lỗi
+                        try
+                        {
+                            using var defCmd = connection.CreateCommand();
+                            defCmd.CommandText = "ALTER TABLE `attendance_logs` MODIFY COLUMN `IsFraudFlagged` TINYINT(1) NOT NULL DEFAULT 0;";
+                            defCmd.ExecuteNonQuery();
+                        }
+                        catch { }
+                    }
                 }
             }
 
@@ -595,7 +675,6 @@ public static class DbInitializer
         if (userCount < 20)
         {
             var defaultPasswordHash = PasswordHasher.Hash("Password@123");
-            var defaultPinHash = PasswordHasher.Hash("1234");
             
             var existingEmails = context.Users.Select(u => u.Email.ToLower()).ToHashSet();
             var existingPhones = context.Users.Select(u => u.Phone).Where(p => !string.IsNullOrEmpty(p)).ToHashSet();
@@ -629,7 +708,6 @@ public static class DbInitializer
                     Email = "owner@rwfm.vn",
                     Phone = phone,
                     PasswordHash = defaultPasswordHash,
-                    KioskPinHash = defaultPinHash,
                     RoleId = 1, // BUSINESS_OWNER
                     EmploymentType = "FULL_TIME",
                     HomeBranchId = null,
@@ -648,7 +726,6 @@ public static class DbInitializer
                     Email = "ops.admin@rwfm.vn",
                     Phone = phone,
                     PasswordHash = defaultPasswordHash,
-                    KioskPinHash = defaultPinHash,
                     RoleId = 2, // OPERATIONS_ADMIN
                     EmploymentType = "FULL_TIME",
                     HomeBranchId = null,
@@ -688,7 +765,6 @@ public static class DbInitializer
                             Email = mgrEmail,
                             Phone = GetUniquePhone(bId, 3, 1),
                             PasswordHash = defaultPasswordHash,
-                            KioskPinHash = defaultPinHash,
                             RoleId = 3, // STORE_MANAGER
                             EmploymentType = "FULL_TIME",
                             HomeBranchId = bId,
@@ -716,7 +792,6 @@ public static class DbInitializer
                                 Email = email,
                                 Phone = GetUniquePhone(bId, 4, i),
                                 PasswordHash = defaultPasswordHash,
-                                KioskPinHash = defaultPinHash,
                                 RoleId = 4, // SHIFT_LEADER
                                 EmploymentType = "FULL_TIME",
                                 HomeBranchId = bId,
@@ -745,7 +820,6 @@ public static class DbInitializer
                                 Email = email,
                                 Phone = GetUniquePhone(bId, 5, i),
                                 PasswordHash = defaultPasswordHash,
-                                KioskPinHash = defaultPinHash,
                                 RoleId = 5, // CASHIER
                                 EmploymentType = i % 2 == 0 ? "PART_TIME" : "FULL_TIME",
                                 HomeBranchId = bId,
@@ -774,7 +848,6 @@ public static class DbInitializer
                                 Email = email,
                                 Phone = GetUniquePhone(bId, 6, i),
                                 PasswordHash = defaultPasswordHash,
-                                KioskPinHash = defaultPinHash,
                                 RoleId = 6, // SALES_STAFF
                                 EmploymentType = i % 3 == 0 ? "PART_TIME" : "FULL_TIME",
                                 HomeBranchId = bId,
@@ -803,7 +876,6 @@ public static class DbInitializer
                                 Email = email,
                                 Phone = GetUniquePhone(bId, 7, i),
                                 PasswordHash = defaultPasswordHash,
-                                KioskPinHash = defaultPinHash,
                                 RoleId = 7, // SECURITY_GUARD
                                 EmploymentType = "FULL_TIME",
                                 HomeBranchId = bId,

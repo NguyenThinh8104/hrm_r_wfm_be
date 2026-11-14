@@ -7,16 +7,30 @@ using Shared.Common;
 
 namespace Modules.Dispatch.Controllers;
 
+/// <summary>
+/// API Controller quản lý điều động nhân sự tạm thời liên chi nhánh (Cross-Branch Temporary Dispatch).
+/// Hỗ trợ cả 2 route chuẩn:
+/// - Route chính RESTful: api/dispatches (chuẩn tài nguyên số nhiều)
+/// - Route alias: api/dispatch (tương thích ngược 100% cho client cũ)
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/dispatches")]
+[Route("api/dispatch")]
 [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER,StoreManager,ShiftLeader,OperationsAdmin,BusinessOwner")]
 public class DispatchController : ControllerBase
 {
-    private readonly IDispatchService _dispatchService;
+    private readonly IDispatchWorkflowService _workflowService;
+    private readonly IDispatchQuotaService _quotaService;
+    private readonly IDispatchMetricsService _metricsService;
 
-    public DispatchController(IDispatchService dispatchService)
+    public DispatchController(
+        IDispatchWorkflowService workflowService,
+        IDispatchQuotaService quotaService,
+        IDispatchMetricsService metricsService)
     {
-        _dispatchService = dispatchService;
+        _workflowService = workflowService;
+        _quotaService = quotaService;
+        _metricsService = metricsService;
     }
 
     /// <summary>
@@ -31,7 +45,7 @@ public class DispatchController : ControllerBase
             return Unauthorized(ApiResponse<DispatchRecordDto>.Fail("Không xác định được danh tính quản lý."));
         }
 
-        var result = await _dispatchService.CreateDispatchRequestAsync(managerEmpId, request);
+        var result = await _workflowService.CreateDispatchRequestAsync(managerEmpId, request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -48,18 +62,18 @@ public class DispatchController : ControllerBase
             return Unauthorized(ApiResponse<bool>.Fail("Không xác định được danh tính quản lý."));
         }
 
-        var result = await _dispatchService.ReviewDispatchRequestAsync(managerEmpId, request);
+        var result = await _workflowService.ReviewDispatchRequestAsync(managerEmpId, request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
 
     /// <summary>
-    /// [Store Manager] Lấy danh sách các lệnh điều động liên quan đến cửa hàng.
+    /// [Store Manager] Lấy danh sách các lệnh điều động liên quan đến cửa hàng (cả 2 chiều mượn và cho mượn).
     /// </summary>
     [HttpGet("store/{storeId}")]
     public async Task<ActionResult<ApiResponse<List<DispatchRecordDto>>>> GetStoreDispatches(int storeId)
     {
-        var result = await _dispatchService.GetDispatchesByStoreAsync(storeId);
+        var result = await _workflowService.GetDispatchesByStoreAsync(storeId);
         return Ok(result);
     }
 
@@ -71,12 +85,12 @@ public class DispatchController : ControllerBase
         [FromQuery] string? status,
         [FromQuery] int? storeId)
     {
-        var result = await _dispatchService.GetAllDispatchesAsync(status, storeId);
+        var result = await _workflowService.GetAllDispatchesAsync(status, storeId);
         return Ok(result);
     }
 
     /// <summary>
-    /// [Business Owner & Ops Admin] Giám sát ma trận điều chuyển và tổng số giờ công chi viện toàn mạng lưới .
+    /// [Business Owner & Ops Admin] Giám sát ma trận điều chuyển và tổng số giờ công chi viện toàn mạng lưới.
     /// </summary>
     [HttpGet("network-metrics")]
     [Authorize(Roles = "BUSINESS_OWNER,OPERATIONS_ADMIN,BusinessOwner,OperationsAdmin")]
@@ -87,12 +101,12 @@ public class DispatchController : ControllerBase
         DateOnly? parsedFromDate = !string.IsNullOrEmpty(fromDate) && DateOnly.TryParse(fromDate, out var fDate) ? fDate : null;
         DateOnly? parsedToDate = !string.IsNullOrEmpty(toDate) && DateOnly.TryParse(toDate, out var tDate) ? tDate : null;
 
-        var result = await _dispatchService.GetNetworkMetricsAsync(parsedFromDate, parsedToDate);
+        var result = await _metricsService.GetNetworkMetricsAsync(parsedFromDate, parsedToDate);
         return Ok(result);
     }
 
     /// <summary>
-    /// [Store Manager A] Chỉnh sửa đơn đề nghị chi viện đang chờ duyệt (PENDING) - Cơ chế cập nhật trực tiếp tại chỗ (Cách 1).
+    /// [Store Manager A] Chỉnh sửa đơn đề nghị chi viện đang chờ duyệt (PENDING) hoặc đã thu hồi (RECALLED).
     /// </summary>
     [HttpPut("request/{id}")]
     public async Task<ActionResult<ApiResponse<DispatchRecordDto>>> UpdateDispatchRequest(int id, [FromBody] UpdateDispatchRequestDto request)
@@ -103,7 +117,7 @@ public class DispatchController : ControllerBase
             return Unauthorized(ApiResponse<DispatchRecordDto>.Fail("Không xác định được danh tính quản lý."));
         }
 
-        var result = await _dispatchService.UpdateDispatchRequestAsync(managerEmpId, id, request);
+        var result = await _workflowService.UpdateDispatchRequestAsync(managerEmpId, id, request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -120,7 +134,7 @@ public class DispatchController : ControllerBase
             return Unauthorized(ApiResponse<DispatchRecordDto>.Fail("Không xác định được danh tính quản lý."));
         }
 
-        var result = await _dispatchService.RecallDispatchRequestAsync(managerEmpId, id, request?.Reason);
+        var result = await _workflowService.RecallDispatchRequestAsync(managerEmpId, id, request?.Reason);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -137,31 +151,25 @@ public class DispatchController : ControllerBase
             return Unauthorized(ApiResponse<bool>.Fail("Không xác định được danh tính quản lý."));
         }
 
-        var result = await _dispatchService.DeleteDispatchRequestAsync(managerEmpId, id);
+        var result = await _workflowService.DeleteDispatchRequestAsync(managerEmpId, id);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
 
     /// <summary>
     /// [Store Manager & Ops Admin] Lấy danh sách nhân sự của chi nhánh phục vụ điều động chi viện (UC 4.1, UC 4.2).
-    /// Hỗ trợ cả 2 route để tương thích ngược:
-    /// - GET /api/dispatch/branch-employees/{branchId}
-    /// - GET /api/kiosk/attendance/search-employees?storeId={storeId}
+    /// Đã xóa bỏ route đè chéo Kiosk và bảo vệ bảo mật danh sách nhân sự qua quyền Quản lý/Admin.
     /// </summary>
     [HttpGet("branch-employees/{branchId:long}")]
-    [HttpGet("/api/kiosk/attendance/search-employees")]
-    [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<List<DispatchEmployeeOptionDto>>>> GetBranchEmployeesForDispatch(
-        [FromRoute] ulong? branchId,
-        [FromQuery] ulong? storeId)
+        [FromRoute] ulong branchId)
     {
-        var targetId = branchId.HasValue && branchId.Value > 0 ? branchId.Value : (storeId ?? 0);
-        if (targetId == 0)
+        if (branchId == 0)
         {
-            return BadRequest(ApiResponse<List<DispatchEmployeeOptionDto>>.Fail("Vui lòng cung cấp mã chi nhánh (branchId hoặc storeId)."));
+            return BadRequest(ApiResponse<List<DispatchEmployeeOptionDto>>.Fail("Vui lòng cung cấp mã chi nhánh (branchId)."));
         }
 
-        var result = await _dispatchService.GetBranchEmployeesForDispatchAsync(targetId);
+        var result = await _quotaService.GetBranchEmployeesForDispatchAsync(branchId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -179,7 +187,7 @@ public class DispatchController : ControllerBase
         DateOnly? parsedStartDate = !string.IsNullOrEmpty(startDate) && DateOnly.TryParse(startDate, out var sDate) ? sDate : null;
         DateOnly? parsedEndDate = !string.IsNullOrEmpty(endDate) && DateOnly.TryParse(endDate, out var eDate) ? eDate : null;
 
-        var result = await _dispatchService.GetBranchDispatchQuotaAsync(branchId, parsedStartDate, parsedEndDate, excludeDispatchId);
+        var result = await _quotaService.GetBranchDispatchQuotaAsync(branchId, parsedStartDate, parsedEndDate, excludeDispatchId);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -193,4 +201,3 @@ public class DispatchController : ControllerBase
         return int.TryParse(empIdClaim, out var id) ? id : 0;
     }
 }
-

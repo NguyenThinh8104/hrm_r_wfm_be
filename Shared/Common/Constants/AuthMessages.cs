@@ -12,6 +12,7 @@ public static class AuthMessages
     public const string KIOSK_LOGIN_REQUIRED = "Vui lòng nhập mã nhân viên và mã PIN.";
     public const string EMPLOYEE_NOT_FOUND = "Không tìm thấy nhân viên với mã này.";
     public const string PIN_INVALID = "Mã PIN không chính xác.";
+    public const string KIOSK_PIN_DEPRECATED = "Phương thức đăng nhập Kiosk bằng mã PIN đã ngừng hỗ trợ. Vui lòng sử dụng Kiosk App với Face/OTP.";
     public const string NOT_ASSIGNED_TO_BRANCH = "Nhân viên {0} không thuộc chi nhánh này và không có lệnh điều động hợp lệ.";
     public const string KIOSK_LOGIN_SUCCESS = "Xác thực Kiosk thành công.";
 

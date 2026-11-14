@@ -1,15 +1,14 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Modules.Attendance;
 using Modules.Auth;
 using Modules.Dispatch;
-using Modules.Handovers;
 using Modules.Shifts;
 using Modules.Stores;
 using Shared;
 using Shared.Data;
 using Shared.Middlewares;
+using Shared.Security;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,16 +27,21 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-// 2. Cấu hình CORS (Cho phép truyền HttpOnly Cookie từ Frontend)
+// Credentialed requests are allowed only from configured frontend origins.
+var browserOrigins = builder.Configuration.GetSection("WebSession:AllowedOrigins").Get<string[]>() ?? [];
+if (builder.Environment.IsDevelopment())
+{
+    browserOrigins = browserOrigins.Concat([
+        "http://localhost:5173", "http://localhost:4173", "http://localhost:3001",
+        "http://127.0.0.1:5173", "http://127.0.0.1:4173", "http://127.0.0.1:3001"
+    ]).Distinct().ToArray();
+}
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.SetIsOriginAllowed(_ => true)
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
-    });
+    options.AddPolicy("TrustedBrowser", policy => policy.WithOrigins(browserOrigins)
+        .AllowAnyMethod().AllowAnyHeader().AllowCredentials());
+    options.AddPolicy("PublicApi", policy => policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
 });
 
 // 3. Đăng ký Shared Infrastructure (Database, JWT, Security)
@@ -49,11 +53,11 @@ builder.Services
     .AddStoresModule()
     .AddShiftsModule()
     .AddAttendanceModule()
-    .AddDispatchModule()
-    .AddHandoversModule();
+    .AddDispatchModule();
 
-// 5. Đăng ký Controllers từ các Module
-builder.Services.AddControllers();
+// 5. Đăng ký Controllers từ các Module & Shared
+builder.Services.AddControllers()
+    .AddApplicationPart(typeof(Shared.Controllers.FilesController).Assembly);
 
 // 6. Cấu hình Swagger UI / OpenAPI (.NET 8)
 builder.Services.AddEndpointsApiExplorer();
@@ -61,7 +65,7 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "R-WFM Platform API (Modular Architecture)",
+        Title = "RWFM Enterprise API",
         Version = "v1",
         Description = "Nền tảng Quản trị Nhân sự Vận hành Chuỗi Siêu thị Tiện lợi - Kiến trúc Modular Monolith (.NET 8)"
     });
@@ -125,11 +129,42 @@ app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "R-WFM API v1 (Modular)");
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "RWFM Enterprise API v1");
     c.RoutePrefix = "swagger";
 });
 
-app.UseCors("AllowAll");
+// Keep cross-origin Bearer clients working without granting them access to browser cookies.
+app.UseWhen(context => browserOrigins.Contains(context.Request.Headers.Origin.ToString(), StringComparer.Ordinal),
+    branch => branch.UseCors("TrustedBrowser"));
+app.UseWhen(context => !browserOrigins.Contains(context.Request.Headers.Origin.ToString(), StringComparer.Ordinal),
+    branch => branch.UseCors("PublicApi"));
+
+app.Use(async (context, next) =>
+{
+    var request = context.Request;
+    var path = request.Path.Value?.TrimEnd('/');
+    var isLogin = string.Equals(path, "/api/Auth/login", StringComparison.OrdinalIgnoreCase) ||
+                  string.Equals(path, "/api/Auth/google-login", StringComparison.OrdinalIgnoreCase);
+    var isLogout = string.Equals(path, "/api/Auth/logout", StringComparison.OrdinalIgnoreCase);
+    var usesSession = request.Cookies.ContainsKey(WebSession.CookieName) &&
+                      (isLogout || !request.Headers.ContainsKey("Authorization"));
+    var isSafeMethod = HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method) ||
+                       HttpMethods.IsOptions(request.Method);
+
+    var origin = request.Headers.Origin.ToString();
+    var sameOrigin = string.Equals(origin, $"{request.Scheme}://{request.Host}", StringComparison.OrdinalIgnoreCase);
+    var trustedOrigin = origin.Length == 0 || sameOrigin || request.Headers["Sec-Fetch-Site"] == "same-origin" ||
+                        browserOrigins.Contains(origin, StringComparer.Ordinal);
+
+    if (!isSafeMethod && (isLogin || usesSession) &&
+        (!trustedOrigin || request.Headers[WebSession.RequestHeader] != "1"))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
+    }
+
+    await next(context);
+});
 
 app.UseAuthentication();
 app.UseAuthorization();

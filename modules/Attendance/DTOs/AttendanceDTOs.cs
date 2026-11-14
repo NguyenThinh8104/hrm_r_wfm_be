@@ -30,19 +30,13 @@ public class LiveRosterDto
     public DateTime? CheckOutTime { get; set; }
     public string? CheckInPhotoPresignedUrl { get; set; }
     public string? CheckOutPhotoPresignedUrl { get; set; }
-    public bool IsFraudFlagged { get; set; }
-    public string? FraudReason { get; set; }
-    public string? ReportedByName { get; set; }
     public bool IsLate { get; set; }
     public string Status { get; set; } = "ABSENT";
+    public string? CheckInStatus { get; set; }
+    public string? CheckOutStatus { get; set; }
 }
 
 
-public class ResolveFraudDto
-{
-    public ulong AttendanceId { get; set; }
-    public bool IsApproved { get; set; }
-}
 
 public class KioskCheckInDto
 {
@@ -162,12 +156,6 @@ public class PresignedUrlResponseDto
     public DateTime ExpiresAt { get; set; }
 }
 
-public class ReportAttendanceFraudDto
-{
-    public int AttendanceId { get; set; }
-    public string Reason { get; set; } = string.Empty;
-    public string ExceptionType { get; set; } = "Fraud";
-}
 
 public class AttendanceRecordDto
 {

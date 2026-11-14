@@ -16,12 +16,12 @@ namespace Modules.Attendance.Controllers;
 [Route("api/kiosk/attendance")]
 public class KioskAttendanceController : ControllerBase
 {
-    private readonly IAttendanceService _attendanceService;
+    private readonly IKioskAttendanceService _kioskAttendanceService;
     private readonly IS3StorageService _s3StorageService;
 
-    public KioskAttendanceController(IAttendanceService attendanceService, IS3StorageService s3StorageService)
+    public KioskAttendanceController(IKioskAttendanceService kioskAttendanceService, IS3StorageService s3StorageService)
     {
-        _attendanceService = attendanceService;
+        _kioskAttendanceService = kioskAttendanceService;
         _s3StorageService = s3StorageService;
     }
 
@@ -34,7 +34,7 @@ public class KioskAttendanceController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<ValidatePinResponseDto>>> ValidatePin([FromBody] ValidatePinRequestDto request)
     {
-        var result = await _attendanceService.ValidatePinAsync(request);
+        var result = await _kioskAttendanceService.ValidatePinAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -55,7 +55,7 @@ public class KioskAttendanceController : ControllerBase
             ? DateOnly.FromDateTime(DateTime.Now)
             : parsedDate;
 
-        var result = await _attendanceService.GetKioskRosterAsync(storeId, targetDate);
+        var result = await _kioskAttendanceService.GetKioskRosterAsync(storeId, targetDate);
         return Ok(result);
     }
 
@@ -68,7 +68,7 @@ public class KioskAttendanceController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckIn([FromBody] KioskCheckInDto request)
     {
-        var result = await _attendanceService.CheckInAsync(request);
+        var result = await _kioskAttendanceService.CheckInAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -82,7 +82,7 @@ public class KioskAttendanceController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<AttendanceRecordDto>>> CheckOut([FromBody] KioskCheckOutDto request)
     {
-        var result = await _attendanceService.CheckOutAsync(request);
+        var result = await _kioskAttendanceService.CheckOutAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -97,7 +97,7 @@ public class KioskAttendanceController : ControllerBase
     public async Task<ActionResult<ApiResponse<UploadAttendancePhotoResponseDto>>> UploadAttendancePhoto(
         [FromBody] UploadAttendancePhotoDto request)
     {
-        var result = await _attendanceService.UploadAttendancePhotoAsync(request);
+        var result = await _kioskAttendanceService.UploadAttendancePhotoAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -112,7 +112,7 @@ public class KioskAttendanceController : ControllerBase
     public async Task<ActionResult<ApiResponse<bool>>> CancelAttendance(
         [FromBody] CancelKioskAttendanceDto request)
     {
-        var result = await _attendanceService.CancelAttendanceAsync(request);
+        var result = await _kioskAttendanceService.CancelAttendanceAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

@@ -1,6 +1,5 @@
 using Domain.Constants;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Modules.Stores.DTOs;
 using Modules.Stores.Interfaces;
 using Shared.Common;
@@ -15,14 +14,10 @@ namespace Modules.Stores.Services;
 public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountService
 {
     private readonly AppDbContext _context;
-    private readonly ILogger<BranchHeadcountService> _logger;
 
-    public BranchHeadcountService(
-        AppDbContext context,
-        ILogger<BranchHeadcountService> logger)
+    public BranchHeadcountService(AppDbContext context)
     {
         _context = context;
-        _logger = logger;
     }
 
     /// <summary>
@@ -131,7 +126,7 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
             BranchName = branch.Name,
             BranchTierName = branch.BranchTier.ToString(),
             BranchTierValue = (int)branch.BranchTier,
-            StandardQuota = effectiveQuota,
+            StandardQuota = branch.Tier != null && branch.Tier.MaxStaffCount.HasValue ? branch.Tier.MaxStaffCount.Value : standardTierQuota,
             StaffCount = branch.StaffCount,
             EffectiveQuota = effectiveQuota,
             CurrentHeadcount = officialHeadcount, // Nhân sự cơ hữu chính thức áp vào định biên

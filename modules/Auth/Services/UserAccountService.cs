@@ -108,6 +108,18 @@ public class UserAccountService : IUserAccountService
             }
         }
 
+        // RÀNG BUỘC KHI MỞ KHÓA TÀI KHOẢN: Không cho mở khóa nhân sự thuộc chi nhánh đang tạm khóa
+        if (newStatus == "ACTIVE")
+        {
+            var branch = user.HomeBranch ?? (user.HomeBranchId.HasValue ? await _context.Branches.FindAsync(user.HomeBranchId.Value) : null);
+            if (branch != null && (branch.Status == "INACTIVE" || branch.Status == "LOCKED"))
+            {
+                return ApiResponse<bool>.Fail(
+                    $"Không thể mở khóa tài khoản: Chi nhánh trực thuộc '{branch.Name}' hiện đang bị tạm khóa hoặc ngừng hoạt động. " +
+                    "Vui lòng mở khóa chi nhánh hoặc điều chuyển nhân sự sang chi nhánh đang hoạt động trước khi kích hoạt lại tài khoản.");
+            }
+        }
+
         user.Status = newStatus;
         user.UpdatedAt = DateTime.UtcNow;
 

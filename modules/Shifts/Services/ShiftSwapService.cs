@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using Domain.Constants;
@@ -311,7 +311,7 @@ public class ShiftSwapService : IShiftSwapService
             RequesterShiftName = requestingAssignment.Schedule.ShiftTemplate?.Name ?? "",
             RequesterWorkDate = requestingAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd"),
             RequesterTimeRange = requestingAssignment.Schedule.ShiftTemplate != null
-                ? $"{requestingAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {requestingAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                ? $"{requestingAssignment.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {requestingAssignment.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                 : "",
             TargetEmployeeId = targetUser != null ? (int)targetUser.Id : null,
             TargetName = targetUser != null ? targetUser.FullName : "Không có (Xin nghỉ ca)",
@@ -320,7 +320,7 @@ public class ShiftSwapService : IShiftSwapService
             TargetShiftName = targetAssignment?.Schedule?.ShiftTemplate?.Name,
             TargetWorkDate = targetAssignment?.Schedule?.WorkDate.ToString("yyyy-MM-dd"),
             TargetTimeRange = targetAssignment?.Schedule?.ShiftTemplate != null
-                ? $"{targetAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {targetAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                ? $"{targetAssignment.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {targetAssignment.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                 : null,
             Reason = swap.Reason,
             Status = swap.Status,
@@ -340,7 +340,7 @@ public class ShiftSwapService : IShiftSwapService
             {
                 try
                 {
-                    var reqShiftInfo = $"{requestingAssignment.Schedule.ShiftTemplate?.Name} ({requestingAssignment.Schedule.WorkDate:dd/MM/yyyy} {requestingAssignment.Schedule.ShiftTemplate?.StartTime:hh\\:mm}-{requestingAssignment.Schedule.ShiftTemplate?.EndTime:hh\\:mm})";
+                    var reqShiftInfo = $"{requestingAssignment.Schedule.ShiftTemplate?.Name} ({requestingAssignment.Schedule.WorkDate:dd/MM/yyyy} {requestingAssignment.Schedule.ShiftTemplate?.StartTime:HH\\:mm}-{requestingAssignment.Schedule.ShiftTemplate?.EndTime:HH\\:mm})";
                     var actionText = reqType == "TRANSFER" ? "Yêu cầu nhờ nhận ca làm việc" : "Yêu cầu đổi ca làm việc";
                     // PENDING_PEER: Gửi email cho đồng nghiệp với trạng thái CHỜ BẠN XÁC NHẬN
                     await _emailService.SendShiftChangeNotificationEmailAsync(
@@ -584,7 +584,7 @@ public class ShiftSwapService : IShiftSwapService
         {
             try
             {
-                var reqShiftInfo = $"{requesterShiftTemplate?.Name} ({requesterWorkDate:dd/MM/yyyy} {requesterShiftTemplate?.StartTime:hh\\:mm}-{requesterShiftTemplate?.EndTime:hh\\:mm})";
+                var reqShiftInfo = $"{requesterShiftTemplate?.Name} ({requesterWorkDate:dd/MM/yyyy} {requesterShiftTemplate?.StartTime:HH\\:mm}-{requesterShiftTemplate?.EndTime:HH\\:mm})";
                 var statusText = request.IsApproved ? "ĐÃ ĐƯỢC PHÊ DUYỆT" : "ĐÃ BỊ TỪ CHỐI";
 
                 // 1. Gửi email cho người làm đơn
@@ -950,9 +950,9 @@ public class ShiftSwapService : IShiftSwapService
                     ? s.Schedule.WorkDate.ToString("yyyy-MM-dd") 
                     : (s.RequestingAssignment != null ? s.RequestingAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd") : ""),
                 RequesterTimeRange = s.Schedule != null && s.Schedule.ShiftTemplate != null
-                    ? $"{s.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                    ? $"{s.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {s.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                     : (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.ShiftTemplate != null
-                        ? $"{s.RequestingAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.RequestingAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                        ? $"{s.RequestingAssignment.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {s.RequestingAssignment.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                         : ""),
                 TargetEmployeeId = s.TargetUserId != null ? (int)s.TargetUserId : null,
                 TargetName = s.TargetUser != null ? s.TargetUser.FullName : "Không có (Xin nghỉ ca)",
@@ -961,7 +961,7 @@ public class ShiftSwapService : IShiftSwapService
                 TargetShiftName = s.TargetAssignment != null ? s.TargetAssignment.Schedule.ShiftTemplate.Name : null,
                 TargetWorkDate = s.TargetAssignment != null ? s.TargetAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd") : null,
                 TargetTimeRange = s.TargetAssignment != null && s.TargetAssignment.Schedule.ShiftTemplate != null
-                    ? $"{s.TargetAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.TargetAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                    ? $"{s.TargetAssignment.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {s.TargetAssignment.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                     : null,
                 Reason = s.Reason,
                 Status = s.Status,
@@ -1046,9 +1046,9 @@ public class ShiftSwapService : IShiftSwapService
                     ? s.Schedule.WorkDate.ToString("yyyy-MM-dd") 
                     : (s.RequestingAssignment != null ? s.RequestingAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd") : ""),
                 RequesterTimeRange = s.Schedule != null && s.Schedule.ShiftTemplate != null
-                    ? $"{s.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                    ? $"{s.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {s.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                     : (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.ShiftTemplate != null
-                        ? $"{s.RequestingAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.RequestingAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                        ? $"{s.RequestingAssignment.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {s.RequestingAssignment.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                         : ""),
                 TargetEmployeeId = s.TargetUserId != null ? (int)s.TargetUserId : null,
                 TargetName = s.TargetUser != null ? s.TargetUser.FullName : "Không có (Xin nghỉ ca)",
@@ -1057,7 +1057,7 @@ public class ShiftSwapService : IShiftSwapService
                 TargetShiftName = s.TargetAssignment != null ? s.TargetAssignment.Schedule.ShiftTemplate.Name : null,
                 TargetWorkDate = s.TargetAssignment != null ? s.TargetAssignment.Schedule.WorkDate.ToString("yyyy-MM-dd") : null,
                 TargetTimeRange = s.TargetAssignment != null && s.TargetAssignment.Schedule.ShiftTemplate != null
-                    ? $"{s.TargetAssignment.Schedule.ShiftTemplate.StartTime:hh\\:mm} - {s.TargetAssignment.Schedule.ShiftTemplate.EndTime:hh\\:mm}"
+                    ? $"{s.TargetAssignment.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {s.TargetAssignment.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                     : null,
                 Reason = s.Reason,
                 Status = s.Status,
@@ -1271,7 +1271,7 @@ public class ShiftSwapService : IShiftSwapService
                 ScheduleId = (int)sa.ScheduleId,
                 ShiftName = sa.Schedule.EffectiveShiftName,
                 WorkDate = sa.Schedule.WorkDate.ToString("yyyy-MM-dd"),
-                TimeRange = $"{sa.Schedule.EffectiveStartTime:hh\\:mm} - {sa.Schedule.EffectiveEndTime:hh\\:mm}",
+                TimeRange = $"{sa.Schedule.EffectiveStartTime:HH\\:mm} - {sa.Schedule.EffectiveEndTime:HH\\:mm}",
                 BranchName = sa.Schedule.Branch.Name
             });
         }

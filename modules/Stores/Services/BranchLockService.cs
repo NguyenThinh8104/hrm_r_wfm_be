@@ -390,6 +390,9 @@ public class BranchLockService : IBranchLockService
             branch.Status = "ACTIVE";
             branch.UnlockedAt = now;
             branch.UnlockedBy = actor;
+            branch.LockedAt = null;
+            branch.LockReason = null;
+            branch.LockedBy = null;
             branch.RowVersion = Guid.NewGuid();
             branch.UpdatedAt = now;
 

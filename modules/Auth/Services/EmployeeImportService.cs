@@ -618,11 +618,11 @@ public class EmployeeImportService : IEmployeeImportService
             validRowsToProcess.Add((r, targetRole, targetBranch));
         }
 
-        // Danh sách các chi nhánh đã có Cửa hàng trưởng ACTIVE
+        // Danh sách các chi nhánh đã có Cửa hàng trưởng ACTIVE (bao gồm cả CHT đang đi chi viện tạm thời)
         var branchesWithActiveManagerList = await _context.Users
             .Include(u => u.Role)
-            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && u.HomeBranchId != null)
-            .Select(u => u.HomeBranchId!.Value)
+            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && (u.OriginalHomeBranchId != null || u.HomeBranchId != null))
+            .Select(u => (u.OriginalHomeBranchId ?? u.HomeBranchId)!.Value)
             .ToListAsync();
         var branchesWithActiveManager = branchesWithActiveManagerList.ToHashSet();
 

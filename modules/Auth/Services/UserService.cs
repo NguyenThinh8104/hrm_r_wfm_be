@@ -108,7 +108,7 @@ public class UserService : IUserService
         // Ràng buộc duy nhất: Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng đang hoạt động
         var existingActiveManager = await _context.Users
             .Include(u => u.Role)
-            .FirstOrDefaultAsync(u => u.HomeBranchId == dto.HomeBranchId 
+            .FirstOrDefaultAsync(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == dto.HomeBranchId) 
                                    && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == storeManagerRole.Id)
                                    && u.Status == "ACTIVE");
         if (existingActiveManager != null)
@@ -452,7 +452,7 @@ public class UserService : IUserService
         {
             var existingActiveManager = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.HomeBranchId == branchIdToAssign 
+                .FirstOrDefaultAsync(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == branchIdToAssign) 
                                        && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == targetRole.Id)
                                        && u.Status == "ACTIVE");
             if (existingActiveManager != null)
@@ -596,7 +596,7 @@ public class UserService : IUserService
         {
             var existingManager = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.HomeBranchId == targetBranchId 
+                .FirstOrDefaultAsync(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == targetBranchId) 
                                        && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == targetRole.Id)
                                        && u.Status == "ACTIVE"
                                        && u.Id != user.Id);

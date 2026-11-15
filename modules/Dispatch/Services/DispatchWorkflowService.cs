@@ -104,6 +104,24 @@ public class DispatchWorkflowService : IDispatchWorkflowService
                 $"Chi nhánh {fromBranch.Name} chỉ còn lại {quotaCheck.Data.AvailableDispatchQuota} nhân sự khả dụng. Việc điều động quá số lượng này sẽ làm gián đoạn vận hành của chi nhánh hỗ trợ.");
         }
 
+        // TC_DSP_011: Kiểm tra rào cản trùng lặp khoảng ngày điều động (chạm biên hoặc giao nhau) cho từng nhân sự
+        foreach (var u in users)
+        {
+            var overlappingDispatch = await _context.TemporaryDispatches
+                .Include(d => d.DispatchEmployees)
+                .FirstOrDefaultAsync(d => (d.Status == "PENDING" || d.Status == "APPROVED" || d.Status == "PARTIAL")
+                                       && d.StartDate <= request.EndDate
+                                       && request.StartDate <= d.EndDate
+                                       && (d.UserId == u.Id || d.DispatchEmployees.Any(de => de.UserId == u.Id && de.Status != "REJECTED")));
+
+            if (overlappingDispatch != null)
+            {
+                var statusText = overlappingDispatch.Status == "PENDING" ? "đang chờ duyệt" : "đang có hiệu lực";
+                return ApiResponse<DispatchRecordDto>.Fail(
+                    $"Nhân sự '{u.FullName}' đã có một lệnh điều động khác {statusText} từ ngày {overlappingDispatch.StartDate:dd/MM/yyyy} đến ngày {overlappingDispatch.EndDate:dd/MM/yyyy}. Khoảng thời gian điều động không được trùng lặp.");
+            }
+        }
+
         var firstUser = users.First();
         var dispatch = new TemporaryDispatch
         {
@@ -532,6 +550,25 @@ public class DispatchWorkflowService : IDispatchWorkflowService
         {
             return ApiResponse<DispatchRecordDto>.Fail(
                 $"Chi nhánh {fromBranch.Name} chỉ còn lại {quotaCheck.Data.AvailableDispatchQuota} nhân sự khả dụng. Việc điều động quá số lượng này sẽ làm gián đoạn vận hành của chi nhánh hỗ trợ.");
+        }
+
+        // TC_DSP_011: Kiểm tra rào cản trùng lặp khoảng ngày điều động (chạm biên hoặc giao nhau) cho từng nhân sự khi chỉnh sửa
+        foreach (var u in users)
+        {
+            var overlappingDispatch = await _context.TemporaryDispatches
+                .Include(d => d.DispatchEmployees)
+                .FirstOrDefaultAsync(d => d.Id != dispatch.Id
+                                       && (d.Status == "PENDING" || d.Status == "APPROVED" || d.Status == "PARTIAL")
+                                       && d.StartDate <= request.EndDate
+                                       && request.StartDate <= d.EndDate
+                                       && (d.UserId == u.Id || d.DispatchEmployees.Any(de => de.UserId == u.Id && de.Status != "REJECTED")));
+
+            if (overlappingDispatch != null)
+            {
+                var statusText = overlappingDispatch.Status == "PENDING" ? "đang chờ duyệt" : "đang có hiệu lực";
+                return ApiResponse<DispatchRecordDto>.Fail(
+                    $"Nhân sự '{u.FullName}' đã có một lệnh điều động khác {statusText} từ ngày {overlappingDispatch.StartDate:dd/MM/yyyy} đến ngày {overlappingDispatch.EndDate:dd/MM/yyyy}. Khoảng thời gian điều động không được trùng lặp.");
+            }
         }
 
         dispatch.UserId = users.First().Id;

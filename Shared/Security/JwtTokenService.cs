@@ -29,6 +29,22 @@ public class JwtTokenService
 
         var expiresAt = DateTime.UtcNow.AddMinutes(expirationMinutes);
 
+        var tokenDescriptor = new JwtSecurityToken(
+            issuer: issuer,
+            audience: audience,
+            claims: CreateClaims(user),
+            expires: expiresAt,
+            signingCredentials: credentials
+        );
+
+        var tokenHandler = new JwtSecurityTokenHandler();
+        var tokenString = tokenHandler.WriteToken(tokenDescriptor);
+
+        return (tokenString, expiresAt);
+    }
+
+    internal static List<Claim> CreateClaims(User user)
+    {
         var roleCode = user.Role?.RoleCode ?? "STORE_MANAGER";
 
         var claims = new List<Claim>
@@ -52,18 +68,7 @@ public class JwtTokenService
             claims.Add(new Claim("permission", "branch.lock"));
         }
 
-        var tokenDescriptor = new JwtSecurityToken(
-            issuer: issuer,
-            audience: audience,
-            claims: claims,
-            expires: expiresAt,
-            signingCredentials: credentials
-        );
-
-        var tokenHandler = new JwtSecurityTokenHandler();
-        var tokenString = tokenHandler.WriteToken(tokenDescriptor);
-
-        return (tokenString, expiresAt);
+        return claims;
     }
 
     public (string token, DateTime expiresAt) GenerateToken(User user) => GenerateAccessToken(user);

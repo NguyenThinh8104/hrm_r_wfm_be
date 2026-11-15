@@ -1,3 +1,5 @@
+using Shared.Security;
+
 namespace Modules.Auth.DTOs;
 
 public class LoginRequestDto
@@ -6,10 +8,7 @@ public class LoginRequestDto
     public string Password { get; set; } = string.Empty;
 }
 
-public class RefreshTokenRequestDto
-{
-    public string? RefreshToken { get; set; }
-}
+public sealed record WebLoginResult(UserSummaryDto User, WebSessionIdentity Identity);
 
 public class KioskLoginRequestDto
 {

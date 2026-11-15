@@ -85,7 +85,7 @@ public class UserAccountService : IUserAccountService
 
             // 2. Kiểm tra ca trực đang hoạt động hiện tại (Đã Check-in và chưa Check-out)
             var isCurrentlyWorking = await _context.AttendanceLogs
-                .AnyAsync(a => a.Assignment.UserId == userId && a.CheckOutTime == null && (a.Status == Domain.Enums.AttendanceLogStatus.PRESENT || a.Status == Domain.Enums.AttendanceLogStatus.LATE));
+                .AnyAsync(a => a.Assignment.UserId == userId && a.CheckOutTime == null && a.Status == Domain.Enums.AttendanceLogStatus.PRESENT);
             if (isCurrentlyWorking)
             {
                 return ApiResponse<bool>.Fail("Không thể khóa tài khoản: Nhân viên hiện đang trong ca trực làm việc (đã điểm danh vào ca và chưa hoàn tất Check-out).");
@@ -283,8 +283,6 @@ public class UserAccountService : IUserAccountService
                 .ExecuteUpdateAsync(s => s.SetProperty(b => b.RequestedBy, actorId));
 
             // 4. Cập nhật các trường khóa ngoại nullable về NULL
-            await _context.AttendanceLogs.Where(al => al.FraudFlaggedBy == userId)
-                .ExecuteUpdateAsync(s => s.SetProperty(b => b.FraudFlaggedBy, (ulong?)null));
             await _context.TemporaryDispatches.Where(td => td.ApprovedBy == userId)
                 .ExecuteUpdateAsync(s => s.SetProperty(b => b.ApprovedBy, (ulong?)null));
             await _context.DispatchEmployees.Where(de => de.ApprovedBy == userId)

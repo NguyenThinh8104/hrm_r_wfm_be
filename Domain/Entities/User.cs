@@ -8,7 +8,6 @@ public class User
     public string Email { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
-    public string? KioskPinHash { get; set; }
     public byte RoleId { get; set; }
     public Role Role { get; set; } = null!;
     public string EmploymentType { get; set; } = "FULL_TIME";

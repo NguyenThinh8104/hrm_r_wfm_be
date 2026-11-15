@@ -33,7 +33,11 @@ public class AttendanceSelfService : IAttendanceSelfService
             .Include(a => a.Schedule)
                 .ThenInclude(s => s.Branch)
             .Include(a => a.AttendanceLog)
-            .Where(a => a.UserId == userId && a.Schedule.WorkDate >= weekStart && a.Schedule.WorkDate <= weekEnd)
+            .Where(a => a.UserId == userId 
+                     && a.Schedule.WorkDate >= weekStart 
+                     && a.Schedule.WorkDate <= weekEnd
+                     && a.Schedule.Status == "PUBLISHED"
+                     && a.Status != "DRAFT")
             .OrderBy(a => a.Schedule.WorkDate)
             .ThenBy(a => a.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
@@ -119,7 +123,11 @@ public class AttendanceSelfService : IAttendanceSelfService
             .Include(a => a.Schedule)
                 .ThenInclude(s => s.Branch)
             .Include(a => a.AttendanceLog)
-            .Where(a => a.UserId == userId && a.Schedule.WorkDate >= monthStart && a.Schedule.WorkDate <= monthEnd)
+            .Where(a => a.UserId == userId 
+                     && a.Schedule.WorkDate >= monthStart 
+                     && a.Schedule.WorkDate <= monthEnd
+                     && a.Schedule.Status == "PUBLISHED"
+                     && a.Status != "DRAFT")
             .OrderBy(a => a.Schedule.WorkDate)
             .ThenBy(a => a.Schedule.ShiftTemplate.StartTime)
             .ToListAsync();
@@ -182,7 +190,9 @@ public class AttendanceSelfService : IAttendanceSelfService
                 ActualWorkMinutes = actualMinutes.HasValue ? Math.Round(actualMinutes.Value, 1) : null,
                 Status = status,
                 IsLate = isLate,
-                IsDispatched = isDispatched
+                IsDispatched = isDispatched,
+                CheckInStatus = a.AttendanceLog?.CheckInStatus.ToString(),
+                CheckOutStatus = a.AttendanceLog?.CheckOutStatus?.ToString()
             });
         }
 

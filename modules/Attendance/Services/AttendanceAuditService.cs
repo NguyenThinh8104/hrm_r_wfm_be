@@ -70,11 +70,10 @@ public class AttendanceAuditService : IAttendanceAuditService
                 CheckOutTime = att?.CheckOutTime,
                 CheckInPhotoPresignedUrl = checkInPhotoUrl,
                 CheckOutPhotoPresignedUrl = checkOutPhotoUrl,
-                IsFraudFlagged = false,
-                FraudReason = null,
-                ReportedByName = null,
                 IsLate = isLate,
-                Status = status
+                Status = status,
+                CheckInStatus = att?.CheckInStatus.ToString(),
+                CheckOutStatus = att?.CheckOutStatus?.ToString()
             };
         }).ToList();
 

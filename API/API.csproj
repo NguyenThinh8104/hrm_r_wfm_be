@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -31,7 +31,6 @@
     <ProjectReference Include="..\modules\Shifts\Shifts.csproj" />
     <ProjectReference Include="..\modules\Attendance\Attendance.csproj" />
     <ProjectReference Include="..\modules\Dispatch\Dispatch.csproj" />
-    <ProjectReference Include="..\modules\Handovers\Handovers.csproj" />
   </ItemGroup>
 
 </Project>

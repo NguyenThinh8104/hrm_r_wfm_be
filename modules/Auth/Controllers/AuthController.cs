@@ -6,28 +6,30 @@ using Modules.Auth.DTOs;
 using Modules.Auth.Interfaces;
 using Shared.Common;
 using Shared.Common.Constants;
+using Shared.Security;
 
 namespace Modules.Auth.Controllers;
 
 [ApiController]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
 
-    public AuthController(IAuthService authService)
+    private readonly WebSession _webSession;
+
+    public AuthController(IAuthService authService, WebSession webSession)
     {
         _authService = authService;
+        _webSession = webSession;
     }
 
     [HttpPost("login")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> Login([FromBody] LoginRequestDto request)
+    public async Task<ActionResult<ApiResponse<UserSummaryDto>>> Login([FromBody] LoginRequestDto request)
     {
-        var result = await _authService.LoginAsync(request);
-        if (!result.Success) return BadRequest(result);
-        SetRefreshTokenCookie(result.Data?.RefreshToken);
-        return Ok(result);
+        return await StartWebSession(await _authService.LoginAsync(request));
     }
 
     [HttpPost("kiosk-login")]
@@ -40,39 +42,28 @@ public class AuthController : ControllerBase
         return Ok(result);
     }
 
-    [HttpPost("refresh")]
-    [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> RefreshToken([FromBody] RefreshTokenRequestDto? bodyRequest)
-    {
-        var refreshToken = Request.Cookies["refreshToken"] ?? bodyRequest?.RefreshToken;
-
-        if (string.IsNullOrWhiteSpace(refreshToken))
-        {
-            return Unauthorized(ApiResponse<AuthResponseDto>.Fail("Không tìm thấy Refresh Token. Vui lòng đăng nhập lại."));
-        }
-
-        var result = await _authService.RefreshTokenAsync(refreshToken);
-        if (!result.Success)
-        {
-            DeleteRefreshTokenCookie();
-            return Unauthorized(result);
-        }
-
-        SetRefreshTokenCookie(result.Data?.RefreshToken);
-        return Ok(result);
-    }
-
     [HttpPost("logout")]
     public async Task<ActionResult<ApiResponse<bool>>> Logout()
     {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (int.TryParse(userIdClaim, out var userId))
+        await _webSession.EndAsync(HttpContext);
+        if (User.Identity?.AuthenticationType != WebSession.Scheme &&
+            int.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
         {
             await _authService.RevokeTokenAsync(userId);
         }
 
         DeleteRefreshTokenCookie();
         return Ok(ApiResponse<bool>.Ok(true, "Đăng xuất thành công."));
+    }
+
+    private async Task<ActionResult<ApiResponse<UserSummaryDto>>> StartWebSession(ApiResponse<WebLoginResult> result)
+    {
+        if (!result.Success || result.Data == null)
+            return BadRequest(ApiResponse<UserSummaryDto>.Fail(result.Message, result.Errors));
+
+        await _webSession.StartAsync(HttpContext, result.Data.Identity);
+        DeleteRefreshTokenCookie();
+        return Ok(ApiResponse<UserSummaryDto>.Ok(result.Data.User, result.Message));
     }
 
     private void SetRefreshTokenCookie(string? refreshToken)
@@ -154,12 +145,9 @@ public class AuthController : ControllerBase
 
     [HttpPost("google-login")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> GoogleLogin([FromBody] GoogleLoginDTOs request)
+    public async Task<ActionResult<ApiResponse<UserSummaryDto>>> GoogleLogin([FromBody] GoogleLoginDTOs request)
     {
-        var result = await _authService.GoogleLoginAsync(request);
-        if (!result.Success) return BadRequest(result);
-        SetRefreshTokenCookie(result.Data?.RefreshToken);
-        return Ok(result);
+        return await StartWebSession(await _authService.GoogleLoginAsync(request));
     }
 
     [HttpPost("change-password")]

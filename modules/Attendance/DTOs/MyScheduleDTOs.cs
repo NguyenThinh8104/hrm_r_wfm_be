@@ -63,4 +63,6 @@ public class MyAttendanceDayDto
     public string Status { get; set; } = "ABSENT"; // PRESENT | LATE | ABSENT | INCOMPLETE | NOT_YET
     public bool IsLate { get; set; }
     public bool IsDispatched { get; set; }
+    public string? CheckInStatus { get; set; }
+    public string? CheckOutStatus { get; set; }
 }

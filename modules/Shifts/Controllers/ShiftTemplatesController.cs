@@ -242,12 +242,44 @@ public class ShiftTemplatesController : ControllerBase
     }
 
     /// <summary>
+    /// Tra cứu chế độ ca hiện tại của chi nhánh (GLOBAL hoặc CUSTOM).
+    /// GET /api/branches/{branchId}/shift-mode
+    /// </summary>
+    [HttpGet("/api/branches/{branchId}/shift-mode")]
+    [HttpGet("/api/v1/branches/{branchId}/shift-mode")]
+    [HttpGet("/api/stores/{branchId}/shift-mode")]
+    [Authorize]
+    public async Task<ActionResult> GetBranchShiftMode(ulong branchId)
+    {
+        var role = User.FindFirst(ClaimTypes.Role)?.Value;
+        var result = await _shiftService.GetBranchEffectiveShiftsAsync(branchId, GetCurrentUserId(), role);
+        if (!result.Success)
+        {
+            return StatusCode(result.StatusCode, new
+            {
+                code = result.Code ?? "ERROR",
+                message = result.Message,
+                details = result.Details
+            });
+        }
+        return Ok(new
+        {
+            branchId = result.Data.BranchId,
+            branchName = result.Data.BranchName,
+            shiftMode = result.Data.ShiftMode
+        });
+    }
+
+    /// <summary>
     /// [Operations Admin] Cập nhật chế độ ca của chi nhánh (GLOBAL sang CUSTOM hoặc ngược lại).
     /// PATCH /api/branches/{branchId}/shift-mode
     /// </summary>
     [HttpPatch("/api/branches/{branchId}/shift-mode")]
     [HttpPatch("/api/v1/branches/{branchId}/shift-mode")]
     [HttpPatch("/api/stores/{branchId}/shift-mode")]
+    [HttpPut("/api/branches/{branchId}/shift-mode")]
+    [HttpPut("/api/v1/branches/{branchId}/shift-mode")]
+    [HttpPut("/api/stores/{branchId}/shift-mode")]
     [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN,StoreManager,STORE_MANAGER")]
     public async Task<ActionResult> UpdateBranchShiftMode(
         ulong branchId,

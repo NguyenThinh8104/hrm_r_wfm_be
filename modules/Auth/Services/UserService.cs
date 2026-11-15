@@ -676,7 +676,10 @@ public class UserService : IUserService
                 Code = b.BranchCode,
                 Name = b.Name,
                 Address = b.Address,
-                Status = b.Status
+                Status = b.Status,
+                BranchTier = (int)b.BranchTier,
+                TierId = b.TierId,
+                StaffCount = b.StaffCount
             })
             .ToListAsync();
 

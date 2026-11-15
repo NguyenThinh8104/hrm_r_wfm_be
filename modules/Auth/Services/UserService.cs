@@ -597,7 +597,22 @@ public class UserService : IUserService
 
         if (!string.IsNullOrWhiteSpace(dto.Status))
         {
-            user.Status = dto.Status.ToUpper();
+            var newStatus = dto.Status.ToUpper();
+            if (newStatus == "ACTIVE")
+            {
+                var effectiveBranchId = user.HomeBranchId ?? targetBranchId;
+                if (effectiveBranchId > 0)
+                {
+                    var bEntity = await _context.Branches.FindAsync(effectiveBranchId);
+                    if (bEntity != null && (bEntity.Status == "INACTIVE" || bEntity.Status == "LOCKED"))
+                    {
+                        return ApiResponse<EmployeeDetailDto>.Fail(
+                            $"Không thể kích hoạt tài khoản: Chi nhánh trực thuộc '{bEntity.Name}' hiện đang bị tạm khóa hoặc ngừng hoạt động. " +
+                            "Vui lòng mở khóa chi nhánh hoặc điều chuyển nhân sự sang chi nhánh đang hoạt động trước khi kích hoạt lại.");
+                    }
+                }
+            }
+            user.Status = newStatus;
         }
 
         user.UpdatedAt = DateTime.UtcNow;
@@ -667,7 +682,6 @@ public class UserService : IUserService
     public async Task<ApiResponse<List<BranchSimpleDto>>> GetBranchesAsync()
     {
         var branches = await _context.Branches
-            .Where(b => b.Status == "ACTIVE")
             .OrderBy(b => b.Id)
             .Select(b => new BranchSimpleDto
             {

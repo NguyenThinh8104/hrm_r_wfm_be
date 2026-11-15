@@ -714,7 +714,7 @@ public class EmployeeImportService : IEmployeeImportService
             }, ipAddress);
 
             // Kích hoạt hàng đợi gửi email cá nhân hóa (chứa đầy đủ Họ tên, Mã NV, Chức danh, Chi nhánh, Mật khẩu khởi tạo)
-            // Chạy trong background task với cơ chế điều tiết (Throttling Delay 1.5s) để Google không chặn
+            // Chạy trong background task với cơ chế điều tiết (Throttling Delay 5s) để Google không chặn
             _emailService.QueueBulkImportPersonalizedWelcomeEmails(welcomeEmailItems);
         }
 

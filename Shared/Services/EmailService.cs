@@ -229,7 +229,7 @@ public class EmailService : IEmailService
 
     /// <summary>
     /// Hàng đợi gửi email cá nhân hóa (chứa đầy đủ Họ tên, Mã NV, Chức danh, Chi nhánh, Mật khẩu khởi tạo) cho nhân viên sau khi import.
-    /// Chạy ngầm trong Background Task (fire-and-forget), áp dụng cơ chế điều tiết (Throttling Delay 1500ms) để không bị Google SMTP khóa tài khoản.
+    /// Chạy ngầm trong Background Task (fire-and-forget), áp dụng cơ chế điều tiết (Throttling Delay 5000ms / 5s) để không bị Google SMTP khóa tài khoản.
     /// </summary>
     public void QueueBulkImportPersonalizedWelcomeEmails(IReadOnlyCollection<BulkImportWelcomeEmailItem> items)
     {
@@ -277,10 +277,10 @@ public class EmailService : IEmailService
                 }
 
                 // CƠ CHẾ ĐIỀU TIẾT TỐC ĐỘ (RATE LIMITING THROTTLING):
-                // Nghỉ an toàn 1.5 giây giữa mỗi email để tránh kích hoạt bộ lọc spam burst limit của Gmail SMTP
+                // Nghỉ an toàn 5 giây (5000ms) giữa mỗi email để tránh kích hoạt bộ lọc spam burst limit của Gmail SMTP
                 if (index < items.Count)
                 {
-                    await Task.Delay(1500);
+                    await Task.Delay(5000);
                 }
             }
 

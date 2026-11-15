@@ -26,7 +26,7 @@ public sealed class WebSession(IDistributedCache cache, IConfiguration configura
 
     private static readonly TimeSpan Lifetime = TimeSpan.FromDays(7);
 
-    public async Task StartAsync(HttpContext context, WebSessionIdentity identity)
+    public async Task StartAsync(HttpContext context, WebSessionIdentity identity, bool rememberMe)
     {
         await RemoveAsync(context);
         var sessionId = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
@@ -35,7 +35,8 @@ public sealed class WebSession(IDistributedCache cache, IConfiguration configura
             new DistributedCacheEntryOptions { AbsoluteExpiration = expires }, context.RequestAborted);
 
         var options = CookieOptionsFor(context);
-        options.Expires = expires;
+        if (rememberMe)
+            options.Expires = expires;
         context.Response.Cookies.Append(CookieName, sessionId, options);
     }
 

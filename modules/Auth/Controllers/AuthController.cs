@@ -29,7 +29,7 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<UserSummaryDto>>> Login([FromBody] LoginRequestDto request)
     {
-        return await StartWebSession(await _authService.LoginAsync(request));
+        return await StartWebSession(await _authService.LoginAsync(request), request.RememberMe);
     }
 
     [HttpPost("kiosk-login")]
@@ -56,12 +56,13 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<bool>.Ok(true, "Đăng xuất thành công."));
     }
 
-    private async Task<ActionResult<ApiResponse<UserSummaryDto>>> StartWebSession(ApiResponse<WebLoginResult> result)
+    private async Task<ActionResult<ApiResponse<UserSummaryDto>>> StartWebSession(
+        ApiResponse<WebLoginResult> result, bool rememberMe)
     {
         if (!result.Success || result.Data == null)
             return BadRequest(ApiResponse<UserSummaryDto>.Fail(result.Message, result.Errors));
 
-        await _webSession.StartAsync(HttpContext, result.Data.Identity);
+        await _webSession.StartAsync(HttpContext, result.Data.Identity, rememberMe);
         DeleteRefreshTokenCookie();
         return Ok(ApiResponse<UserSummaryDto>.Ok(result.Data.User, result.Message));
     }
@@ -147,7 +148,7 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<UserSummaryDto>>> GoogleLogin([FromBody] GoogleLoginDTOs request)
     {
-        return await StartWebSession(await _authService.GoogleLoginAsync(request));
+        return await StartWebSession(await _authService.GoogleLoginAsync(request), request.RememberMe);
     }
 
     [HttpPost("change-password")]

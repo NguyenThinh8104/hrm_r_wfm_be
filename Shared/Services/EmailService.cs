@@ -227,6 +227,68 @@ public class EmailService : IEmailService
         }
     }
 
+    /// <summary>
+    /// Hàng đợi gửi email cá nhân hóa (chứa đầy đủ Họ tên, Mã NV, Chức danh, Chi nhánh, Mật khẩu khởi tạo) cho nhân viên sau khi import.
+    /// Chạy ngầm trong Background Task (fire-and-forget), áp dụng cơ chế điều tiết (Throttling Delay 1500ms) để không bị Google SMTP khóa tài khoản.
+    /// </summary>
+    public void QueueBulkImportPersonalizedWelcomeEmails(IReadOnlyCollection<BulkImportWelcomeEmailItem> items)
+    {
+        if (items == null || items.Count == 0) return;
+
+        // Tách ra chạy nền trên luồng riêng, không làm block response của API Import
+        _ = Task.Run(async () =>
+        {
+            _logger.LogInformation(">>> [QUEUE BULK EMAIL] Bắt đầu hàng đợi gửi Welcome Email cá nhân hóa cho {Count} nhân sự mới...", items.Count);
+
+            int index = 0;
+            int successCount = 0;
+            int failCount = 0;
+
+            foreach (var item in items)
+            {
+                index++;
+                try
+                {
+                    _logger.LogInformation(">>> [BULK EMAIL] [{Index}/{Total}] Đang gửi email cho: {FullName} ({EmployeeCode}) - {Email}...",
+                        index, items.Count, item.FullName, item.EmployeeCode, item.Email);
+
+                    var sent = await SendWelcomeEmailAsync(
+                        item.Email,
+                        item.FullName,
+                        item.EmployeeCode,
+                        item.RoleName,
+                        item.BranchName,
+                        item.PlainPassword
+                    );
+
+                    if (sent)
+                    {
+                        successCount++;
+                    }
+                    else
+                    {
+                        failCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failCount++;
+                    _logger.LogError(ex, ">>> [BULK EMAIL ERROR] Lỗi không mong muốn khi gửi email cho {Email} ({EmployeeCode})", item.Email, item.EmployeeCode);
+                }
+
+                // CƠ CHẾ ĐIỀU TIẾT TỐC ĐỘ (RATE LIMITING THROTTLING):
+                // Nghỉ an toàn 1.5 giây giữa mỗi email để tránh kích hoạt bộ lọc spam burst limit của Gmail SMTP
+                if (index < items.Count)
+                {
+                    await Task.Delay(1500);
+                }
+            }
+
+            _logger.LogInformation(">>> [QUEUE BULK EMAIL COMPLETED] Đã hoàn tất gửi {Success}/{Total} email chào mừng (Thất bại: {FailCount})",
+                successCount, items.Count, failCount);
+        });
+    }
+
     public async Task<bool> SendShiftChangeNotificationEmailAsync(string recipientEmail, string recipientName, string changeType, string shiftDetails, string effectiveDate, string note, string? status = null)
     {
         try

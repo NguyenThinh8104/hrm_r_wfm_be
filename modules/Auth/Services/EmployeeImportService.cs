@@ -467,7 +467,12 @@ public class EmployeeImportService : IEmployeeImportService
 
             if (string.IsNullOrWhiteSpace(r.Phone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, Email = r.Email, ErrorMessage = "Số điện thoại không được để trống." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = r.EmployeeCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = "Số điện thoại không được để trống." });
                 continue;
             }
 
@@ -478,34 +483,64 @@ public class EmployeeImportService : IEmployeeImportService
             // Kiểm tra trùng lặp trong tệp tin
             if (seenCodesInFile.Contains(normalizedCode))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Mã nhân viên '{normalizedCode}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber,
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Mã nhân viên '{normalizedCode}' bị trùng lặp trong tệp tin." });
                 continue;
             }
             if (seenEmailsInFile.Contains(normalizedEmail))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{normalizedEmail}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Email '{normalizedEmail}' bị trùng lặp trong tệp tin." });
                 continue;
             }
             if (seenPhonesInFile.Contains(normalizedPhone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Số điện thoại '{normalizedPhone}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Số điện thoại '{normalizedPhone}' bị trùng lặp trong tệp tin." });
                 continue;
             }
 
             // Kiểm tra trùng lặp với CSDL
             if (existingCodes.Contains(normalizedCode))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống." });
                 continue;
             }
             if (existingEmails.Contains(normalizedEmail))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{normalizedEmail}' đã được sử dụng trong hệ thống." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Email '{normalizedEmail}' đã được sử dụng trong hệ thống." });
                 continue;
             }
             if (existingPhones.Contains(normalizedPhone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Số điện thoại '{normalizedPhone}' đã được sử dụng trong hệ thống." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Số điện thoại '{normalizedPhone}' đã được sử dụng trong hệ thống." });
                 continue;
             }
 
@@ -513,7 +548,12 @@ public class EmployeeImportService : IEmployeeImportService
             var normalizedRoleCode = r.RoleCode.Trim().ToUpper();
             if (!validStoreRoles.Contains(normalizedRoleCode) || !rolesByCode.TryGetValue(normalizedRoleCode, out var targetRole))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Vai trò '{r.RoleCode}' không hợp lệ. Chỉ chấp nhận: STORE_MANAGER, SHIFT_LEADER, CASHIER, SALES_STAFF, SECURITY_GUARD." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Vai trò '{r.RoleCode}' không hợp lệ. Chỉ chấp nhận: STORE_MANAGER, SHIFT_LEADER, CASHIER, SALES_STAFF, SECURITY_GUARD." });
                 continue;
             }
 
@@ -565,6 +605,7 @@ public class EmployeeImportService : IEmployeeImportService
 
         // 4. Thẩm định định biên (Effective Quota) và tạo nhân sự cho các dòng hợp lệ
         var newUsersToInsert = new List<User>();
+        var welcomeEmailItems = new List<BulkImportWelcomeEmailItem>();
         var branchBatchCounter = new Dictionary<ulong, int>();
 
         foreach (var (row, role, branch) in validRowsToProcess)
@@ -627,6 +668,16 @@ public class EmployeeImportService : IEmployeeImportService
 
             newUsersToInsert.Add(user);
 
+            welcomeEmailItems.Add(new BulkImportWelcomeEmailItem
+            {
+                Email = user.Email,
+                FullName = user.FullName,
+                EmployeeCode = user.EmployeeCode,
+                RoleName = role.RoleName,
+                BranchName = branch.Name,
+                PlainPassword = plainPass
+            });
+
             result.SuccessEmployees.Add(new EmployeeDetailDto
             {
                 Id = user.Id,
@@ -652,7 +703,6 @@ public class EmployeeImportService : IEmployeeImportService
         }
 
         // 5. Lưu vào CSDL
-        var welcomeEmailSent = false;
         if (newUsersToInsert.Count > 0)
         {
             _context.Users.AddRange(newUsersToInsert);
@@ -663,8 +713,9 @@ public class EmployeeImportService : IEmployeeImportService
                 TotalImported = newUsersToInsert.Count
             }, ipAddress);
 
-            var recipientEmails = newUsersToInsert.Select(user => user.Email).ToArray();
-            welcomeEmailSent = await _emailService.SendBulkImportWelcomeEmailAsync(recipientEmails);
+            // Kích hoạt hàng đợi gửi email cá nhân hóa (chứa đầy đủ Họ tên, Mã NV, Chức danh, Chi nhánh, Mật khẩu khởi tạo)
+            // Chạy trong background task với cơ chế điều tiết (Throttling Delay 1.5s) để Google không chặn
+            _emailService.QueueBulkImportPersonalizedWelcomeEmails(welcomeEmailItems);
         }
 
         result.SuccessCount = newUsersToInsert.Count;
@@ -673,9 +724,7 @@ public class EmployeeImportService : IEmployeeImportService
         var message = $"Import nhân sự hoàn tất: {result.SuccessCount} thành công, {result.FailureCount} lỗi.";
         if (result.SuccessCount > 0)
         {
-            message += welcomeEmailSent
-                ? " Đã gửi 1 email hướng dẫn đặt mật khẩu cho các tài khoản mới."
-                : " Tài khoản đã được lưu. Hệ thống chưa xác nhận gửi email thành công cho toàn bộ người nhận.";
+            message += " Đang tiến hành gửi email thông tin tài khoản và mật khẩu khởi tạo riêng cho từng nhân sự trong nền (có điều tiết tốc độ an toàn).";
         }
         return ApiResponse<BulkImportResultDto>.Ok(result, message);
     }

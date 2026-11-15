@@ -163,7 +163,7 @@ public class ShiftTemplateService : IShiftTemplateService
             }
 
             // Quy tắc 11: Nếu chi nhánh đang bị khóa, từ chối thêm ca riêng (HTTP 423)
-            if (branch.LockedAt != null || string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) || string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase))
+            if (IsBranchLocked(branch))
             {
                 return ShiftOperationResult<ShiftTemplateDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể thêm ca riêng.");
             }
@@ -284,7 +284,7 @@ public class ShiftTemplateService : IShiftTemplateService
         if (template.Scope == "BRANCH" && template.BranchId.HasValue)
         {
             var branch = template.Branch ?? await _context.Branches.FindAsync(template.BranchId.Value);
-            if (branch != null && (branch.LockedAt != null || string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) || string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase)))
+            if (branch != null && IsBranchLocked(branch))
             {
                 return ShiftOperationResult<ShiftTemplateDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể sửa ca riêng.");
             }
@@ -464,7 +464,7 @@ public class ShiftTemplateService : IShiftTemplateService
         if (template.Scope == "BRANCH" && template.BranchId.HasValue)
         {
             var branch = template.Branch ?? await _context.Branches.FindAsync(template.BranchId.Value);
-            if (branch != null && (branch.LockedAt != null || string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) || string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase)))
+            if (branch != null && IsBranchLocked(branch))
             {
                 return ShiftOperationResult<ShiftTemplateDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể sửa trạng thái ca riêng.");
             }
@@ -597,12 +597,12 @@ public class ShiftTemplateService : IShiftTemplateService
         }
 
         // Quy tắc 11: Nếu chi nhánh đang bị khóa, từ chối đổi ShiftMode (HTTP 423)
-        if (branch.LockedAt != null || string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) || string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase))
+        if (IsBranchLocked(branch))
         {
             return ShiftOperationResult<BranchEffectiveShiftsDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể đổi chế độ khung ca.");
         }
 
-        // Quy tắc 2: Không cho chuyển sang CUSTOM nếu chi nhánh chưa có ca riêng nào IsActive=true
+        // Quy tắc 2: Tự động kích hoạt ca riêng hoặc khởi tạo bộ ca riêng ban đầu từ ca chung khi bật CUSTOM
         if (normalizedMode == "CUSTOM")
         {
             var hasActiveCustom = await _context.ShiftTemplates
@@ -610,9 +610,54 @@ public class ShiftTemplateService : IShiftTemplateService
 
             if (!hasActiveCustom)
             {
-                return ShiftOperationResult<BranchEffectiveShiftsDto>.BadRequest(
-                    "NO_ACTIVE_CUSTOM_SHIFT",
-                    "Không thể chuyển sang chế độ ca riêng vì chi nhánh chưa có ca riêng nào đang hoạt động.");
+                var inactiveCustoms = await _context.ShiftTemplates
+                    .Where(st => st.Scope == "BRANCH" && st.BranchId == branchId && !st.IsActive)
+                    .ToListAsync();
+
+                if (inactiveCustoms.Count > 0)
+                {
+                    foreach (var s in inactiveCustoms)
+                    {
+                        s.IsActive = true;
+                        s.UpdatedAt = DateTime.UtcNow;
+                    }
+                    await _context.SaveChangesAsync();
+                }
+                else
+                {
+                    var activeGlobals = await _context.ShiftTemplates
+                        .Where(st => st.Scope == "GLOBAL" && st.IsActive)
+                        .ToListAsync();
+
+                    if (activeGlobals.Count > 0)
+                    {
+                        var newCustoms = activeGlobals.Select(g => new ShiftTemplate
+                        {
+                            Scope = "BRANCH",
+                            BranchId = branchId,
+                            Name = $"{g.Name} (Riêng)",
+                            TemplateCode = $"CR_{branchId}_{g.TemplateCode.Replace("CA_", "").Replace("CR_", "")}",
+                            Description = g.Description,
+                            ShiftType = g.ShiftType,
+                            StartTime = g.StartTime,
+                            EndTime = g.EndTime,
+                            BreakDurationMinutes = g.BreakDurationMinutes,
+                            IsOvernight = g.IsOvernight,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        }).ToList();
+
+                        _context.ShiftTemplates.AddRange(newCustoms);
+                        await _context.SaveChangesAsync();
+                    }
+                    else
+                    {
+                        return ShiftOperationResult<BranchEffectiveShiftsDto>.BadRequest(
+                            "NO_ACTIVE_CUSTOM_SHIFT",
+                            "Không thể chuyển sang chế độ ca riêng vì chi nhánh chưa có ca riêng nào đang hoạt động.");
+                    }
+                }
             }
         }
 
@@ -1126,6 +1171,18 @@ public class ShiftTemplateService : IShiftTemplateService
     public async Task<ApiResponse<List<ShiftDto>>> GetAllShiftsAsync()
     {
         return await GetAllShiftTemplatesAsync(includeInactive: false);
+    }
+
+    private static bool IsBranchLocked(Branch? branch)
+    {
+        if (branch == null) return false;
+        if (string.Equals(branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return branch.LockedAt != null && (branch.UnlockedAt == null || branch.LockedAt > branch.UnlockedAt);
     }
 
 }

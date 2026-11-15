@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -459,7 +460,7 @@ public class EmployeeImportService : IEmployeeImportService
                 continue;
             }
 
-            if (!r.Email.Contains("@") || !r.Email.Contains("."))
+            if (!Regex.IsMatch(r.Email.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
             {
                 result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{r.Email}' không đúng định dạng." });
                 continue;
@@ -476,9 +477,31 @@ public class EmployeeImportService : IEmployeeImportService
                 continue;
             }
 
+            // Chuẩn hóa và xác thực định dạng số điện thoại di động Việt Nam (10 chữ số, đầu 03, 05, 07, 08, 09 hoặc +84)
+            var cleanPhone = Regex.Replace(r.Phone.Trim(), @"[\s\.\-\(\)]", "");
+            if (cleanPhone.StartsWith("+84"))
+            {
+                cleanPhone = "0" + cleanPhone.Substring(3);
+            }
+            else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11)
+            {
+                cleanPhone = "0" + cleanPhone.Substring(2);
+            }
+
+            if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+            {
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = r.EmployeeCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Số điện thoại '{r.Phone}' không hợp lệ (Số điện thoại Việt Nam bắt buộc phải gồm 10 chữ số và bắt đầu bằng đầu số 03, 05, 07, 08, 09. VD: 0912345678)." });
+                continue;
+            }
+
             var normalizedCode = r.EmployeeCode.Trim().ToUpper();
             var normalizedEmail = r.Email.Trim().ToLower();
-            var normalizedPhone = r.Phone.Trim();
+            var normalizedPhone = cleanPhone;
 
             // Kiểm tra trùng lặp trong tệp tin
             if (seenCodesInFile.Contains(normalizedCode))

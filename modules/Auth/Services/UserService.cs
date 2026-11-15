@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Domain.Entities;
@@ -72,7 +73,21 @@ public class UserService : IUserService
 
         var normalizedCode = dto.EmployeeCode.Trim().ToUpper();
         var normalizedEmail = dto.Email.Trim().ToLower();
-        var normalizedPhone = dto.Phone.Trim();
+
+        if (!Regex.IsMatch(normalizedEmail, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+        {
+            return ApiResponse<StoreManagerDto>.Fail($"Email '{dto.Email}' không đúng định dạng.");
+        }
+
+        var cleanPhone = Regex.Replace(dto.Phone.Trim(), @"[\s\.\-\(\)]", "");
+        if (cleanPhone.StartsWith("+84")) cleanPhone = "0" + cleanPhone.Substring(3);
+        else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11) cleanPhone = "0" + cleanPhone.Substring(2);
+
+        if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+        {
+            return ApiResponse<StoreManagerDto>.Fail($"Số điện thoại '{dto.Phone}' không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09. VD: 0912345678).");
+        }
+        var normalizedPhone = cleanPhone;
 
         // Kiểm tra trùng lặp
         if (await _context.Users.AnyAsync(u => u.EmployeeCode == normalizedCode))
@@ -382,7 +397,21 @@ public class UserService : IUserService
 
         var normalizedCode = dto.EmployeeCode.Trim().ToUpper();
         var normalizedEmail = dto.Email.Trim().ToLower();
-        var normalizedPhone = dto.Phone.Trim();
+
+        if (!Regex.IsMatch(normalizedEmail, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+        {
+            return ApiResponse<EmployeeDetailDto>.Fail($"Email '{dto.Email}' không đúng định dạng.");
+        }
+
+        var cleanPhone = Regex.Replace(dto.Phone.Trim(), @"[\s\.\-\(\)]", "");
+        if (cleanPhone.StartsWith("+84")) cleanPhone = "0" + cleanPhone.Substring(3);
+        else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11) cleanPhone = "0" + cleanPhone.Substring(2);
+
+        if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+        {
+            return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{dto.Phone}' không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09. VD: 0912345678).");
+        }
+        var normalizedPhone = cleanPhone;
         var normalizedActorRole = actorRole.ToUpper();
 
         // 1. Phân quyền RBAC nghiêm ngặt: Chỉ duy nhất OPERATIONS_ADMIN (hoặc ADMIN hệ thống) mới có quyền tạo nhân sự
@@ -545,8 +574,16 @@ public class UserService : IUserService
         if ((normalizedActorRole == "STORE_MANAGER" || normalizedActorRole == "STOREMANAGER") && (targetRole.RoleCode == "OPERATIONS_ADMIN" || targetRole.RoleCode == "BUSINESS_OWNER" || targetRole.RoleCode == "STORE_MANAGER"))
             return ApiResponse<EmployeeDetailDto>.Fail("Không có quyền nâng cấp vai trò này.");
 
-        // Kiểm tra trùng SĐT nếu thay đổi
-        var normalizedPhone = dto.Phone.Trim();
+        // Kiểm tra và chuẩn hóa SĐT nếu thay đổi
+        var cleanPhone = Regex.Replace(dto.Phone.Trim(), @"[\s\.\-\(\)]", "");
+        if (cleanPhone.StartsWith("+84")) cleanPhone = "0" + cleanPhone.Substring(3);
+        else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11) cleanPhone = "0" + cleanPhone.Substring(2);
+
+        if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+        {
+            return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{dto.Phone}' không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09. VD: 0912345678).");
+        }
+        var normalizedPhone = cleanPhone;
         if (normalizedPhone != user.Phone && await _context.Users.AnyAsync(u => u.Phone == normalizedPhone && u.Id != user.Id))
             return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{normalizedPhone}' đã được sử dụng bởi người khác.");
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -416,7 +417,10 @@ public class EmployeeImportService : IEmployeeImportService
 
         // 2. Pre-fetch danh mục
         var existingUsers = await _context.Users.AsNoTracking().ToListAsync();
-        var existingCodes = new HashSet<string>(existingUsers.Select(u => u.EmployeeCode.ToUpper()), StringComparer.OrdinalIgnoreCase);
+        var existingUsersByCode = existingUsers
+            .Where(u => !string.IsNullOrWhiteSpace(u.EmployeeCode))
+            .ToDictionary(u => u.EmployeeCode.Trim().ToUpper(), u => u, StringComparer.OrdinalIgnoreCase);
+        var existingCodes = new HashSet<string>(existingUsersByCode.Keys, StringComparer.OrdinalIgnoreCase);
         var existingEmails = new HashSet<string>(existingUsers.Select(u => u.Email.ToLower()), StringComparer.OrdinalIgnoreCase);
         var existingPhones = new HashSet<string>(existingUsers.Select(u => u.Phone), StringComparer.OrdinalIgnoreCase);
 
@@ -459,7 +463,7 @@ public class EmployeeImportService : IEmployeeImportService
                 continue;
             }
 
-            if (!r.Email.Contains("@") || !r.Email.Contains("."))
+            if (!Regex.IsMatch(r.Email.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
             {
                 result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{r.Email}' không đúng định dạng." });
                 continue;
@@ -467,45 +471,110 @@ public class EmployeeImportService : IEmployeeImportService
 
             if (string.IsNullOrWhiteSpace(r.Phone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, Email = r.Email, ErrorMessage = "Số điện thoại không được để trống." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = r.EmployeeCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = "Số điện thoại không được để trống." });
+                continue;
+            }
+
+            // Chuẩn hóa và xác thực định dạng số điện thoại di động Việt Nam (10 chữ số, đầu 03, 05, 07, 08, 09 hoặc +84)
+            var cleanPhone = Regex.Replace(r.Phone.Trim(), @"[\s\.\-\(\)]", "");
+            if (cleanPhone.StartsWith("+84"))
+            {
+                cleanPhone = "0" + cleanPhone.Substring(3);
+            }
+            else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11)
+            {
+                cleanPhone = "0" + cleanPhone.Substring(2);
+            }
+
+            if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+            {
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = r.EmployeeCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Số điện thoại '{r.Phone}' không hợp lệ (Số điện thoại Việt Nam bắt buộc phải gồm 10 chữ số và bắt đầu bằng đầu số 03, 05, 07, 08, 09. VD: 0912345678)." });
                 continue;
             }
 
             var normalizedCode = r.EmployeeCode.Trim().ToUpper();
             var normalizedEmail = r.Email.Trim().ToLower();
-            var normalizedPhone = r.Phone.Trim();
+            var normalizedPhone = cleanPhone;
 
             // Kiểm tra trùng lặp trong tệp tin
             if (seenCodesInFile.Contains(normalizedCode))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Mã nhân viên '{normalizedCode}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber,
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Mã nhân viên '{normalizedCode}' bị trùng lặp trong tệp tin." });
                 continue;
             }
             if (seenEmailsInFile.Contains(normalizedEmail))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{normalizedEmail}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Email '{normalizedEmail}' bị trùng lặp trong tệp tin." });
                 continue;
             }
             if (seenPhonesInFile.Contains(normalizedPhone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Số điện thoại '{normalizedPhone}' bị trùng lặp trong tệp tin." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Số điện thoại '{normalizedPhone}' bị trùng lặp trong tệp tin." });
                 continue;
             }
 
             // Kiểm tra trùng lặp với CSDL
-            if (existingCodes.Contains(normalizedCode))
+            if (existingUsersByCode.TryGetValue(normalizedCode, out var matchedExistingUser))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống." });
+                bool isInactive = string.Equals(matchedExistingUser.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = isInactive
+                        ? $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống nhưng tài khoản đang bị KHÓA (Inactive). Bạn có thể bấm vào mã nhân viên để mở khóa kích hoạt lại tài khoản này."
+                        : $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống.",
+                    ExistingUserId = matchedExistingUser.Id,
+                    ExistingUserStatus = matchedExistingUser.Status,
+                    CanUnlock = isInactive
+                });
+                    
                 continue;
             }
             if (existingEmails.Contains(normalizedEmail))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{normalizedEmail}' đã được sử dụng trong hệ thống." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Email '{normalizedEmail}' đã được sử dụng trong hệ thống." });
                 continue;
             }
             if (existingPhones.Contains(normalizedPhone))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Số điện thoại '{normalizedPhone}' đã được sử dụng trong hệ thống." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Số điện thoại '{normalizedPhone}' đã được sử dụng trong hệ thống." });
                 continue;
             }
 
@@ -513,7 +582,12 @@ public class EmployeeImportService : IEmployeeImportService
             var normalizedRoleCode = r.RoleCode.Trim().ToUpper();
             if (!validStoreRoles.Contains(normalizedRoleCode) || !rolesByCode.TryGetValue(normalizedRoleCode, out var targetRole))
             {
-                result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = normalizedCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Vai trò '{r.RoleCode}' không hợp lệ. Chỉ chấp nhận: STORE_MANAGER, SHIFT_LEADER, CASHIER, SALES_STAFF, SECURITY_GUARD." });
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = normalizedCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Vai trò '{r.RoleCode}' không hợp lệ. Chỉ chấp nhận: STORE_MANAGER, SHIFT_LEADER, CASHIER, SALES_STAFF, SECURITY_GUARD." });
                 continue;
             }
 
@@ -555,16 +629,17 @@ public class EmployeeImportService : IEmployeeImportService
             validRowsToProcess.Add((r, targetRole, targetBranch));
         }
 
-        // Danh sách các chi nhánh đã có Cửa hàng trưởng ACTIVE
+        
         var branchesWithActiveManagerList = await _context.Users
             .Include(u => u.Role)
-            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && u.HomeBranchId != null)
-            .Select(u => u.HomeBranchId!.Value)
+            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && (u.OriginalHomeBranchId != null || u.HomeBranchId != null))
+            .Select(u => (u.OriginalHomeBranchId ?? u.HomeBranchId)!.Value)
             .ToListAsync();
         var branchesWithActiveManager = branchesWithActiveManagerList.ToHashSet();
 
         // 4. Thẩm định định biên (Effective Quota) và tạo nhân sự cho các dòng hợp lệ
         var newUsersToInsert = new List<User>();
+        var welcomeEmailItems = new List<BulkImportWelcomeEmailItem>();
         var branchBatchCounter = new Dictionary<ulong, int>();
 
         foreach (var (row, role, branch) in validRowsToProcess)
@@ -627,6 +702,16 @@ public class EmployeeImportService : IEmployeeImportService
 
             newUsersToInsert.Add(user);
 
+            welcomeEmailItems.Add(new BulkImportWelcomeEmailItem
+            {
+                Email = user.Email,
+                FullName = user.FullName,
+                EmployeeCode = user.EmployeeCode,
+                RoleName = role.RoleName,
+                BranchName = branch.Name,
+                PlainPassword = plainPass
+            });
+
             result.SuccessEmployees.Add(new EmployeeDetailDto
             {
                 Id = user.Id,
@@ -652,7 +737,6 @@ public class EmployeeImportService : IEmployeeImportService
         }
 
         // 5. Lưu vào CSDL
-        var welcomeEmailSent = false;
         if (newUsersToInsert.Count > 0)
         {
             _context.Users.AddRange(newUsersToInsert);
@@ -663,8 +747,9 @@ public class EmployeeImportService : IEmployeeImportService
                 TotalImported = newUsersToInsert.Count
             }, ipAddress);
 
-            var recipientEmails = newUsersToInsert.Select(user => user.Email).ToArray();
-            welcomeEmailSent = await _emailService.SendBulkImportWelcomeEmailAsync(recipientEmails);
+            // Kích hoạt hàng đợi gửi email cá nhân hóa (chứa đầy đủ Họ tên, Mã NV, Chức danh, Chi nhánh, Mật khẩu khởi tạo)
+            // Chạy trong background task với cơ chế điều tiết (Throttling Delay 5s) để Google không chặn
+            _emailService.QueueBulkImportPersonalizedWelcomeEmails(welcomeEmailItems);
         }
 
         result.SuccessCount = newUsersToInsert.Count;
@@ -673,9 +758,7 @@ public class EmployeeImportService : IEmployeeImportService
         var message = $"Import nhân sự hoàn tất: {result.SuccessCount} thành công, {result.FailureCount} lỗi.";
         if (result.SuccessCount > 0)
         {
-            message += welcomeEmailSent
-                ? " Đã gửi 1 email hướng dẫn đặt mật khẩu cho các tài khoản mới."
-                : " Tài khoản đã được lưu. Hệ thống chưa xác nhận gửi email thành công cho toàn bộ người nhận.";
+            message += " Đang tiến hành gửi email thông tin tài khoản và mật khẩu khởi tạo riêng cho từng nhân sự trong nền (có điều tiết tốc độ an toàn).";
         }
         return ApiResponse<BulkImportResultDto>.Ok(result, message);
     }

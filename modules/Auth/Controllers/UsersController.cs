@@ -157,15 +157,18 @@ public class UsersController : ControllerBase
     }
 
     /// <summary>
-    /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự (Đã bị khóa - Không cho phép chỉnh sửa hồ sơ sau khi tạo)
+    /// UC 1.5: Cập nhật hồ sơ & hợp đồng nhân sự
     /// </summary>
+    [HttpPut("employees/{id:long}")]
     [HttpPut("employees/{id}")]
+    [HttpPut("/api/v1/users/employees/{id:long}")]
     [Authorize(Roles = "OPERATIONS_ADMIN,BUSINESS_OWNER,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
-    public Task<ActionResult<ApiResponse<EmployeeDetailDto>>> UpdateEmployee(ulong id, [FromBody] UpdateEmployeeDto dto)
+    public async Task<ActionResult<ApiResponse<EmployeeDetailDto>>> UpdateEmployee(ulong id, [FromBody] UpdateEmployeeDto dto)
     {
-        return Task.FromResult<ActionResult<ApiResponse<EmployeeDetailDto>>>(
-            BadRequest(ApiResponse<EmployeeDetailDto>.Fail("Hệ thống không cho phép chỉnh sửa thông tin hồ sơ nhân sự sau khi đã khởi tạo. Quản trị viên chỉ có quyền cấp lại mật khẩu hoặc khóa/mở khóa tài khoản."))
-        );
+        var (actorId, role, branchId, ip) = GetCurrentUserInfo();
+        var result = await _userService.UpdateEmployeeAsync(id, dto, actorId, role, branchId, ip);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
     }
 
     /// <summary>

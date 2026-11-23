@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Domain.Entities;
@@ -72,7 +73,21 @@ public class UserService : IUserService
 
         var normalizedCode = dto.EmployeeCode.Trim().ToUpper();
         var normalizedEmail = dto.Email.Trim().ToLower();
-        var normalizedPhone = dto.Phone.Trim();
+
+        if (!Regex.IsMatch(normalizedEmail, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+        {
+            return ApiResponse<StoreManagerDto>.Fail($"Email '{dto.Email}' không đúng định dạng.");
+        }
+
+        var cleanPhone = Regex.Replace(dto.Phone.Trim(), @"[\s\.\-\(\)]", "");
+        if (cleanPhone.StartsWith("+84")) cleanPhone = "0" + cleanPhone.Substring(3);
+        else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11) cleanPhone = "0" + cleanPhone.Substring(2);
+
+        if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+        {
+            return ApiResponse<StoreManagerDto>.Fail($"Số điện thoại '{dto.Phone}' không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09. VD: 0912345678).");
+        }
+        var normalizedPhone = cleanPhone;
 
         // Kiểm tra trùng lặp
         if (await _context.Users.AnyAsync(u => u.EmployeeCode == normalizedCode))
@@ -93,7 +108,7 @@ public class UserService : IUserService
         // Ràng buộc duy nhất: Mỗi chi nhánh chỉ được phép có tối đa 1 Cửa hàng trưởng đang hoạt động
         var existingActiveManager = await _context.Users
             .Include(u => u.Role)
-            .FirstOrDefaultAsync(u => u.HomeBranchId == dto.HomeBranchId 
+            .FirstOrDefaultAsync(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == dto.HomeBranchId) 
                                    && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == storeManagerRole.Id)
                                    && u.Status == "ACTIVE");
         if (existingActiveManager != null)
@@ -187,20 +202,20 @@ public class UserService : IUserService
                      && u.Role.RoleCode != "BUSINESSOWNER")
             .AsQueryable();
 
-        // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì chỉ xem nhân viên chi nhánh mình và loại trừ Cửa hàng trưởng
+        // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì xem nhân viên chi nhánh mình (cả cơ hữu và nhân sự đang đi chi viện nơi khác)
         var normalizedRole = actorRole.ToUpper();
         if (normalizedRole == "STORE_MANAGER" || normalizedRole == "STOREMANAGER")
         {
             if (!actorBranchId.HasValue)
                 return ApiResponse<List<EmployeeDetailDto>>.Fail("Tài khoản Quản lý chưa được gán chi nhánh.");
-            query = query.Where(u => u.HomeBranchId == actorBranchId.Value);
+            query = query.Where(u => u.HomeBranchId == actorBranchId.Value || u.OriginalHomeBranchId == actorBranchId.Value);
 
             // Tự động loại trừ Cửa hàng trưởng khỏi danh sách nhân viên vận hành
             query = query.Where(u => u.Role.RoleCode != "STORE_MANAGER");
         }
         else if (filter.BranchId.HasValue && filter.BranchId.Value > 0)
         {
-            query = query.Where(u => u.HomeBranchId == filter.BranchId.Value);
+            query = query.Where(u => u.HomeBranchId == filter.BranchId.Value || u.OriginalHomeBranchId == filter.BranchId.Value);
         }
 
         if (filter.ExcludeStoreManager == true)
@@ -382,7 +397,21 @@ public class UserService : IUserService
 
         var normalizedCode = dto.EmployeeCode.Trim().ToUpper();
         var normalizedEmail = dto.Email.Trim().ToLower();
-        var normalizedPhone = dto.Phone.Trim();
+
+        if (!Regex.IsMatch(normalizedEmail, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+        {
+            return ApiResponse<EmployeeDetailDto>.Fail($"Email '{dto.Email}' không đúng định dạng.");
+        }
+
+        var cleanPhone = Regex.Replace(dto.Phone.Trim(), @"[\s\.\-\(\)]", "");
+        if (cleanPhone.StartsWith("+84")) cleanPhone = "0" + cleanPhone.Substring(3);
+        else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11) cleanPhone = "0" + cleanPhone.Substring(2);
+
+        if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+        {
+            return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{dto.Phone}' không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09. VD: 0912345678).");
+        }
+        var normalizedPhone = cleanPhone;
         var normalizedActorRole = actorRole.ToUpper();
 
         // 1. Phân quyền RBAC nghiêm ngặt: Chỉ duy nhất OPERATIONS_ADMIN (hoặc ADMIN hệ thống) mới có quyền tạo nhân sự
@@ -423,7 +452,7 @@ public class UserService : IUserService
         {
             var existingActiveManager = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.HomeBranchId == branchIdToAssign 
+                .FirstOrDefaultAsync(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == branchIdToAssign) 
                                        && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == targetRole.Id)
                                        && u.Status == "ACTIVE");
             if (existingActiveManager != null)
@@ -545,8 +574,16 @@ public class UserService : IUserService
         if ((normalizedActorRole == "STORE_MANAGER" || normalizedActorRole == "STOREMANAGER") && (targetRole.RoleCode == "OPERATIONS_ADMIN" || targetRole.RoleCode == "BUSINESS_OWNER" || targetRole.RoleCode == "STORE_MANAGER"))
             return ApiResponse<EmployeeDetailDto>.Fail("Không có quyền nâng cấp vai trò này.");
 
-        // Kiểm tra trùng SĐT nếu thay đổi
-        var normalizedPhone = dto.Phone.Trim();
+        // Kiểm tra và chuẩn hóa SĐT nếu thay đổi
+        var cleanPhone = Regex.Replace(dto.Phone.Trim(), @"[\s\.\-\(\)]", "");
+        if (cleanPhone.StartsWith("+84")) cleanPhone = "0" + cleanPhone.Substring(3);
+        else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11) cleanPhone = "0" + cleanPhone.Substring(2);
+
+        if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+        {
+            return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{dto.Phone}' không hợp lệ (yêu cầu 10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09. VD: 0912345678).");
+        }
+        var normalizedPhone = cleanPhone;
         if (normalizedPhone != user.Phone && await _context.Users.AnyAsync(u => u.Phone == normalizedPhone && u.Id != user.Id))
             return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{normalizedPhone}' đã được sử dụng bởi người khác.");
 
@@ -559,7 +596,7 @@ public class UserService : IUserService
         {
             var existingManager = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.HomeBranchId == targetBranchId 
+                .FirstOrDefaultAsync(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == targetBranchId) 
                                        && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == targetRole.Id)
                                        && u.Status == "ACTIVE"
                                        && u.Id != user.Id);
@@ -589,15 +626,64 @@ public class UserService : IUserService
 
         if (normalizedActorRole != "STORE_MANAGER" && normalizedActorRole != "STOREMANAGER")
         {
-            if (dto.HomeBranchId > 0)
+            if (dto.HomeBranchId > 0 && dto.HomeBranchId != user.HomeBranchId)
             {
+                // 1. Không cho phép điều chuyển cố định khi nhân sự đang trong thời gian chi viện tạm thời
+                if (user.OriginalHomeBranchId != null)
+                {
+                    return ApiResponse<EmployeeDetailDto>.Fail(
+                        "Không thể điều chuyển chi nhánh cố định: Nhân sự hiện đang trong thời gian điều động chi viện tại chi nhánh khác. Vui lòng hoàn tất hoặc kết thúc lệnh điều động trước khi điều chuyển công tác chính thức.");
+                }
+
+                var activeDispatch = await _context.DispatchEmployees
+                    .Include(de => de.Dispatch)
+                    .AnyAsync(de => de.UserId == user.Id
+                                 && (de.Dispatch.Status == "PENDING" || de.Dispatch.Status == "APPROVED")
+                                 && de.Dispatch.EndDate >= DateOnly.FromDateTime(DateTime.UtcNow));
+                if (activeDispatch)
+                {
+                    return ApiResponse<EmployeeDetailDto>.Fail(
+                        "Không thể điều chuyển chi nhánh cố định: Nhân sự đang có lệnh điều động chi viện đang chờ duyệt hoặc sắp có hiệu lực.");
+                }
+
+                // 2. Kiểm tra chi nhánh đích
+                var targetBranch = await _context.Branches.FindAsync(dto.HomeBranchId);
+                if (targetBranch == null || targetBranch.Status == "INACTIVE" || targetBranch.Status == "LOCKED")
+                {
+                    return ApiResponse<EmployeeDetailDto>.Fail(
+                        $"Không thể điều chuyển: Chi nhánh đích '{targetBranch?.Name ?? $"#{dto.HomeBranchId}"}' không tồn tại hoặc đang bị tạm khóa.");
+                }
+
+                // 3. Thẩm định định biên nhân sự của chi nhánh đích (Quota Tier)
+                var quotaResult = await _headcountService.ValidateHeadcountAsync(dto.HomeBranchId);
+                if (!quotaResult.IsSuccess)
+                {
+                    return ApiResponse<EmployeeDetailDto>.Fail(quotaResult.ErrorMessage ?? 
+                        $"Không thể điều chuyển nhân sự: Chi nhánh đích '{targetBranch.Name}' đã đạt giới hạn định biên tối đa ({quotaResult.EffectiveQuota} nhân sự). Vui lòng nâng định biên Tier trước khi tiếp nhận nhân sự.");
+                }
+
                 user.HomeBranchId = dto.HomeBranchId;
             }
         }
 
         if (!string.IsNullOrWhiteSpace(dto.Status))
         {
-            user.Status = dto.Status.ToUpper();
+            var newStatus = dto.Status.ToUpper();
+            if (newStatus == "ACTIVE")
+            {
+                var effectiveBranchId = user.HomeBranchId ?? targetBranchId;
+                if (effectiveBranchId > 0)
+                {
+                    var bEntity = await _context.Branches.FindAsync(effectiveBranchId);
+                    if (bEntity != null && (bEntity.Status == "INACTIVE" || bEntity.Status == "LOCKED"))
+                    {
+                        return ApiResponse<EmployeeDetailDto>.Fail(
+                            $"Không thể kích hoạt tài khoản: Chi nhánh trực thuộc '{bEntity.Name}' hiện đang bị tạm khóa hoặc ngừng hoạt động. " +
+                            "Vui lòng mở khóa chi nhánh hoặc điều chuyển nhân sự sang chi nhánh đang hoạt động trước khi kích hoạt lại.");
+                    }
+                }
+            }
+            user.Status = newStatus;
         }
 
         user.UpdatedAt = DateTime.UtcNow;
@@ -667,7 +753,6 @@ public class UserService : IUserService
     public async Task<ApiResponse<List<BranchSimpleDto>>> GetBranchesAsync()
     {
         var branches = await _context.Branches
-            .Where(b => b.Status == "ACTIVE")
             .OrderBy(b => b.Id)
             .Select(b => new BranchSimpleDto
             {
@@ -727,12 +812,16 @@ public class UserService : IUserService
             var code = employeeCode.Trim().ToUpper();
             var existing = await _context.Users
                 .Where(u => u.EmployeeCode == code && (!excludeId.HasValue || u.Id != excludeId.Value))
-                .Select(u => new { u.FullName })
+                .Select(u => new { u.Id, u.FullName, u.EmployeeCode, u.Status })
                 .FirstOrDefaultAsync();
             if (existing != null)
             {
                 result.IsEmployeeCodeDuplicate = true;
                 result.ExistingEmployeeName = existing.FullName;
+                result.ExistingEmployeeCode = existing.EmployeeCode;
+                result.ExistingUserId = existing.Id;
+                result.ExistingUserStatus = existing.Status;
+                result.CanUnlock = string.Equals(existing.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -741,12 +830,20 @@ public class UserService : IUserService
             var normEmail = email.Trim().ToLower();
             var existing = await _context.Users
                 .Where(u => u.Email.ToLower() == normEmail && (!excludeId.HasValue || u.Id != excludeId.Value))
-                .Select(u => new { u.FullName })
+                .Select(u => new { u.Id, u.FullName, u.EmployeeCode, u.Status })
                 .FirstOrDefaultAsync();
             if (existing != null)
             {
                 result.IsEmailDuplicate = true;
                 result.ExistingEmailOwnerName = existing.FullName;
+                if (!result.IsEmployeeCodeDuplicate)
+                {
+                    result.ExistingUserId = existing.Id;
+                    result.ExistingEmployeeName = existing.FullName;
+                    result.ExistingEmployeeCode = existing.EmployeeCode;
+                    result.ExistingUserStatus = existing.Status;
+                    result.CanUnlock = string.Equals(existing.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
+                }
             }
         }
 
@@ -755,12 +852,20 @@ public class UserService : IUserService
             var normPhone = phone.Trim().Replace(" ", "");
             var existing = await _context.Users
                 .Where(u => u.Phone == normPhone && (!excludeId.HasValue || u.Id != excludeId.Value))
-                .Select(u => new { u.FullName })
+                .Select(u => new { u.Id, u.FullName, u.EmployeeCode, u.Status })
                 .FirstOrDefaultAsync();
             if (existing != null)
             {
                 result.IsPhoneDuplicate = true;
                 result.ExistingPhoneOwnerName = existing.FullName;
+                if (!result.IsEmployeeCodeDuplicate && !result.IsEmailDuplicate)
+                {
+                    result.ExistingUserId = existing.Id;
+                    result.ExistingEmployeeName = existing.FullName;
+                    result.ExistingEmployeeCode = existing.EmployeeCode;
+                    result.ExistingUserStatus = existing.Status;
+                    result.CanUnlock = string.Equals(existing.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
+                }
             }
         }
 

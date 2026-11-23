@@ -22,17 +22,20 @@ public class UserAccountService : IUserAccountService
     private readonly AppDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IEmailService _emailService;
+    private readonly IBranchHeadcountService _headcountService;
     private readonly ILogger<UserAccountService> _logger;
 
     public UserAccountService(
         AppDbContext context,
         IPasswordHasher passwordHasher,
         IEmailService emailService,
+        IBranchHeadcountService headcountService,
         ILogger<UserAccountService> logger)
     {
         _context = context;
         _passwordHasher = passwordHasher;
         _emailService = emailService;
+        _headcountService = headcountService;
         _logger = logger;
     }
 
@@ -108,6 +111,57 @@ public class UserAccountService : IUserAccountService
             }
         }
 
+        // RÀNG BUỘC KHI MỞ KHÓA TÀI KHOẢN: Không cho mở khóa nhân sự thuộc chi nhánh đang tạm khóa & Kiểm tra hạn mức định biên Quota
+        if (newStatus == "ACTIVE")
+        {
+            // Nếu có chỉ định chi nhánh mới khi tái tuyển dụng (Re-hire vào chi nhánh mới)
+            ulong effectiveBranchId = (dto.NewBranchId.HasValue && dto.NewBranchId.Value > 0)
+                ? dto.NewBranchId.Value
+                : (user.HomeBranchId ?? 0);
+
+            var branch = effectiveBranchId > 0 ? await _context.Branches.FindAsync(effectiveBranchId) : null;
+            if (branch != null && (branch.Status == "INACTIVE" || branch.Status == "LOCKED"))
+            {
+                return ApiResponse<bool>.Fail(
+                    $"Không thể mở khóa tài khoản: Chi nhánh tiếp nhận '{branch.Name}' hiện đang bị tạm khóa hoặc ngừng hoạt động. " +
+                    "Vui lòng mở khóa chi nhánh hoặc điều chuyển nhân sự sang chi nhánh đang hoạt động trước khi kích hoạt lại tài khoản.");
+            }
+
+            // 1. Thẩm định định biên nhân sự theo Effective Quota của chi nhánh tiếp nhận khi kích hoạt lại
+            if (effectiveBranchId > 0)
+            {
+                var quotaResult = await _headcountService.ValidateHeadcountAsync(effectiveBranchId);
+                if (!quotaResult.IsSuccess)
+                {
+                    return ApiResponse<bool>.Fail(quotaResult.ErrorMessage ?? 
+                        $"Không thể mở khóa tài khoản: Chi nhánh '{branch?.Name ?? $"#{effectiveBranchId}"}' đã đạt giới hạn định biên nhân sự tối đa ({quotaResult.EffectiveQuota} nhân sự). Vui lòng nâng định biên trước khi tiếp nhận nhân sự.");
+                }
+            }
+
+            // 2. Ràng buộc duy nhất 1 Cửa hàng trưởng (STORE_MANAGER) trên mỗi chi nhánh
+            if (user.Role != null && user.Role.RoleCode == "STORE_MANAGER" && effectiveBranchId > 0)
+            {
+                var existingManager = await _context.Users
+                    .Include(u => u.Role)
+                    .FirstOrDefaultAsync(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == effectiveBranchId)
+                                           && (u.Role.RoleCode == "STORE_MANAGER" || u.RoleId == user.RoleId)
+                                           && u.Status == "ACTIVE"
+                                           && u.Id != user.Id);
+                if (existingManager != null)
+                {
+                    return ApiResponse<bool>.Fail(
+                        $"Không thể mở khóa tài khoản: Chi nhánh '{branch?.Name ?? effectiveBranchId.ToString()}' hiện đã có Cửa hàng trưởng đang hoạt động là {existingManager.FullName} ({existingManager.EmployeeCode}). Mỗi chi nhánh chỉ được phép có duy nhất 1 Cửa hàng trưởng đang hoạt động.");
+                }
+            }
+
+            // Nếu tiếp nhận vào chi nhánh mới: Cập nhật HomeBranchId
+            if (dto.NewBranchId.HasValue && dto.NewBranchId.Value > 0 && dto.NewBranchId.Value != user.HomeBranchId)
+            {
+                user.HomeBranchId = dto.NewBranchId.Value;
+                user.OriginalHomeBranchId = null;
+            }
+        }
+
         user.Status = newStatus;
         user.UpdatedAt = DateTime.UtcNow;
 
@@ -147,6 +201,13 @@ public class UserAccountService : IUserAccountService
         var user = await _context.Users.FindAsync(userId);
         if (user == null)
             return ApiResponse<ResetPasswordResultDto>.Fail("Không tìm thấy người dùng.");
+
+        // Không cho phép cấp lại mật khẩu cho tài khoản đang bị KHÓA
+        if (user.Status == "INACTIVE" || user.Status == "LOCKED")
+        {
+            return ApiResponse<ResetPasswordResultDto>.Fail(
+                "Không thể cấp lại mật khẩu: Tài khoản nhân sự này hiện đang bị KHÓA. Vui lòng mở khóa / kích hoạt lại tài khoản trước khi thực hiện đặt lại mật khẩu.");
+        }
 
         // Bắt buộc phải có lý do
         if (string.IsNullOrWhiteSpace(dto.Reason))

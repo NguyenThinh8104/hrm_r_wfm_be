@@ -549,7 +549,11 @@ public class ScheduleService : IScheduleService
 
         var storeUsers = await _context.Users
             .Include(u => u.Role)
-            .Where(u => u.HomeBranchId == branchId || assignedUserIds.Contains(u.Id))
+            .Where(u => (u.HomeBranchId == branchId || assignedUserIds.Contains(u.Id)) 
+                     && u.Status == "ACTIVE"
+                     && u.Role.RoleCode != "STORE_MANAGER" 
+                     && u.Role.RoleCode != "OPERATIONS_ADMIN"
+                     && u.Role.RoleCode != "BUSINESS_OWNER")
             .OrderBy(u => u.Role.Id)
             .ThenBy(u => u.FullName)
             .ToListAsync();
@@ -658,7 +662,6 @@ public class ScheduleService : IScheduleService
         }
 
         var weekEndDate = dto.WeekStartDate.AddDays(6);
-
         var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
 
         List<ShiftTemplate> templates;
@@ -812,6 +815,12 @@ public class ScheduleService : IScheduleService
 
         var isGlobalBranch = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
 
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        int daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
+        var currentMonday = today.AddDays(-daysSinceMonday);
+        var nextMonday = currentMonday.AddDays(7);
+        bool isFutureWeek = weekStartDate >= nextMonday;
+
         var schedulesQuery = _context.WorkSchedules
             .Include(ws => ws.Branch)
             .Include(ws => ws.ShiftTemplate)
@@ -821,13 +830,18 @@ public class ScheduleService : IScheduleService
                 .ThenInclude(sa => sa.User)
             .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate);
 
-        if (isGlobalBranch)
+        // Quy tắc: Khung ca mới chỉ áp dụng từ tuần sau (>= nextMonday).
+        // Tuần hiện tại và các tuần trước (< nextMonday) giữ nguyên 100% lịch và mẫu ca đã xếp, không bị lọc theo ShiftMode mới.
+        if (isFutureWeek)
         {
-            schedulesQuery = schedulesQuery.Where(ws => ws.ShiftTemplate.Scope == "GLOBAL" || string.IsNullOrEmpty(ws.ShiftTemplate.Scope));
-        }
-        else
-        {
-            schedulesQuery = schedulesQuery.Where(ws => ws.ShiftTemplate.Scope == "BRANCH" && ws.ShiftTemplate.BranchId == branchId);
+            if (isGlobalBranch)
+            {
+                schedulesQuery = schedulesQuery.Where(ws => ws.ShiftTemplate.Scope == "GLOBAL" || string.IsNullOrEmpty(ws.ShiftTemplate.Scope));
+            }
+            else
+            {
+                schedulesQuery = schedulesQuery.Where(ws => ws.ShiftTemplate.Scope == "BRANCH" && ws.ShiftTemplate.BranchId == branchId);
+            }
         }
 
         var schedules = await schedulesQuery
@@ -902,7 +916,11 @@ public class ScheduleService : IScheduleService
 
         var storeUsers = await _context.Users
             .Include(u => u.Role)
-            .Where(u => (u.HomeBranchId == branchId || assignedUserIds.Contains(u.Id) || incomingUserIds.Contains(u.Id)) && u.Status == "ACTIVE")
+            .Where(u => (u.HomeBranchId == branchId || assignedUserIds.Contains(u.Id) || incomingUserIds.Contains(u.Id)) 
+                     && u.Status == "ACTIVE"
+                     && u.Role.RoleCode != "STORE_MANAGER" 
+                     && u.Role.RoleCode != "OPERATIONS_ADMIN"
+                     && u.Role.RoleCode != "BUSINESS_OWNER")
             .OrderBy(u => u.Role.Id)
             .ThenBy(u => u.FullName)
             .ToListAsync();
@@ -961,35 +979,68 @@ public class ScheduleService : IScheduleService
                 weekStatus = "PARTIAL";
         }
 
-        var activeTemplatesRes = await _templateService.GetAllShiftTemplatesAsync(branchId, false);
-
-        // Khóa tiêu đề cột ca mẫu theo giờ đóng băng của tuần đang xem nếu các ca trong tuần đã có snapshot
-        var templatesForWeek = (activeTemplatesRes.Data ?? new List<ShiftDto>()).Select(t =>
+        List<ShiftDto> templatesForWeek;
+        if (!isFutureWeek && schedules.Any())
         {
-            var matchingSchedule = schedules.FirstOrDefault(s => s.ShiftTemplateId == t.Id && s.SnapshotStartTime.HasValue);
-            if (matchingSchedule != null)
-            {
-                return new ShiftDto
+            // Tuần hiện tại / quá khứ đã có lịch ca: Lấy danh sách mẫu ca từ chính các lịch ca đang có của tuần đó (kèm SnapshotStartTime/EndTime)
+            var distinctTemplatesInWeek = schedules
+                .GroupBy(s => s.ShiftTemplateId)
+                .Select(g =>
                 {
-                    Id = t.Id,
-                    TemplateCode = t.TemplateCode,
-                    Name = matchingSchedule.SnapshotShiftName ?? t.Name,
-                    ShiftType = t.ShiftType,
-                    StartTime = matchingSchedule.SnapshotStartTime.Value.ToString("HH:mm"),
-                    EndTime = matchingSchedule.SnapshotEndTime.HasValue 
-                        ? matchingSchedule.SnapshotEndTime.Value.ToString("HH:mm") 
-                        : t.EndTime,
-                    IsOvernight = matchingSchedule.SnapshotIsOvernight ?? t.IsOvernight,
-                    BreakDuration = t.BreakDuration,
-                    Scope = t.Scope,
-                    BranchId = t.BranchId,
-                    BranchName = t.BranchName,
-                    IsActive = t.IsActive,
-                    Status = t.Status
-                };
-            }
-            return t;
-        }).ToList();
+                    var first = g.First();
+                    return new ShiftDto
+                    {
+                        Id = (uint)first.ShiftTemplateId,
+                        TemplateCode = first.ShiftTemplate?.TemplateCode ?? $"TPL_{first.ShiftTemplateId}",
+                        Name = first.SnapshotShiftName ?? first.ShiftTemplate?.Name ?? string.Empty,
+                        ShiftType = first.ShiftTemplate?.ShiftType ?? "Morning",
+                        StartTime = (first.SnapshotStartTime ?? first.ShiftTemplate?.StartTime)?.ToString("HH:mm") ?? "00:00",
+                        EndTime = (first.SnapshotEndTime ?? first.ShiftTemplate?.EndTime)?.ToString("HH:mm") ?? "00:00",
+                        IsOvernight = first.SnapshotIsOvernight ?? first.ShiftTemplate?.IsOvernight ?? false,
+                        BreakDuration = first.ShiftTemplate?.BreakDurationMinutes ?? 0,
+                        Scope = first.ShiftTemplate?.Scope ?? "GLOBAL",
+                        BranchId = first.ShiftTemplate?.BranchId,
+                        BranchName = first.Branch?.Name,
+                        IsActive = true,
+                        Status = "ACTIVE"
+                    };
+                })
+                .OrderBy(t => t.StartTime)
+                .ToList();
+            templatesForWeek = distinctTemplatesInWeek;
+        }
+        else
+        {
+            var activeTemplatesRes = await _templateService.GetAllShiftTemplatesAsync(branchId, false);
+
+            // Khóa tiêu đề cột ca mẫu theo giờ đóng băng của tuần đang xem nếu các ca trong tuần đã có snapshot
+            templatesForWeek = (activeTemplatesRes.Data ?? new List<ShiftDto>()).Select(t =>
+            {
+                var matchingSchedule = schedules.FirstOrDefault(s => s.ShiftTemplateId == t.Id && s.SnapshotStartTime.HasValue);
+                if (matchingSchedule != null)
+                {
+                    return new ShiftDto
+                    {
+                        Id = t.Id,
+                        TemplateCode = t.TemplateCode,
+                        Name = matchingSchedule.SnapshotShiftName ?? t.Name,
+                        ShiftType = t.ShiftType,
+                        StartTime = matchingSchedule.SnapshotStartTime.Value.ToString("HH:mm"),
+                        EndTime = matchingSchedule.SnapshotEndTime.HasValue 
+                            ? matchingSchedule.SnapshotEndTime.Value.ToString("HH:mm") 
+                            : t.EndTime,
+                        IsOvernight = matchingSchedule.SnapshotIsOvernight ?? t.IsOvernight,
+                        BreakDuration = t.BreakDuration,
+                        Scope = t.Scope,
+                        BranchId = t.BranchId,
+                        BranchName = t.BranchName,
+                        IsActive = t.IsActive,
+                        Status = t.Status
+                    };
+                }
+                return t;
+            }).ToList();
+        }
 
         var matrix = new WeeklyScheduleMatrixDto
         {
@@ -1041,6 +1092,12 @@ public class ScheduleService : IScheduleService
             if (user == null)
             {
                 errors.Add($"Không tìm thấy nhân viên ID {userId}.");
+                continue;
+            }
+
+            if (user.Role?.RoleCode == "STORE_MANAGER" || user.Role?.RoleCode == "OPERATIONS_ADMIN" || user.Role?.RoleCode == "BUSINESS_OWNER")
+            {
+                errors.Add($"Tài khoản '{user.FullName}' thuộc vị trí Quản lý ({user.Role.RoleName}), không tham gia xếp ca trực vận hành.");
                 continue;
             }
 
@@ -1374,6 +1431,14 @@ public class ScheduleService : IScheduleService
         if (branch == null) return ApiResponse<AutoScheduleResultDto>.Fail("Không tìm thấy chi nhánh.");
 
         var weekEndDate = dto.WeekStartDate.AddDays(6);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+
+        // Khóa bảo vệ quá khứ: Nếu tuần được chọn đã qua hoặc hôm nay là ngày cuối cùng của tuần
+        if (weekEndDate <= today)
+        {
+            return ApiResponse<AutoScheduleResultDto>.Fail(
+                $"Tuần được chọn ({dto.WeekStartDate:dd/MM} - {weekEndDate:dd/MM}) là tuần đã kết thúc hoặc toàn bộ các ngày đã qua (hôm nay là {today:dd/MM/yyyy}). Thuật toán tự động chỉ xếp ca cho các ngày trong tương lai để bảo vệ lịch sử làm việc. Vui lòng bấm nút '>' để chuyển sang tuần tiếp theo ({weekEndDate.AddDays(1):dd/MM} - {weekEndDate.AddDays(7):dd/MM}) và chạy xếp ca.");
+        }
 
         // 1. Lấy danh sách mẫu ca chuẩn áp dụng của chi nhánh
         var isGlobal = string.Equals(branch.ShiftMode, "GLOBAL", StringComparison.OrdinalIgnoreCase);
@@ -1490,7 +1555,11 @@ public class ScheduleService : IScheduleService
 
         var employees = await _context.Users
             .Include(u => u.Role)
-            .Where(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == dto.BranchId || u.HomeBranchId == dto.BranchId || incomingUserIds.Contains(u.Id)) && u.Status == "ACTIVE")
+            .Where(u => ((u.OriginalHomeBranchId ?? u.HomeBranchId) == dto.BranchId || u.HomeBranchId == dto.BranchId || incomingUserIds.Contains(u.Id)) 
+                     && u.Status == "ACTIVE"
+                     && u.Role.RoleCode != "STORE_MANAGER" 
+                     && u.Role.RoleCode != "OPERATIONS_ADMIN"
+                     && u.Role.RoleCode != "BUSINESS_OWNER")
             .ToListAsync();
 
         if (!employees.Any())
@@ -1542,8 +1611,6 @@ public class ScheduleService : IScheduleService
                 employeeAvailableDates[emp.Id].Add(workDate);
             }
         }
-
-        var today = DateOnly.FromDateTime(DateTime.Today);
 
         // Thu thập các ca làm việc ĐÃ CÓ của nhân viên trong các ngày đã qua và hôm nay (workDate <= today)
         var pastAssignments = await _context.ShiftAssignments
@@ -1642,6 +1709,11 @@ public class ScheduleService : IScheduleService
         {
             _context.ShiftAssignments.AddRange(newAssignments);
             await _context.SaveChangesAsync();
+        }
+        else
+        {
+            return ApiResponse<AutoScheduleResultDto>.Fail(
+                $"Không có ca làm việc tương lai nào được phân bổ trong tuần này. Thuật toán tự động chỉ lập lịch cho các ngày tương lai. Vui lòng bấm '>' để chuyển sang tuần kế tiếp ({weekEndDate.AddDays(1):dd/MM} - {weekEndDate.AddDays(7):dd/MM}) để xếp ca.");
         }
 
         var matrixRes = await GetWeeklyScheduleMatrixAsync(dto.BranchId, dto.WeekStartDate);
@@ -1855,6 +1927,11 @@ public class ScheduleService : IScheduleService
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == (ulong)request.EmployeeId);
         if (user == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy nhân viên.");
+
+        if (user.Role?.RoleCode == "STORE_MANAGER" || user.Role?.RoleCode == "OPERATIONS_ADMIN" || user.Role?.RoleCode == "BUSINESS_OWNER")
+        {
+            return ApiResponse<ShiftAssignmentDto>.Fail($"Tài khoản '{user.FullName}' thuộc vị trí Quản lý ({user.Role.RoleName}), không tham gia xếp ca trực vận hành.");
+        }
 
         var branch = await _context.Branches.FindAsync((ulong)request.StoreId);
         if (branch == null) return ApiResponse<ShiftAssignmentDto>.Fail("Không tìm thấy cửa hàng.");

@@ -83,6 +83,7 @@ public class UpdateStatusDto
 {
     public string Status { get; set; } = "ACTIVE";
     public string? Reason { get; set; }
+    public ulong? NewBranchId { get; set; }
 }
 
 public class ResetPasswordDto
@@ -154,6 +155,10 @@ public class DuplicateCheckResultDto
 {
     public bool IsEmployeeCodeDuplicate { get; set; }
     public string? ExistingEmployeeName { get; set; }
+    public string? ExistingEmployeeCode { get; set; }
+    public ulong? ExistingUserId { get; set; }
+    public string? ExistingUserStatus { get; set; }
+    public bool CanUnlock { get; set; }
     public bool IsEmailDuplicate { get; set; }
     public string? ExistingEmailOwnerName { get; set; }
     public bool IsPhoneDuplicate { get; set; }

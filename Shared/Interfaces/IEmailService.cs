@@ -19,4 +19,5 @@ public interface IEmailService
     Task<bool> SendShiftChangeNotificationEmailAsync(string recipientEmail, string recipientName, string changeType, string shiftDetails, string effectiveDate, string note, string? status = null);
     Task<bool> SendAccountStatusChangeEmailAsync(string recipientEmail, string recipientName, string employeeCode, string status, string reason);
     Task<bool> SendPasswordResetNotificationEmailAsync(string recipientEmail, string recipientName, string employeeCode, string newPassword, string reason);
+    Task<bool> SendProfileUpdateNotificationEmailAsync(string recipientEmail, string recipientName, string employeeCode, IReadOnlyDictionary<string, (string OldVal, string NewVal)> changedFields, string reason);
 }

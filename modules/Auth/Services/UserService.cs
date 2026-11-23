@@ -202,20 +202,20 @@ public class UserService : IUserService
                      && u.Role.RoleCode != "BUSINESSOWNER")
             .AsQueryable();
 
-        // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì chỉ xem nhân viên chi nhánh mình và loại trừ Cửa hàng trưởng
+        // Ràng buộc phân quyền: Nếu là STORE_MANAGER thì xem nhân viên chi nhánh mình (cả cơ hữu và nhân sự đang đi chi viện nơi khác)
         var normalizedRole = actorRole.ToUpper();
         if (normalizedRole == "STORE_MANAGER" || normalizedRole == "STOREMANAGER")
         {
             if (!actorBranchId.HasValue)
                 return ApiResponse<List<EmployeeDetailDto>>.Fail("Tài khoản Quản lý chưa được gán chi nhánh.");
-            query = query.Where(u => u.HomeBranchId == actorBranchId.Value);
+            query = query.Where(u => u.HomeBranchId == actorBranchId.Value || u.OriginalHomeBranchId == actorBranchId.Value);
 
             // Tự động loại trừ Cửa hàng trưởng khỏi danh sách nhân viên vận hành
             query = query.Where(u => u.Role.RoleCode != "STORE_MANAGER");
         }
         else if (filter.BranchId.HasValue && filter.BranchId.Value > 0)
         {
-            query = query.Where(u => u.HomeBranchId == filter.BranchId.Value);
+            query = query.Where(u => u.HomeBranchId == filter.BranchId.Value || u.OriginalHomeBranchId == filter.BranchId.Value);
         }
 
         if (filter.ExcludeStoreManager == true)
@@ -626,8 +626,42 @@ public class UserService : IUserService
 
         if (normalizedActorRole != "STORE_MANAGER" && normalizedActorRole != "STOREMANAGER")
         {
-            if (dto.HomeBranchId > 0)
+            if (dto.HomeBranchId > 0 && dto.HomeBranchId != user.HomeBranchId)
             {
+                // 1. Không cho phép điều chuyển cố định khi nhân sự đang trong thời gian chi viện tạm thời
+                if (user.OriginalHomeBranchId != null)
+                {
+                    return ApiResponse<EmployeeDetailDto>.Fail(
+                        "Không thể điều chuyển chi nhánh cố định: Nhân sự hiện đang trong thời gian điều động chi viện tại chi nhánh khác. Vui lòng hoàn tất hoặc kết thúc lệnh điều động trước khi điều chuyển công tác chính thức.");
+                }
+
+                var activeDispatch = await _context.DispatchEmployees
+                    .Include(de => de.Dispatch)
+                    .AnyAsync(de => de.UserId == user.Id
+                                 && (de.Dispatch.Status == "PENDING" || de.Dispatch.Status == "APPROVED")
+                                 && de.Dispatch.EndDate >= DateOnly.FromDateTime(DateTime.UtcNow));
+                if (activeDispatch)
+                {
+                    return ApiResponse<EmployeeDetailDto>.Fail(
+                        "Không thể điều chuyển chi nhánh cố định: Nhân sự đang có lệnh điều động chi viện đang chờ duyệt hoặc sắp có hiệu lực.");
+                }
+
+                // 2. Kiểm tra chi nhánh đích
+                var targetBranch = await _context.Branches.FindAsync(dto.HomeBranchId);
+                if (targetBranch == null || targetBranch.Status == "INACTIVE" || targetBranch.Status == "LOCKED")
+                {
+                    return ApiResponse<EmployeeDetailDto>.Fail(
+                        $"Không thể điều chuyển: Chi nhánh đích '{targetBranch?.Name ?? $"#{dto.HomeBranchId}"}' không tồn tại hoặc đang bị tạm khóa.");
+                }
+
+                // 3. Thẩm định định biên nhân sự của chi nhánh đích (Quota Tier)
+                var quotaResult = await _headcountService.ValidateHeadcountAsync(dto.HomeBranchId);
+                if (!quotaResult.IsSuccess)
+                {
+                    return ApiResponse<EmployeeDetailDto>.Fail(quotaResult.ErrorMessage ?? 
+                        $"Không thể điều chuyển nhân sự: Chi nhánh đích '{targetBranch.Name}' đã đạt giới hạn định biên tối đa ({quotaResult.EffectiveQuota} nhân sự). Vui lòng nâng định biên Tier trước khi tiếp nhận nhân sự.");
+                }
+
                 user.HomeBranchId = dto.HomeBranchId;
             }
         }
@@ -773,12 +807,16 @@ public class UserService : IUserService
             var code = employeeCode.Trim().ToUpper();
             var existing = await _context.Users
                 .Where(u => u.EmployeeCode == code && (!excludeId.HasValue || u.Id != excludeId.Value))
-                .Select(u => new { u.FullName })
+                .Select(u => new { u.Id, u.FullName, u.EmployeeCode, u.Status })
                 .FirstOrDefaultAsync();
             if (existing != null)
             {
                 result.IsEmployeeCodeDuplicate = true;
                 result.ExistingEmployeeName = existing.FullName;
+                result.ExistingEmployeeCode = existing.EmployeeCode;
+                result.ExistingUserId = existing.Id;
+                result.ExistingUserStatus = existing.Status;
+                result.CanUnlock = string.Equals(existing.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -787,12 +825,20 @@ public class UserService : IUserService
             var normEmail = email.Trim().ToLower();
             var existing = await _context.Users
                 .Where(u => u.Email.ToLower() == normEmail && (!excludeId.HasValue || u.Id != excludeId.Value))
-                .Select(u => new { u.FullName })
+                .Select(u => new { u.Id, u.FullName, u.EmployeeCode, u.Status })
                 .FirstOrDefaultAsync();
             if (existing != null)
             {
                 result.IsEmailDuplicate = true;
                 result.ExistingEmailOwnerName = existing.FullName;
+                if (!result.IsEmployeeCodeDuplicate)
+                {
+                    result.ExistingUserId = existing.Id;
+                    result.ExistingEmployeeName = existing.FullName;
+                    result.ExistingEmployeeCode = existing.EmployeeCode;
+                    result.ExistingUserStatus = existing.Status;
+                    result.CanUnlock = string.Equals(existing.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
+                }
             }
         }
 
@@ -801,12 +847,20 @@ public class UserService : IUserService
             var normPhone = phone.Trim().Replace(" ", "");
             var existing = await _context.Users
                 .Where(u => u.Phone == normPhone && (!excludeId.HasValue || u.Id != excludeId.Value))
-                .Select(u => new { u.FullName })
+                .Select(u => new { u.Id, u.FullName, u.EmployeeCode, u.Status })
                 .FirstOrDefaultAsync();
             if (existing != null)
             {
                 result.IsPhoneDuplicate = true;
                 result.ExistingPhoneOwnerName = existing.FullName;
+                if (!result.IsEmployeeCodeDuplicate && !result.IsEmailDuplicate)
+                {
+                    result.ExistingUserId = existing.Id;
+                    result.ExistingEmployeeName = existing.FullName;
+                    result.ExistingEmployeeCode = existing.EmployeeCode;
+                    result.ExistingUserStatus = existing.Status;
+                    result.CanUnlock = string.Equals(existing.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
+                }
             }
         }
 

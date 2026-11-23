@@ -677,9 +677,14 @@ public class UserService : IUserService
                 Name = b.Name,
                 Address = b.Address,
                 Status = b.Status,
-                BranchTier = (int)b.BranchTier,
+                BranchTier = b.TierId ?? (int)b.BranchTier,
                 TierId = b.TierId,
-                StaffCount = b.StaffCount
+                TierName = b.Tier != null ? b.Tier.TierName : $"Tier {(int)b.BranchTier}",
+                StaffCount = b.StaffCount > 0 
+                    ? b.StaffCount 
+                    : (b.Tier != null && b.Tier.MaxStaffCount.HasValue && b.Tier.MaxStaffCount.Value > 0 
+                        ? b.Tier.MaxStaffCount.Value 
+                        : (b.Tier != null && b.Tier.MinStaffCount > 0 ? b.Tier.MinStaffCount : 15))
             })
             .ToListAsync();
 

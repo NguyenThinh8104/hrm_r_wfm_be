@@ -117,6 +117,7 @@ public class BranchSimpleDto
     public string Status { get; set; } = "ACTIVE";
     public int BranchTier { get; set; } = 2;
     public int? TierId { get; set; }
+    public string? TierName { get; set; }
     public int StaffCount { get; set; }
 }
 

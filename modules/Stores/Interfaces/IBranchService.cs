@@ -15,7 +15,7 @@ public interface IBranchService
     /// <param name="status">Trạng thái chi nhánh (ACTIVE / INACTIVE).</param>
     /// <param name="search">Từ khóa tìm kiếm (mã chi nhánh, tên, địa chỉ).</param>
     /// <param name="tier">Phân cấp chi nhánh (1 = Tier 1, 2 = Tier 2, 3 = Tier 3).</param>
-    Task<ApiResponse<List<BranchDto>>> GetAllBranchesAsync(string? status = null, string? search = null, BranchTier? tier = null);
+    Task<ApiResponse<List<BranchDto>>> GetAllBranchesAsync(string? status = null, string? search = null, int? tier = null);
 
     /// <summary>
     /// Thống kê tổng quan số lượng chi nhánh theo từng phân cấp (Tier 1, Tier 2, Tier 3).

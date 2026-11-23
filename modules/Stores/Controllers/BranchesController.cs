@@ -36,11 +36,11 @@ public class BranchesController : ControllerBase
     /// <param name="tier">Lọc theo phân cấp chi nhánh (1 = Tier 1: Lớn, 2 = Tier 2: Tiêu chuẩn, 3 = Tier 3: Nhỏ).</param>
     /// <param name="q">Từ khóa tìm kiếm gọn.</param>
     [HttpGet]
-    [Authorize]
+    [AllowAnonymous]
     public async Task<IActionResult> GetAllBranches(
         [FromQuery] string? status = null, 
         [FromQuery] string? search = null,
-        [FromQuery] BranchTier? tier = null,
+        [FromQuery] int? tier = null,
         [FromQuery] string? q = null)
     {
         var result = await _branchService.GetAllBranchesAsync(status, search ?? q, tier);
@@ -53,7 +53,7 @@ public class BranchesController : ControllerBase
     /// </summary>
     [HttpGet("tier-summary")]
     [HttpGet("summary")]
-    [Authorize]
+    [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<BranchTierSummaryDto>>> GetBranchTierSummary()
     {
         var result = await _branchService.GetBranchTierSummaryAsync();
@@ -64,7 +64,7 @@ public class BranchesController : ControllerBase
     /// Lấy thông tin chi tiết của một chi nhánh theo ID.
     /// </summary>
     [HttpGet("{id}")]
-    [Authorize]
+    [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<BranchDto>>> GetBranchById(ulong id)
     {
         var result = await _branchService.GetBranchByIdAsync(id);
@@ -78,7 +78,7 @@ public class BranchesController : ControllerBase
     /// </summary>
     [HttpGet("{id}/headcount-status")]
     [HttpGet("/api/headcount-requests/branch/{id}/status")]
-    [Authorize]
+    [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<BranchHeadcountStatusDto>>> GetBranchHeadcountStatus(
         ulong id,
         [FromServices] IStoreHeadcountService headcountService)

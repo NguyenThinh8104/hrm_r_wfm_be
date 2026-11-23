@@ -271,6 +271,20 @@ public static class DbInitializer
                     alterCmd.CommandText = "ALTER TABLE `kiosks` ADD COLUMN `IpAddress` LONGTEXT NULL;";
                     alterCmd.ExecuteNonQuery();
                 }
+
+                if (!kioskCols.Contains("UpdatedAt"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `kiosks` ADD COLUMN `UpdatedAt` DATETIME(6) NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6);";
+                    alterCmd.ExecuteNonQuery();
+                }
+
+                if (!kioskCols.Contains("CreatedAt"))
+                {
+                    using var alterCmd = connection.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE `kiosks` ADD COLUMN `CreatedAt` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6);";
+                    alterCmd.ExecuteNonQuery();
+                }
             }
 
             // Check attendance_logs table columns

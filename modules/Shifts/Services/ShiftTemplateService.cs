@@ -7,6 +7,7 @@ using Modules.Shifts.DTOs;
 using Modules.Shifts.Interfaces;
 using Shared.Common;
 using Shared.Data;
+using Shared.Interfaces;
 
 namespace Modules.Shifts.Services;
 
@@ -17,11 +18,16 @@ public class ShiftTemplateService : IShiftTemplateService
 {
     private readonly AppDbContext _context;
     private readonly ILogger<ShiftTemplateService> _logger;
+    private readonly IEmailService _emailService;
 
-    public ShiftTemplateService(AppDbContext context, ILogger<ShiftTemplateService> logger)
+    public ShiftTemplateService(
+        AppDbContext context,
+        ILogger<ShiftTemplateService> logger,
+        IEmailService emailService)
     {
         _context = context;
         _logger = logger;
+        _emailService = emailService;
     }
 
     public async Task<PagedResult<ShiftTemplateDto>> GetShiftTemplatesPagedAsync(
@@ -163,7 +169,7 @@ public class ShiftTemplateService : IShiftTemplateService
             }
 
             // Quy tắc 11: Nếu chi nhánh đang bị khóa, từ chối thêm ca riêng (HTTP 423)
-            if (branch.LockedAt != null || string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) || string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase))
+            if (IsBranchLocked(branch))
             {
                 return ShiftOperationResult<ShiftTemplateDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể thêm ca riêng.");
             }
@@ -284,7 +290,7 @@ public class ShiftTemplateService : IShiftTemplateService
         if (template.Scope == "BRANCH" && template.BranchId.HasValue)
         {
             var branch = template.Branch ?? await _context.Branches.FindAsync(template.BranchId.Value);
-            if (branch != null && (branch.LockedAt != null || string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) || string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase)))
+            if (branch != null && IsBranchLocked(branch))
             {
                 return ShiftOperationResult<ShiftTemplateDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể sửa ca riêng.");
             }
@@ -371,15 +377,16 @@ public class ShiftTemplateService : IShiftTemplateService
         }
 
         // Ràng buộc đóng băng lịch ca: Thay đổi ca mẫu chỉ áp dụng từ tuần sau.
-        // Tuần hiện tại, các ngày đã qua và các ca đã công bố phải giữ nguyên giờ ca cũ (Snapshot).
+        // Tuần hiện tại và các ngày đã qua giữ nguyên 100% khung ca cũ (Snapshot).
+        // Từ tuần sau trở đi (nextMonday), nếu đã xếp lịch hoặc công bố có chứa ca này thì xóa lịch và thông báo qua email.
         var today = DateOnly.FromDateTime(DateTime.Today);
         int daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
         var currentMonday = today.AddDays(-daysSinceMonday);
         var nextMonday = currentMonday.AddDays(7);
 
-        // 1. Đóng băng snapshot cho toàn bộ lịch ca của tuần hiện tại, quá khứ và các ca đã công bố
+        // 1. Đóng băng snapshot cho toàn bộ lịch ca của tuần hiện tại và quá khứ (< nextMonday)
         var schedulesToLock = await _context.WorkSchedules
-            .Where(ws => ws.ShiftTemplateId == template.Id && (ws.WorkDate < nextMonday || ws.Status == "PUBLISHED"))
+            .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate < nextMonday)
             .ToListAsync();
 
         foreach (var ws in schedulesToLock)
@@ -393,18 +400,9 @@ public class ShiftTemplateService : IShiftTemplateService
             }
         }
 
-        // 2. Các ca ở trạng thái nháp (DRAFT) từ thứ Hai tuần sau trở đi sẽ nhận khung giờ mới
-        var futureDraftSchedules = await _context.WorkSchedules
-            .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate >= nextMonday && ws.Status == "DRAFT")
-            .ToListAsync();
-
-        foreach (var ws in futureDraftSchedules)
-        {
-            ws.SnapshotShiftName = !string.IsNullOrWhiteSpace(request.Name) ? request.Name.Trim() : template.Name;
-            ws.SnapshotStartTime = newStartTime;
-            ws.SnapshotEndTime = newEndTime;
-            ws.SnapshotIsOvernight = newEndTime < newStartTime;
-        }
+        // 2. Thu hồi toàn bộ lịch tuần sau trở đi (>= nextMonday) nếu đã xếp hoặc đã công bố, và gửi email thông báo cho nhân viên cơ sở
+        string changeSummary = $"Giờ mới: {newStartTime:HH:mm} - {newEndTime:HH:mm}";
+        await RevokeFutureSchedulesAndNotifyEmployeesAsync(template, nextMonday, changeSummary);
 
         template.StartTime = newStartTime;
         template.EndTime = newEndTime;
@@ -464,7 +462,7 @@ public class ShiftTemplateService : IShiftTemplateService
         if (template.Scope == "BRANCH" && template.BranchId.HasValue)
         {
             var branch = template.Branch ?? await _context.Branches.FindAsync(template.BranchId.Value);
-            if (branch != null && (branch.LockedAt != null || string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) || string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase)))
+            if (branch != null && IsBranchLocked(branch))
             {
                 return ShiftOperationResult<ShiftTemplateDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể sửa trạng thái ca riêng.");
             }
@@ -483,6 +481,33 @@ public class ShiftTemplateService : IShiftTemplateService
                     $"Có {affectedBranchCount} chi nhánh đang áp dụng ca chung này. Xác nhận ngừng áp dụng ca chung?",
                     affectedBranchCount: affectedBranchCount);
             }
+        }
+
+        if (!isActive)
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            int daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
+            var currentMonday = today.AddDays(-daysSinceMonday);
+            var nextMonday = currentMonday.AddDays(7);
+
+            // Đóng băng tuần hiện tại
+            var schedulesToLock = await _context.WorkSchedules
+                .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate < nextMonday)
+                .ToListAsync();
+
+            foreach (var ws in schedulesToLock)
+            {
+                if (!ws.SnapshotStartTime.HasValue)
+                {
+                    ws.SnapshotShiftName = template.Name;
+                    ws.SnapshotStartTime = template.StartTime;
+                    ws.SnapshotEndTime = template.EndTime;
+                    ws.SnapshotIsOvernight = template.IsOvernight;
+                }
+            }
+
+            // Thu hồi toàn bộ lịch tuần sau trở đi có ca này và gửi email thông báo cho nhân viên cơ sở
+            await RevokeFutureSchedulesAndNotifyEmployeesAsync(template, nextMonday, "ngừng áp dụng khung ca");
         }
 
         var oldValues = new { template.IsActive };
@@ -597,12 +622,12 @@ public class ShiftTemplateService : IShiftTemplateService
         }
 
         // Quy tắc 11: Nếu chi nhánh đang bị khóa, từ chối đổi ShiftMode (HTTP 423)
-        if (branch.LockedAt != null || string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) || string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase))
+        if (IsBranchLocked(branch))
         {
             return ShiftOperationResult<BranchEffectiveShiftsDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể đổi chế độ khung ca.");
         }
 
-        // Quy tắc 2: Không cho chuyển sang CUSTOM nếu chi nhánh chưa có ca riêng nào IsActive=true
+        // Quy tắc 2: Tự động kích hoạt ca riêng hoặc khởi tạo bộ ca riêng ban đầu từ ca chung khi bật CUSTOM
         if (normalizedMode == "CUSTOM")
         {
             var hasActiveCustom = await _context.ShiftTemplates
@@ -610,9 +635,54 @@ public class ShiftTemplateService : IShiftTemplateService
 
             if (!hasActiveCustom)
             {
-                return ShiftOperationResult<BranchEffectiveShiftsDto>.BadRequest(
-                    "NO_ACTIVE_CUSTOM_SHIFT",
-                    "Không thể chuyển sang chế độ ca riêng vì chi nhánh chưa có ca riêng nào đang hoạt động.");
+                var inactiveCustoms = await _context.ShiftTemplates
+                    .Where(st => st.Scope == "BRANCH" && st.BranchId == branchId && !st.IsActive)
+                    .ToListAsync();
+
+                if (inactiveCustoms.Count > 0)
+                {
+                    foreach (var s in inactiveCustoms)
+                    {
+                        s.IsActive = true;
+                        s.UpdatedAt = DateTime.UtcNow;
+                    }
+                    await _context.SaveChangesAsync();
+                }
+                else
+                {
+                    var activeGlobals = await _context.ShiftTemplates
+                        .Where(st => st.Scope == "GLOBAL" && st.IsActive)
+                        .ToListAsync();
+
+                    if (activeGlobals.Count > 0)
+                    {
+                        var newCustoms = activeGlobals.Select(g => new ShiftTemplate
+                        {
+                            Scope = "BRANCH",
+                            BranchId = branchId,
+                            Name = $"{g.Name} (Riêng)",
+                            TemplateCode = $"CR_{branchId}_{g.TemplateCode.Replace("CA_", "").Replace("CR_", "")}",
+                            Description = g.Description,
+                            ShiftType = g.ShiftType,
+                            StartTime = g.StartTime,
+                            EndTime = g.EndTime,
+                            BreakDurationMinutes = g.BreakDurationMinutes,
+                            IsOvernight = g.IsOvernight,
+                            IsActive = true,
+                            CreatedAt = DateTime.UtcNow,
+                            UpdatedAt = DateTime.UtcNow
+                        }).ToList();
+
+                        _context.ShiftTemplates.AddRange(newCustoms);
+                        await _context.SaveChangesAsync();
+                    }
+                    else
+                    {
+                        return ShiftOperationResult<BranchEffectiveShiftsDto>.BadRequest(
+                            "NO_ACTIVE_CUSTOM_SHIFT",
+                            "Không thể chuyển sang chế độ ca riêng vì chi nhánh chưa có ca riêng nào đang hoạt động.");
+                    }
+                }
             }
         }
 
@@ -649,7 +719,32 @@ public class ShiftTemplateService : IShiftTemplateService
         var oldValues = new { branch.ShiftMode };
         branch.ShiftMode = normalizedMode;
         branch.UpdatedAt = DateTime.UtcNow;
+
+        // 1. Đóng băng snapshot cho toàn bộ lịch ca của tuần hiện tại và quá khứ (< nextMonday)
+        int daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
+        var currentMonday = today.AddDays(-daysSinceMonday);
+        var nextMonday = currentMonday.AddDays(7);
+
+        var schedulesToLock = await _context.WorkSchedules
+            .Include(ws => ws.ShiftTemplate)
+            .Where(ws => ws.BranchId == branchId && ws.WorkDate < nextMonday)
+            .ToListAsync();
+
+        foreach (var ws in schedulesToLock)
+        {
+            if (!ws.SnapshotStartTime.HasValue && ws.ShiftTemplate != null)
+            {
+                ws.SnapshotShiftName = ws.ShiftTemplate.Name;
+                ws.SnapshotStartTime = ws.ShiftTemplate.StartTime;
+                ws.SnapshotEndTime = ws.ShiftTemplate.EndTime;
+                ws.SnapshotIsOvernight = ws.ShiftTemplate.IsOvernight;
+            }
+        }
+
         await _context.SaveChangesAsync();
+
+        // 2. Thu hồi toàn bộ lịch từ tuần sau (>= nextMonday) và thông báo qua email cho nhân viên cơ sở
+        await RevokeFutureSchedulesForBranchAndNotifyEmployeesAsync(branch, nextMonday, normalizedMode);
 
         var newValues = new { branch.ShiftMode };
 
@@ -781,15 +876,16 @@ public class ShiftTemplateService : IShiftTemplateService
         }
 
         // Ràng buộc đóng băng lịch ca: Thay đổi ca mẫu chỉ áp dụng từ tuần sau.
-        // Tuần hiện tại, các ngày đã qua và các ca đã công bố phải giữ nguyên giờ ca cũ (Snapshot).
+        // Tuần hiện tại và các ngày đã qua giữ nguyên 100% khung ca cũ (Snapshot).
+        // Từ tuần sau trở đi (nextMonday), nếu đã xếp lịch hoặc công bố có chứa ca này thì xóa lịch và thông báo qua email.
         var today = DateOnly.FromDateTime(DateTime.Today);
         int daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
         var currentMonday = today.AddDays(-daysSinceMonday);
         var nextMonday = currentMonday.AddDays(7);
 
-        // 1. Đóng băng snapshot cho toàn bộ lịch ca của tuần hiện tại, quá khứ và các ca đã công bố
+        // 1. Đóng băng snapshot cho toàn bộ lịch ca của tuần hiện tại và quá khứ (< nextMonday)
         var schedulesToLock = await _context.WorkSchedules
-            .Where(ws => ws.ShiftTemplateId == template.Id && (ws.WorkDate < nextMonday || ws.Status == "PUBLISHED"))
+            .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate < nextMonday)
             .ToListAsync();
 
         foreach (var ws in schedulesToLock)
@@ -803,18 +899,9 @@ public class ShiftTemplateService : IShiftTemplateService
             }
         }
 
-        // 2. Các ca ở trạng thái nháp (DRAFT) từ thứ Hai tuần sau trở đi sẽ nhận khung giờ mới
-        var futureDraftSchedules = await _context.WorkSchedules
-            .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate >= nextMonday && ws.Status == "DRAFT")
-            .ToListAsync();
-
-        foreach (var ws in futureDraftSchedules)
-        {
-            ws.SnapshotShiftName = dto.Name.Trim();
-            ws.SnapshotStartTime = dto.StartTime;
-            ws.SnapshotEndTime = dto.EndTime;
-            ws.SnapshotIsOvernight = validation.IsOvernight;
-        }
+        // 2. Thu hồi toàn bộ lịch tuần sau trở đi (>= nextMonday) nếu đã xếp hoặc đã công bố, và gửi email thông báo cho nhân viên cơ sở
+        string changeSummary = $"Giờ mới: {dto.StartTime:HH:mm} - {dto.EndTime:HH:mm}";
+        await RevokeFutureSchedulesAndNotifyEmployeesAsync(template, nextMonday, changeSummary);
 
         template.Name = dto.Name.Trim();
         template.StartTime = dto.StartTime;
@@ -892,6 +979,30 @@ public class ShiftTemplateService : IShiftTemplateService
         {
             return ApiResponse<bool>.Fail("Không tìm thấy mẫu ca làm việc.");
         }
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        int daysSinceMonday = today.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)today.DayOfWeek - 1;
+        var currentMonday = today.AddDays(-daysSinceMonday);
+        var nextMonday = currentMonday.AddDays(7);
+
+        // 1. Đóng băng snapshot cho tuần hiện tại và quá khứ (< nextMonday)
+        var currentWeekSchedules = await _context.WorkSchedules
+            .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate < nextMonday)
+            .ToListAsync();
+
+        foreach (var ws in currentWeekSchedules)
+        {
+            if (!ws.SnapshotStartTime.HasValue)
+            {
+                ws.SnapshotShiftName = template.Name;
+                ws.SnapshotStartTime = template.StartTime;
+                ws.SnapshotEndTime = template.EndTime;
+                ws.SnapshotIsOvernight = template.IsOvernight;
+            }
+        }
+
+        // 2. Thu hồi toàn bộ lịch tuần sau trở đi và thông báo qua email cho nhân viên cơ sở
+        await RevokeFutureSchedulesAndNotifyEmployeesAsync(template, nextMonday, "xóa khung ca khỏi hệ thống");
 
         var schedules = await _context.WorkSchedules
             .Include(ws => ws.ShiftAssignments)
@@ -1123,9 +1234,247 @@ public class ShiftTemplateService : IShiftTemplateService
         }
     }
 
+    /// <summary>
+    /// Thu hồi toàn bộ lịch làm việc từ tuần sau trở đi (>= nextMonday) nếu đã xếp lịch hoặc công bố có chứa ca mẫu bị đổi,
+    /// đồng thời gửi email thông báo tới toàn bộ nhân viên của các cơ sở bị ảnh hưởng.
+    /// </summary>
+    private async Task RevokeFutureSchedulesAndNotifyEmployeesAsync(
+        ShiftTemplate template,
+        DateOnly nextMonday,
+        string changeSummary)
+    {
+        try
+        {
+            // 1. Tìm toàn bộ các WorkSchedule từ tuần sau trở đi liên quan đến mẫu ca này
+            var futureSchedules = await _context.WorkSchedules
+                .Include(ws => ws.Branch)
+                .Include(ws => ws.ShiftAssignments)
+                    .ThenInclude(sa => sa.User)
+                .Where(ws => ws.ShiftTemplateId == template.Id && ws.WorkDate >= nextMonday)
+                .ToListAsync();
+
+            if (!futureSchedules.Any())
+            {
+                return;
+            }
+
+            // 2. Xác định các tuần và chi nhánh bị ảnh hưởng (gom nhóm theo BranchId & WeekStartDate)
+            var affectedWeeks = futureSchedules
+                .GroupBy(ws => new
+                {
+                    ws.BranchId,
+                    WeekStartDate = ws.WorkDate.AddDays(-(ws.WorkDate.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)ws.WorkDate.DayOfWeek - 1))
+                })
+                .Select(g => new
+                {
+                    g.Key.BranchId,
+                    g.Key.WeekStartDate,
+                    BranchName = g.First().Branch?.Name ?? $"Chi nhánh #{g.Key.BranchId}"
+                })
+                .ToList();
+
+            // 3. Với mỗi tuần bị ảnh hưởng của mỗi chi nhánh: Xóa các WorkSchedule và ShiftAssignment
+            var allAssignmentsToDelete = new List<ShiftAssignment>();
+            var allSchedulesToDelete = new List<WorkSchedule>();
+            var usersToEmailByBranch = new Dictionary<ulong, List<User>>();
+
+            foreach (var week in affectedWeeks)
+            {
+                var weekEnd = week.WeekStartDate.AddDays(6);
+                var weekSchedules = await _context.WorkSchedules
+                    .Include(ws => ws.ShiftAssignments)
+                        .ThenInclude(sa => sa.User)
+                    .Where(ws => ws.BranchId == week.BranchId && ws.WorkDate >= week.WeekStartDate && ws.WorkDate <= weekEnd)
+                    .ToListAsync();
+
+                foreach (var ws in weekSchedules)
+                {
+                    if (ws.ShiftAssignments != null && ws.ShiftAssignments.Any())
+                    {
+                        allAssignmentsToDelete.AddRange(ws.ShiftAssignments);
+                    }
+                }
+                allSchedulesToDelete.AddRange(weekSchedules);
+
+                if (!usersToEmailByBranch.ContainsKey(week.BranchId))
+                {
+                    var branchUsers = await _context.Users
+                        .Where(u => u.HomeBranchId == week.BranchId && u.Status == "ACTIVE" && !string.IsNullOrEmpty(u.Email))
+                        .ToListAsync();
+                    usersToEmailByBranch[week.BranchId] = branchUsers;
+                }
+            }
+
+            if (allAssignmentsToDelete.Any())
+            {
+                _context.ShiftAssignments.RemoveRange(allAssignmentsToDelete.DistinctBy(sa => sa.Id));
+            }
+
+            if (allSchedulesToDelete.Any())
+            {
+                _context.WorkSchedules.RemoveRange(allSchedulesToDelete.DistinctBy(ws => ws.Id));
+            }
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Đã xóa {AssignCount} phân công và {ScheduleCount} lịch làm việc từ {NextMonday} do thay đổi ca mẫu {TemplateId}.",
+                allAssignmentsToDelete.Count, allSchedulesToDelete.Count, nextMonday, template.Id);
+
+            // 4. Gửi email thông báo bất đồng bộ cho nhân viên cơ sở
+            _ = Task.Run(async () =>
+            {
+                foreach (var week in affectedWeeks)
+                {
+                    if (!usersToEmailByBranch.TryGetValue(week.BranchId, out var branchEmployees) || !branchEmployees.Any())
+                    {
+                        continue;
+                    }
+
+                    foreach (var emp in branchEmployees)
+                    {
+                        try
+                        {
+                            await _emailService.SendShiftChangeNotificationEmailAsync(
+                                emp.Email,
+                                emp.FullName,
+                                "Điều chỉnh khung ca & Thu hồi lịch tuần sau",
+                                $"Ban Quản Trị đã cập nhật khung ca mẫu '{template.Name}' ({changeSummary}). Lịch làm việc tuần ({week.WeekStartDate:dd/MM/yyyy} - {week.WeekStartDate.AddDays(6):dd/MM/yyyy}) tại cơ sở '{week.BranchName}' đã được tự động thu hồi để Quản lý cơ sở sắp xếp lại theo khung ca mới.",
+                                nextMonday.ToString("dd/MM/yyyy"),
+                                "Lịch làm việc tuần hiện tại của bạn vẫn được giữ nguyên không thay đổi. Vui lòng theo dõi ứng dụng để cập nhật lịch làm việc mới sau khi Quản lý chi nhánh công bố lại.",
+                                "ĐÃ THU HỒI LỊCH");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Lỗi gửi email thu hồi lịch cho {Email}", emp.Email);
+                        }
+                    }
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi thu hồi lịch tương lai cho ca mẫu {TemplateId}", template.Id);
+        }
+    }
+
+    private async Task RevokeFutureSchedulesForBranchAndNotifyEmployeesAsync(
+        Branch branch, DateOnly nextMonday, string newMode)
+    {
+        try
+        {
+            var futureSchedules = await _context.WorkSchedules
+                .Include(ws => ws.Branch)
+                .Include(ws => ws.ShiftAssignments)
+                    .ThenInclude(sa => sa.User)
+                .Where(ws => ws.BranchId == branch.Id && ws.WorkDate >= nextMonday)
+                .ToListAsync();
+
+            if (!futureSchedules.Any())
+            {
+                return;
+            }
+
+            var affectedWeeks = futureSchedules
+                .GroupBy(ws => ws.WorkDate.AddDays(-(ws.WorkDate.DayOfWeek == DayOfWeek.Sunday ? 6 : (int)ws.WorkDate.DayOfWeek - 1)))
+                .Select(g => new
+                {
+                    WeekStartDate = g.Key,
+                    BranchName = branch.Name
+                })
+                .ToList();
+
+            var allAssignmentsToDelete = new List<ShiftAssignment>();
+            var allSchedulesToDelete = new List<WorkSchedule>();
+
+            foreach (var week in affectedWeeks)
+            {
+                var weekEnd = week.WeekStartDate.AddDays(6);
+                var weekSchedules = await _context.WorkSchedules
+                    .Include(ws => ws.ShiftAssignments)
+                    .Where(ws => ws.BranchId == branch.Id && ws.WorkDate >= week.WeekStartDate && ws.WorkDate <= weekEnd)
+                    .ToListAsync();
+
+                foreach (var ws in weekSchedules)
+                {
+                    if (ws.ShiftAssignments != null && ws.ShiftAssignments.Any())
+                    {
+                        allAssignmentsToDelete.AddRange(ws.ShiftAssignments);
+                    }
+                }
+                allSchedulesToDelete.AddRange(weekSchedules);
+            }
+
+            if (allAssignmentsToDelete.Any())
+            {
+                _context.ShiftAssignments.RemoveRange(allAssignmentsToDelete.DistinctBy(sa => sa.Id));
+            }
+
+            if (allSchedulesToDelete.Any())
+            {
+                _context.WorkSchedules.RemoveRange(allSchedulesToDelete.DistinctBy(ws => ws.Id));
+            }
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation(
+                "Đã xóa {AssignCount} phân công và {ScheduleCount} lịch làm việc từ {NextMonday} do thay đổi chế độ ca cho chi nhánh {BranchId}.",
+                allAssignmentsToDelete.Count, allSchedulesToDelete.Count, nextMonday, branch.Id);
+
+            var branchUsers = await _context.Users
+                .Where(u => u.HomeBranchId == branch.Id && u.Status == "ACTIVE" && !string.IsNullOrEmpty(u.Email))
+                .ToListAsync();
+
+            if (branchUsers.Any())
+            {
+                string modeText = newMode == "CUSTOM" ? "Ca riêng chi nhánh" : "Ca chung toàn hệ thống";
+                _ = Task.Run(async () =>
+                {
+                    foreach (var week in affectedWeeks)
+                    {
+                        foreach (var emp in branchUsers)
+                        {
+                            try
+                            {
+                                await _emailService.SendShiftChangeNotificationEmailAsync(
+                                    emp.Email,
+                                    emp.FullName,
+                                    "Điều chỉnh chế độ khung ca & Thu hồi lịch tuần sau",
+                                    $"Ban Quản Trị đã cập nhật chế độ khung ca của cơ sở '{branch.Name}' sang '{modeText}'. Lịch làm việc tuần ({week.WeekStartDate:dd/MM/yyyy} - {week.WeekStartDate.AddDays(6):dd/MM/yyyy}) tại cơ sở '{branch.Name}' đã được tự động thu hồi để Quản lý cơ sở sắp xếp lại theo khung ca mới.",
+                                    nextMonday.ToString("dd/MM/yyyy"),
+                                    "Lịch làm việc tuần hiện tại của bạn vẫn được giữ nguyên không thay đổi. Vui lòng theo dõi ứng dụng để cập nhật lịch làm việc mới sau khi Quản lý chi nhánh công bố lại.",
+                                    "ĐÃ THU HỒI LỊCH");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Lỗi gửi email thu hồi lịch cho {Email}", emp.Email);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi thu hồi lịch tương lai khi đổi chế độ ca cho chi nhánh {BranchId}", branch.Id);
+        }
+    }
+
     public async Task<ApiResponse<List<ShiftDto>>> GetAllShiftsAsync()
     {
         return await GetAllShiftTemplatesAsync(includeInactive: false);
+    }
+
+    private static bool IsBranchLocked(Branch? branch)
+    {
+        if (branch == null) return false;
+        if (string.Equals(branch.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(branch.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(branch.Status, "LOCKED", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return branch.LockedAt != null && (branch.UnlockedAt == null || branch.LockedAt > branch.UnlockedAt);
     }
 
 }

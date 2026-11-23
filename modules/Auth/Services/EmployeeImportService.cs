@@ -417,7 +417,10 @@ public class EmployeeImportService : IEmployeeImportService
 
         // 2. Pre-fetch danh mục
         var existingUsers = await _context.Users.AsNoTracking().ToListAsync();
-        var existingCodes = new HashSet<string>(existingUsers.Select(u => u.EmployeeCode.ToUpper()), StringComparer.OrdinalIgnoreCase);
+        var existingUsersByCode = existingUsers
+            .Where(u => !string.IsNullOrWhiteSpace(u.EmployeeCode))
+            .ToDictionary(u => u.EmployeeCode.Trim().ToUpper(), u => u, StringComparer.OrdinalIgnoreCase);
+        var existingCodes = new HashSet<string>(existingUsersByCode.Keys, StringComparer.OrdinalIgnoreCase);
         var existingEmails = new HashSet<string>(existingUsers.Select(u => u.Email.ToLower()), StringComparer.OrdinalIgnoreCase);
         var existingPhones = new HashSet<string>(existingUsers.Select(u => u.Phone), StringComparer.OrdinalIgnoreCase);
 
@@ -536,14 +539,22 @@ public class EmployeeImportService : IEmployeeImportService
             }
 
             // Kiểm tra trùng lặp với CSDL
-            if (existingCodes.Contains(normalizedCode))
+            if (existingUsersByCode.TryGetValue(normalizedCode, out var matchedExistingUser))
             {
+                bool isInactive = string.Equals(matchedExistingUser.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
                 result.Errors.Add(new ImportRowErrorDto { 
                     RowNumber = r.RowNumber, 
                     EmployeeCode = normalizedCode, 
                     FullName = r.FullName, 
                     Email = r.Email, 
-                    ErrorMessage = $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống." });
+                    ErrorMessage = isInactive
+                        ? $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống nhưng tài khoản đang bị KHÓA (Inactive). Bạn có thể bấm vào mã nhân viên để mở khóa kích hoạt lại tài khoản này."
+                        : $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống.",
+                    ExistingUserId = matchedExistingUser.Id,
+                    ExistingUserStatus = matchedExistingUser.Status,
+                    CanUnlock = isInactive
+                });
+                    
                 continue;
             }
             if (existingEmails.Contains(normalizedEmail))
@@ -618,7 +629,7 @@ public class EmployeeImportService : IEmployeeImportService
             validRowsToProcess.Add((r, targetRole, targetBranch));
         }
 
-        // Danh sách các chi nhánh đã có Cửa hàng trưởng ACTIVE (bao gồm cả CHT đang đi chi viện tạm thời)
+        
         var branchesWithActiveManagerList = await _context.Users
             .Include(u => u.Role)
             .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && (u.OriginalHomeBranchId != null || u.HomeBranchId != null))

@@ -33,6 +33,21 @@ public class ImportRowErrorDto
     public string? FullName { get; set; }
     public string? Email { get; set; }
     public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// ID tài khoản đã tồn tại trong CSDL (nếu phát hiện trùng lặp)
+    /// </summary>
+    public ulong? ExistingUserId { get; set; }
+
+    /// <summary>
+    /// Trạng thái của tài khoản đã tồn tại trong CSDL (ACTIVE, INACTIVE, ...)
+    /// </summary>
+    public string? ExistingUserStatus { get; set; }
+
+    /// <summary>
+    /// Cờ đánh dấu có thể bấm để mở khóa tài khoản hay không (khi ExistingUserStatus == INACTIVE)
+    /// </summary>
+    public bool CanUnlock { get; set; }
 }
 
 /// <summary>

@@ -563,11 +563,6 @@ public class UserService : IUserService
         if (user == null)
             return ApiResponse<EmployeeDetailDto>.Fail("Không tìm thấy hồ sơ nhân sự.");
 
-        if (string.IsNullOrWhiteSpace(dto.Reason) || dto.Reason.Trim().Length < 5)
-        {
-            return ApiResponse<EmployeeDetailDto>.Fail("Vui lòng nhập lý do điều chỉnh hồ sơ nhân sự (tối thiểu 5 ký tự) để lưu vết kiểm toán và gửi email thông báo.");
-        }
-
         var normalizedActorRole = actorRole.ToUpper();
         if ((normalizedActorRole == "STORE_MANAGER" || normalizedActorRole == "STOREMANAGER") && user.HomeBranchId != actorBranchId)
             return ApiResponse<EmployeeDetailDto>.Fail("Bạn không có quyền chỉnh sửa nhân sự của chi nhánh khác.");
@@ -745,6 +740,44 @@ public class UserService : IUserService
             }
         }
 
+        // Kiểm tra xem có trường thông tin nào thực sự thay đổi không
+        if (changedFields.Count == 0)
+        {
+            return ApiResponse<EmployeeDetailDto>.Ok(new EmployeeDetailDto
+            {
+                Id = user.Id,
+                EmployeeCode = user.EmployeeCode,
+                FullName = user.FullName,
+                Email = user.Email,
+                Phone = user.Phone,
+                RoleId = user.RoleId,
+                RoleName = user.Role?.RoleName ?? user.Role?.RoleCode ?? "Nhân viên",
+                RoleCode = user.Role?.RoleCode ?? "",
+                HomeBranchId = user.HomeBranchId,
+                BranchCode = user.HomeBranch?.BranchCode,
+                BranchName = user.HomeBranch?.Name,
+                EmploymentType = user.EmploymentType,
+                ContractType = user.EmploymentType,
+                Status = user.Status,
+                CreatedAt = user.CreatedAt,
+                UpdatedAt = user.UpdatedAt
+            }, "Hồ sơ nhân sự không có thông tin nào thay đổi.");
+        }
+
+        // Bắt buộc lý do khi có thay đổi thông tin (tự động gán nếu là tái tuyển dụng / kích hoạt lại)
+        var effectiveReason = dto.Reason?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveReason) || effectiveReason.Length < 5)
+        {
+            if (user.Status != "ACTIVE" && dto.Status == "ACTIVE")
+            {
+                effectiveReason = "Tái tuyển dụng và kích hoạt lại hồ sơ nhân sự";
+            }
+            else
+            {
+                return ApiResponse<EmployeeDetailDto>.Fail("Vui lòng nhập lý do điều chỉnh hồ sơ nhân sự (tối thiểu 5 ký tự) để lưu vết kiểm toán và gửi email thông báo.");
+            }
+        }
+
         user.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
@@ -757,12 +790,12 @@ public class UserService : IUserService
             user.EmploymentType,
             user.HomeBranchId,
             user.Status,
-            Reason = dto.Reason.Trim()
+            Reason = effectiveReason
         }, ipAddress);
 
         // Kích hoạt gửi email thông báo điều chỉnh thông tin hồ sơ
         var targetRecipientEmail = !string.IsNullOrWhiteSpace(cleanEmail) ? cleanEmail : user.Email;
-        var reasonTrimmed = dto.Reason.Trim();
+        var reasonTrimmed = effectiveReason;
         _ = Task.Run(async () =>
         {
             try

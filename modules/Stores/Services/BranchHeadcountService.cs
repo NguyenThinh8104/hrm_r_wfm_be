@@ -87,19 +87,30 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
 
         // 1. Quân số cơ hữu chính thức thuộc biên chế của chi nhánh (Status == 'ACTIVE')
         var officialHeadcount = await _context.Users
-            .CountAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && u.Status == "ACTIVE");
+            .CountAsync(u =>
+            ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && 
+            u.Status == "ACTIVE");
 
         // 2. Số lượng nhân sự từ chi nhánh khác sang hỗ trợ tạm thời (chi viện)
         var dispatchedInCount = await _context.Users
-            .CountAsync(u => u.HomeBranchId == branchId && u.OriginalHomeBranchId != null && u.OriginalHomeBranchId != branchId && u.Status == "ACTIVE");
+            .CountAsync(u => 
+            u.HomeBranchId == branchId && 
+            u.OriginalHomeBranchId != null &&
+            u.OriginalHomeBranchId != branchId &&
+            u.Status == "ACTIVE");
 
         // 3. Số lượng nhân sự cơ hữu của chi nhánh đang đi điều động hỗ trợ nơi khác
         var dispatchedOutCount = await _context.Users
-            .CountAsync(u => u.OriginalHomeBranchId == branchId && u.HomeBranchId != branchId && u.Status == "ACTIVE");
+            .CountAsync(u => 
+            u.OriginalHomeBranchId == branchId && 
+            u.HomeBranchId != branchId &&
+            u.Status == "ACTIVE");
 
         // 4. Tổng số nhân sự thực tế đang có mặt làm việc tại cửa hàng hôm nay
         var actualWorkingCount = await _context.Users
-            .CountAsync(u => u.HomeBranchId == branchId && u.Status == "ACTIVE");
+            .CountAsync(u =>
+            u.HomeBranchId == branchId &&
+            u.Status == "ACTIVE");
 
         // 5. Kiểm tra Cửa hàng trưởng đang hoạt động tại chi nhánh
         var activeStoreManager = await _context.Users

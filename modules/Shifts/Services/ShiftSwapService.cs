@@ -262,19 +262,7 @@ public class ShiftSwapService : IShiftSwapService
         if (reqType != "LEAVE")
         {
             var laborCheck = await ValidateSwapLaborLawsAsync(
-                reqType: reqType,
-                requesterId: (ulong)requesterEmployeeId,
-                requesterExcludeId: requestingAssignment.Id,
-                requesterNewShiftDate: targetAssignment?.Schedule.WorkDate ?? requestingAssignment.Schedule.WorkDate,
-                requesterNewShiftStart: targetAssignment?.Schedule.ShiftTemplate?.StartTime ?? requestingAssignment.Schedule.ShiftTemplate!.StartTime,
-                requesterNewShiftEnd: targetAssignment?.Schedule.ShiftTemplate?.EndTime ?? requestingAssignment.Schedule.ShiftTemplate!.EndTime,
-                requesterNewIsOvernight: targetAssignment?.Schedule.ShiftTemplate?.IsOvernight ?? requestingAssignment.Schedule.ShiftTemplate!.IsOvernight,
-                targetId: targetUser?.Id,
-                targetExcludeId: targetAssignment?.Id,
-                targetNewShiftDate: requestingAssignment.Schedule.WorkDate,
-                targetNewShiftStart: requestingAssignment.Schedule.ShiftTemplate!.StartTime,
-                targetNewShiftEnd: requestingAssignment.Schedule.ShiftTemplate!.EndTime,
-                targetNewIsOvernight: requestingAssignment.Schedule.ShiftTemplate!.IsOvernight);
+                reqType, (ulong)requesterEmployeeId, requestingAssignment, targetUser?.Id, targetAssignment);
 
             if (!laborCheck.IsValid)
                 return ApiResponse<ShiftSwapRequestDto>.Fail(laborCheck.ErrorMessage!);
@@ -426,23 +414,9 @@ public class ShiftSwapService : IShiftSwapService
         if (!string.Equals(swap.RequestType, "LEAVE", StringComparison.OrdinalIgnoreCase)
             && swap.RequestingAssignment?.Schedule?.ShiftTemplate != null)
         {
-            var ra = swap.RequestingAssignment;
-            var ta = swap.TargetAssignment;
-
             var laborCheck = await ValidateSwapLaborLawsAsync(
-                reqType: swap.RequestType,
-                requesterId: swap.RequesterUserId ?? ra.UserId,
-                requesterExcludeId: ra.Id,
-                requesterNewShiftDate: ta?.Schedule.WorkDate ?? ra.Schedule.WorkDate,
-                requesterNewShiftStart: ta?.Schedule.ShiftTemplate?.StartTime ?? ra.Schedule.ShiftTemplate.StartTime,
-                requesterNewShiftEnd: ta?.Schedule.ShiftTemplate?.EndTime ?? ra.Schedule.ShiftTemplate.EndTime,
-                requesterNewIsOvernight: ta?.Schedule.ShiftTemplate?.IsOvernight ?? ra.Schedule.ShiftTemplate.IsOvernight,
-                targetId: swap.TargetUserId,
-                targetExcludeId: ta?.Id,
-                targetNewShiftDate: ra.Schedule.WorkDate,
-                targetNewShiftStart: ra.Schedule.ShiftTemplate.StartTime,
-                targetNewShiftEnd: ra.Schedule.ShiftTemplate.EndTime,
-                targetNewIsOvernight: ra.Schedule.ShiftTemplate.IsOvernight);
+                swap.RequestType, swap.RequesterUserId ?? swap.RequestingAssignment.UserId,
+                swap.RequestingAssignment, swap.TargetUserId, swap.TargetAssignment);
 
             if (!laborCheck.IsValid)
                 return ApiResponse<bool>.Fail(laborCheck.ErrorMessage!);
@@ -732,23 +706,9 @@ public class ShiftSwapService : IShiftSwapService
             // ── KIỂM TRA LUẬT LAO ĐỘNG khi Peer xác nhận (Điều 110, 105/107, 111) ──
             if (swap.RequestingAssignment?.Schedule?.ShiftTemplate != null)
             {
-                var ra = swap.RequestingAssignment;
-                var ta = swap.TargetAssignment;
-
                 var laborCheck = await ValidateSwapLaborLawsAsync(
-                    reqType: swap.RequestType,
-                    requesterId: swap.RequesterUserId ?? ra.UserId,
-                    requesterExcludeId: ra.Id,
-                    requesterNewShiftDate: ta?.Schedule.WorkDate ?? ra.Schedule.WorkDate,
-                    requesterNewShiftStart: ta?.Schedule.ShiftTemplate?.StartTime ?? ra.Schedule.ShiftTemplate.StartTime,
-                    requesterNewShiftEnd: ta?.Schedule.ShiftTemplate?.EndTime ?? ra.Schedule.ShiftTemplate.EndTime,
-                    requesterNewIsOvernight: ta?.Schedule.ShiftTemplate?.IsOvernight ?? ra.Schedule.ShiftTemplate.IsOvernight,
-                    targetId: swap.TargetUserId,
-                    targetExcludeId: ta?.Id,
-                    targetNewShiftDate: ra.Schedule.WorkDate,
-                    targetNewShiftStart: ra.Schedule.ShiftTemplate.StartTime,
-                    targetNewShiftEnd: ra.Schedule.ShiftTemplate.EndTime,
-                    targetNewIsOvernight: ra.Schedule.ShiftTemplate.IsOvernight);
+                    swap.RequestType, swap.RequesterUserId ?? swap.RequestingAssignment.UserId,
+                    swap.RequestingAssignment, swap.TargetUserId, swap.TargetAssignment);
 
                 if (!laborCheck.IsValid)
                     return ApiResponse<bool>.Fail(laborCheck.ErrorMessage!);
@@ -1182,24 +1142,27 @@ public class ShiftSwapService : IShiftSwapService
         var today = DateOnly.FromDateTime(DateTime.Today);
         var minAllowedDate = today.AddDays(1); // RÀNG BUỘC: Chỉ hiển thị các ca diễn ra từ ngày mai trở đi
 
-        DateOnly? requestingWorkDate = null;
-        ulong? requestingScheduleId = null;
+        ShiftAssignment? requestingAssignment = null;
 
-        if (requestingAssignmentId.HasValue && requestingAssignmentId.Value > 0)
+        if (requestingAssignmentId.HasValue)
         {
-            var reqAssignment = await _context.ShiftAssignments
+            requestingAssignment = await _context.ShiftAssignments
+                .AsNoTracking()
+                .Include(sa => sa.User)
                 .Include(sa => sa.Schedule)
-                .FirstOrDefaultAsync(sa => sa.Id == (ulong)requestingAssignmentId.Value && sa.UserId == (ulong)currentEmployeeId);
+                    .ThenInclude(s => s.ShiftTemplate)
+                .FirstOrDefaultAsync(sa => sa.Id == (ulong)requestingAssignmentId.Value
+                    && sa.UserId == (ulong)currentEmployeeId
+                    && sa.Status != "CANCELLED"
+                    && sa.Schedule.WorkDate >= minAllowedDate);
 
-            if (reqAssignment != null)
-            {
-                requestingWorkDate = reqAssignment.Schedule.WorkDate;
-                requestingScheduleId = reqAssignment.ScheduleId;
-            }
+            if (requestingAssignment == null)
+                return ApiResponse<List<ColleagueShiftDto>>.Ok(new List<ColleagueShiftDto>());
         }
 
         // Lấy danh sách ca trực hiện có của nhân viên yêu cầu từ ngày mai trở đi
         var myActiveAssignments = await _context.ShiftAssignments
+            .AsNoTracking()
             .Include(sa => sa.Schedule)
             .Where(sa => sa.UserId == (ulong)currentEmployeeId 
                       && sa.Status != "CANCELLED"
@@ -1219,6 +1182,7 @@ public class ShiftSwapService : IShiftSwapService
 
         // Lấy danh sách ca khả dụng của đồng nghiệp
         var colleagueShifts = await _context.ShiftAssignments
+            .AsNoTracking()
             .Include(sa => sa.Schedule)
                 .ThenInclude(s => s.ShiftTemplate)
             .Include(sa => sa.Schedule)
@@ -1231,13 +1195,43 @@ public class ShiftSwapService : IShiftSwapService
             .ToListAsync();
 
         var availableShifts = new List<ColleagueShiftDto>();
+        if (colleagueShifts.Count == 0 || currentEmployeeId == colleagueEmployeeId)
+            return ApiResponse<List<ColleagueShiftDto>>.Ok(availableShifts);
+
+        List<ShiftAssignment> requesterAssignments = new();
+        List<ShiftAssignment> colleagueAssignments = new();
+        if (requestingAssignment != null)
+        {
+            var colleague = await _context.Users.FindAsync((ulong)colleagueEmployeeId);
+            if (colleague == null || colleague.RoleId != requestingAssignment.User.RoleId)
+                return ApiResponse<List<ColleagueShiftDto>>.Ok(availableShifts);
+
+            var requestingDate = requestingAssignment.Schedule.WorkDate;
+            colleagueAssignments = await GetLaborCheckAssignmentsAsync(
+                (ulong)colleagueEmployeeId, requestingDate, requestingDate);
+            requesterAssignments = await GetLaborCheckAssignmentsAsync(
+                (ulong)currentEmployeeId, colleagueShifts[0].Schedule.WorkDate, colleagueShifts[^1].Schedule.WorkDate);
+        }
 
         foreach (var sa in colleagueShifts)
         {
-            // Trùng khung giờ trực chung
-            if (myActiveScheduleIds.Contains(sa.ScheduleId))
+            if (myActiveScheduleIds.Contains(sa.ScheduleId) || myBusyDates.Contains(sa.Schedule.WorkDate))
             {
                 continue;
+            }
+
+            if (requestingAssignment != null)
+            {
+                var requestingSchedule = requestingAssignment.Schedule;
+                var colleagueHasOtherShift = colleagueAssignments.Any(a =>
+                    a.Id != sa.Id && a.Schedule.WorkDate == requestingSchedule.WorkDate);
+
+                if (colleagueHasOtherShift ||
+                    !ValidateEmployeeLaborLaws(requesterAssignments, requestingAssignment.Id, sa.Schedule, true).IsValid ||
+                    !ValidateEmployeeLaborLaws(colleagueAssignments, sa.Id, requestingSchedule, false).IsValid)
+                {
+                    continue;
+                }
             }
 
             // FILTER THEO CHI NHÁNH: Ca của đồng nghiệp phải thuộc chi nhánh mà nhân viên hiện tại được phép làm việc vào ngày đó
@@ -1245,24 +1239,6 @@ public class ShiftSwapService : IShiftSwapService
             if (sa.Schedule.BranchId != myEffectiveBranchId)
             {
                 continue;
-            }
-
-            // Nếu là ca cùng ngày với ca đem ra đổi
-            if (requestingWorkDate.HasValue && sa.Schedule.WorkDate == requestingWorkDate.Value)
-            {
-                // Cho phép đổi cùng ngày miễn là nhân viên không có ca thứ 3 bận trong ngày đó
-                if (myBusyDates.Contains(sa.Schedule.WorkDate))
-                {
-                    continue;
-                }
-            }
-            else
-            {
-                // Khác ngày: Nhân viên không được có ca trực trong ngày đó
-                if (myBusyDates.Contains(sa.Schedule.WorkDate))
-                {
-                    continue;
-                }
             }
 
             availableShifts.Add(new ColleagueShiftDto
@@ -1291,71 +1267,62 @@ public class ShiftSwapService : IShiftSwapService
     private async Task<(bool IsValid, string? ErrorMessage)> ValidateSwapLaborLawsAsync(
         string reqType,
         ulong requesterId,
-        ulong requesterExcludeId,
-        DateOnly requesterNewShiftDate,
-        TimeOnly requesterNewShiftStart,
-        TimeOnly requesterNewShiftEnd,
-        bool requesterNewIsOvernight,
+        ShiftAssignment requestingAssignment,
         ulong? targetId,
-        ulong? targetExcludeId,
-        DateOnly targetNewShiftDate,
-        TimeOnly targetNewShiftStart,
-        TimeOnly targetNewShiftEnd,
-        bool targetNewIsOvernight)
+        ShiftAssignment? targetAssignment)
     {
-        // --- Kiểm tra cho REQUESTER (chỉ với SWAP – người nhận ca của target) ---
         if (string.Equals(reqType, "SWAP", StringComparison.OrdinalIgnoreCase))
         {
-            double requesterNewHours = GetShiftNetWorkingHours(
-                requesterNewShiftStart, requesterNewShiftEnd, requesterNewIsOvernight);
-
-            var r1 = await CheckMinRestBetweenShiftsAsync(
-                requesterNewShiftDate, requesterId, requesterExcludeId,
-                requesterNewShiftStart, requesterNewShiftEnd, requesterNewIsOvernight,
-                isRequester: true);
-            if (!r1.IsValid) return r1;
-
-            var r2 = await CheckMaxDailyWorkingHoursAsync(
-                requesterId, requesterExcludeId,
-                requesterNewShiftDate, requesterNewHours,
-                isRequester: true);
-            if (!r2.IsValid) return r2;
-
-            var r3 = await CheckWeeklyRestRequirementAsync(
-                requesterId, requesterExcludeId,
-                requesterNewShiftDate, requesterNewShiftStart,
-                requesterNewShiftEnd, requesterNewIsOvernight,
-                isRequester: true);
-            if (!r3.IsValid) return r3;
+            var incoming = targetAssignment?.Schedule ?? requestingAssignment.Schedule;
+            var assignments = await GetLaborCheckAssignmentsAsync(requesterId, incoming.WorkDate, incoming.WorkDate);
+            var check = ValidateEmployeeLaborLaws(assignments, requestingAssignment.Id, incoming, isRequester: true);
+            if (!check.IsValid) return check;
         }
 
-        // --- Kiểm tra cho TARGET (SWAP hoặc TRANSFER – người nhận ca của requester) ---
         if (targetId.HasValue)
         {
-            double targetNewHours = GetShiftNetWorkingHours(
-                targetNewShiftStart, targetNewShiftEnd, targetNewIsOvernight);
-
-            var t1 = await CheckMinRestBetweenShiftsAsync(
-                targetNewShiftDate, targetId.Value, targetExcludeId,
-                targetNewShiftStart, targetNewShiftEnd, targetNewIsOvernight,
-                isRequester: false);
-            if (!t1.IsValid) return t1;
-
-            var t2 = await CheckMaxDailyWorkingHoursAsync(
-                targetId.Value, targetExcludeId,
-                targetNewShiftDate, targetNewHours,
-                isRequester: false);
-            if (!t2.IsValid) return t2;
-
-            var t3 = await CheckWeeklyRestRequirementAsync(
-                targetId.Value, targetExcludeId,
-                targetNewShiftDate, targetNewShiftStart,
-                targetNewShiftEnd, targetNewIsOvernight,
-                isRequester: false);
-            if (!t3.IsValid) return t3;
+            var incoming = requestingAssignment.Schedule;
+            var assignments = await GetLaborCheckAssignmentsAsync(targetId.Value, incoming.WorkDate, incoming.WorkDate);
+            return ValidateEmployeeLaborLaws(assignments, targetAssignment?.Id, incoming, isRequester: false);
         }
 
         return (true, null);
+    }
+
+    private Task<List<ShiftAssignment>> GetLaborCheckAssignmentsAsync(ulong userId, DateOnly firstDate, DateOnly lastDate)
+    {
+        // Include surrounding dates for overnight shifts, minimum rest, and weekly rest.
+        var start = firstDate.AddDays(-HeadcountConstants.WeeklyRestWindowDays);
+        var end = lastDate.AddDays(2);
+        return _context.ShiftAssignments
+            .AsNoTracking()
+            .Include(sa => sa.Schedule)
+                .ThenInclude(s => s.ShiftTemplate)
+            .Where(sa => sa.UserId == userId
+                && sa.Status != "CANCELLED"
+                && sa.Schedule.WorkDate >= start
+                && sa.Schedule.WorkDate <= end)
+            .ToListAsync();
+    }
+
+    private static (bool IsValid, string? ErrorMessage) ValidateEmployeeLaborLaws(
+        IEnumerable<ShiftAssignment> assignments,
+        ulong? outgoingAssignmentId,
+        WorkSchedule incoming,
+        bool isRequester)
+    {
+        var remaining = assignments.Where(sa => sa.Id != outgoingAssignmentId);
+        var start = incoming.EffectiveStartTime;
+        var end = incoming.EffectiveEndTime;
+        var overnight = incoming.EffectiveIsOvernight || end < start;
+
+        var rest = CheckMinRestBetweenShifts(remaining, incoming.WorkDate, start, end, overnight, isRequester);
+        if (!rest.IsValid) return rest;
+
+        var hours = CheckMaxDailyWorkingHours(remaining, incoming.WorkDate, GetShiftNetWorkingHours(start, end, overnight), isRequester);
+        if (!hours.IsValid) return hours;
+
+        return CheckWeeklyRestRequirement(remaining, incoming.WorkDate, start, end, overnight, isRequester);
     }
 
     /// <summary>
@@ -1374,10 +1341,9 @@ public class ShiftSwapService : IShiftSwapService
     /// Điều 110 BLLĐ: Khoảng nghỉ tối thiểu 12 giờ liên tục giữa 2 ca liên tiếp.
     /// Kiểm tra ca liền trước (∆t₁) và ca liền sau (∆t₂) ca mới.
     /// </summary>
-    private async Task<(bool IsValid, string? ErrorMessage)> CheckMinRestBetweenShiftsAsync(
+    private static (bool IsValid, string? ErrorMessage) CheckMinRestBetweenShifts(
+        IEnumerable<ShiftAssignment> assignments,
         DateOnly newShiftDate,
-        ulong userId,
-        ulong? excludeAssignmentId,
         TimeOnly newShiftStart,
         TimeOnly newShiftEnd,
         bool newIsOvernight,
@@ -1391,20 +1357,12 @@ public class ShiftSwapService : IShiftSwapService
             ? newShiftDate.AddDays(1).ToDateTime(newShiftEnd)
             : newShiftDate.ToDateTime(newShiftEnd);
 
-        // Query tất cả ca trong khoảng ±2 ngày để bắt được ca overnight lân cận
+        // Xét các ca trong khoảng ±2 ngày để bắt được ca overnight lân cận
         var windowStart = newShiftDate.AddDays(-2);
         var windowEnd = newShiftDate.AddDays(2);
 
-        var nearbyAssignments = await _context.ShiftAssignments
-            .Include(sa => sa.Schedule)
-                .ThenInclude(s => s.ShiftTemplate)
-            .Where(sa => sa.UserId == userId
-                      && sa.Status != "CANCELLED"
-                      && (excludeAssignmentId == null || sa.Id != excludeAssignmentId.Value)
-                      && sa.Schedule.WorkDate >= windowStart
-                      && sa.Schedule.WorkDate <= windowEnd
-                      && sa.Schedule.ShiftTemplate != null)
-            .ToListAsync();
+        var nearbyAssignments = assignments.Where(sa =>
+            sa.Schedule.WorkDate >= windowStart && sa.Schedule.WorkDate <= windowEnd);
 
         DateTime? latestEndBeforeNew = null;  // ca liền trước
         DateTime? earliestStartAfterNew = null; // ca liền sau
@@ -1425,6 +1383,10 @@ public class ShiftSwapService : IShiftSwapService
             {
                 if (earliestStartAfterNew == null || sStart < earliestStartAfterNew)
                     earliestStartAfterNew = sStart;
+            }
+            else
+            {
+                return (false, $"{who} đã có ca trực trùng thời gian với ca mới.");
             }
         }
 
@@ -1454,9 +1416,8 @@ public class ShiftSwapService : IShiftSwapService
     /// <summary>
     /// Điều 105 &amp; 107 BLLĐ: Tổng giờ làm việc trong ngày ≤ 12 giờ.
     /// </summary>
-    private async Task<(bool IsValid, string? ErrorMessage)> CheckMaxDailyWorkingHoursAsync(
-        ulong userId,
-        ulong? excludeAssignmentId,
+    private static (bool IsValid, string? ErrorMessage) CheckMaxDailyWorkingHours(
+        IEnumerable<ShiftAssignment> assignments,
         DateOnly targetDate,
         double newShiftHours,
         bool isRequester)
@@ -1464,28 +1425,26 @@ public class ShiftSwapService : IShiftSwapService
         var who = isRequester ? "Bạn" : "Đồng nghiệp";
 
         // Lấy tất cả ca trong ngày targetDate (bao gồm ca overnight bắt đầu ngày trước)
-        var dayAssignments = await _context.ShiftAssignments
-            .Include(sa => sa.Schedule)
-                .ThenInclude(s => s.ShiftTemplate)
-            .Where(sa => sa.UserId == userId
-                      && sa.Status != "CANCELLED"
-                      && (excludeAssignmentId == null || sa.Id != excludeAssignmentId.Value)
-                      && (sa.Schedule.WorkDate == targetDate
-                          || (sa.Schedule.ShiftTemplate!.IsOvernight && sa.Schedule.WorkDate == targetDate.AddDays(-1))))
-            .ToListAsync();
+        var previousDate = targetDate.AddDays(-1);
+        var dayAssignments = assignments.Where(sa =>
+            sa.Schedule.WorkDate == targetDate || sa.Schedule.WorkDate == previousDate);
 
         double existingHours = 0;
         foreach (var sa in dayAssignments)
         {
-            var t = sa.Schedule.ShiftTemplate!;
+            var schedule = sa.Schedule;
+            var start = schedule.EffectiveStartTime;
+            var end = schedule.EffectiveEndTime;
+            var overnight = schedule.EffectiveIsOvernight || end < start;
             // Với ca overnight bắt đầu hôm trước: chỉ tính phần giờ rơi vào targetDate
-            if (t.IsOvernight && sa.Schedule.WorkDate == targetDate.AddDays(-1))
+            if (schedule.WorkDate == previousDate)
             {
-                existingHours += t.EndTime.ToTimeSpan().TotalHours; // giờ từ 00:00 đến EndTime
+                if (overnight)
+                    existingHours += end.ToTimeSpan().TotalHours;
             }
             else
             {
-                existingHours += GetShiftNetWorkingHours(t.StartTime, t.EndTime, t.IsOvernight);
+                existingHours += GetShiftNetWorkingHours(start, end, overnight);
             }
         }
 
@@ -1503,9 +1462,8 @@ public class ShiftSwapService : IShiftSwapService
     /// <summary>
     /// Điều 111 BLLĐ: Trong chu kỳ 7 ngày chứa ca mới, phải có ít nhất 1 khoảng trống ≥ 24 giờ liên tục.
     /// </summary>
-    private async Task<(bool IsValid, string? ErrorMessage)> CheckWeeklyRestRequirementAsync(
-        ulong userId,
-        ulong? excludeAssignmentId,
+    private static (bool IsValid, string? ErrorMessage) CheckWeeklyRestRequirement(
+        IEnumerable<ShiftAssignment> assignments,
         DateOnly newShiftDate,
         TimeOnly newShiftStart,
         TimeOnly newShiftEnd,
@@ -1520,28 +1478,21 @@ public class ShiftSwapService : IShiftSwapService
         var windowStartDt = windowStart.ToDateTime(TimeOnly.MinValue);
         var windowEndDt   = windowEnd.AddDays(1).ToDateTime(TimeOnly.MinValue); // exclusive
 
-        // Query tất cả ca trong cửa sổ (±1 ngày để bắt overnight)
-        var assignments = await _context.ShiftAssignments
-            .Include(sa => sa.Schedule)
-                .ThenInclude(s => s.ShiftTemplate)
-            .Where(sa => sa.UserId == userId
-                      && sa.Status != "CANCELLED"
-                      && (excludeAssignmentId == null || sa.Id != excludeAssignmentId.Value)
-                      && sa.Schedule.WorkDate >= windowStart.AddDays(-1)
-                      && sa.Schedule.WorkDate <= windowEnd.AddDays(1)
-                      && sa.Schedule.ShiftTemplate != null)
-            .ToListAsync();
+        var firstDate = windowStart.AddDays(-1);
+        var lastDate = windowEnd.AddDays(1);
 
         // Xây dựng danh sách (StartDt, EndDt) bao gồm ca mới
         var intervals = new List<(DateTime Start, DateTime End)>();
 
-        foreach (var sa in assignments)
+        foreach (var sa in assignments.Where(sa => sa.Schedule.WorkDate >= firstDate && sa.Schedule.WorkDate <= lastDate))
         {
-            var t = sa.Schedule.ShiftTemplate!;
-            var sStart = sa.Schedule.WorkDate.ToDateTime(t.StartTime);
-            var sEnd = t.IsOvernight
-                ? sa.Schedule.WorkDate.AddDays(1).ToDateTime(t.EndTime)
-                : sa.Schedule.WorkDate.ToDateTime(t.EndTime);
+            var schedule = sa.Schedule;
+            var start = schedule.EffectiveStartTime;
+            var end = schedule.EffectiveEndTime;
+            var sStart = schedule.WorkDate.ToDateTime(start);
+            var sEnd = schedule.EffectiveIsOvernight || end < start
+                ? schedule.WorkDate.AddDays(1).ToDateTime(end)
+                : schedule.WorkDate.ToDateTime(end);
             // Chỉ đưa vào nếu interval cắt qua cửa sổ [windowStartDt, windowEndDt]
             if (sEnd > windowStartDt && sStart < windowEndDt)
                 intervals.Add((sStart, sEnd));

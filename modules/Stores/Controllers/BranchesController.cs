@@ -88,20 +88,36 @@ public class BranchesController : ControllerBase
         return Ok(result);
     }
 
+    // =========================================================================================
+    // LUỒNG 2: QUẢN LÝ / TẠO MỚI CHI NHÁNH CỬA HÀNG (BRANCH CREATION)
+    // Controller: BranchesController
+    // Route API: POST /api/branches hoặc /api/v1/branches hoặc /api/stores
+    // Phân quyền: OperationsAdmin, BusinessOwner, Admin
+    // Input: CreateBranchDto (Code, Name, Address, TierId, StaffCount, Latitude, Longitude, GeofenceRadiusMeters)
+    // Output: ApiResponse<BranchDto> với HTTP 201 Created
+    // =========================================================================================
+
     /// <summary>
-    /// [Operations Admin] Thêm mới một chi nhánh cửa hàng vào hệ thống (yêu cầu phân cấp BranchTier).
+    /// [POST /api/branches] - Tạo mới một chi nhánh cửa hàng kèm tọa độ GPS và phân cấp quy mô.
+    /// BƯỚC 1: Xác thực quyền hạn (Authorize Roles).
+    /// BƯỚC 2: Kiểm tra DataAnnotations trên CreateBranchDto (ModelState.IsValid).
+    /// BƯỚC 3: Chuyển dữ liệu sang IBranchService.CreateBranchAsync để thực thi logic nghiệp vụ.
     /// </summary>
     [HttpPost]
     [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]
     public async Task<ActionResult<ApiResponse<BranchDto>>> CreateBranch([FromBody] CreateBranchDto dto)
     {
-        // Kiểm tra validation thuộc tính (bao gồm bắt buộc có BranchTier và thuộc khoảng 1..3)
+        // 1. Kiểm tra validation thuộc tính DTO đầu vào
         if (!ModelState.IsValid)
         {
             return BadRequest(ApiResponse<BranchDto>.Fail("Dữ liệu phân cấp hoặc thông tin chi nhánh không hợp lệ."));
         }
+
+        // 2. Gọi tầng Service xử lý kiểm tra trùng mã, gán Tier, tạo điểm tọa độ GPS Point và INSERT database
         var result = await _branchService.CreateBranchAsync(dto);
         if (!result.Success) return BadRequest(result);
+
+        // 3. Phản hồi HTTP 201 Created kèm dữ liệu chi nhánh vừa được lưu thành công
         return StatusCode(201, result);
     }
 

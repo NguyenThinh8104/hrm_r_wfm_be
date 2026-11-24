@@ -77,8 +77,21 @@ public class ShiftTemplatesController : ControllerBase
     }
 
     /// <summary>
-    /// [Operations Admin] Thêm mới một khung ca làm việc (Chung GLOBAL hoặc Riêng BRANCH).
-    /// POST /api/shift-templates
+    /// =========================================================================================
+    /// LUỒNG DỮ LIỆU & CONTROLLER: TẠO KHUNG CA MẪU (CreateShiftTemplate)
+    /// -----------------------------------------------------------------------------------------
+    /// 1. NƠI XUẤT PHÁT:
+    ///    - Frontend gọi: POST /api/shift-templates
+    ///    - Body JSON: CreateShiftTemplateRequest (Name, Scope, BranchId, StartTime, EndTime,...)
+    /// 2. PHÂN QUYỀN (RBAC):
+    ///    - Yêu cầu quyền: OperationsAdmin, BusinessOwner, Admin.
+    /// 3. XỬ LÝ:
+    ///    - Lấy thông tin người tạo (actorId) từ JWT Token và IP Address từ HttpContext.
+    ///    - Chuyển giao toàn bộ nghiệp vụ kiểm tra và lưu DB cho ShiftTemplateService.CreateShiftTemplateAsync.
+    /// 4. KẾT QUẢ:
+    ///    - Thành công: Trả về HTTP 201 Created cùng DTO ShiftTemplateDto.
+    ///    - Thất bại: Trả về HTTP 400 (Bad Request), 404 (Not Found) hoặc 423 (Locked) kèm mã lỗi.
+    /// =========================================================================================
     /// </summary>
     [HttpPost]
     [Authorize(Roles = "OperationsAdmin,OPERATIONS_ADMIN,BusinessOwner,BUSINESS_OWNER,Admin,ADMIN")]

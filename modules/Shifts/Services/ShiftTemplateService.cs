@@ -125,14 +125,52 @@ public class ShiftTemplateService : IShiftTemplateService
         };
     }
 
+    /// <summary>
+    /// =========================================================================================
+    /// LUỒNG DỮ LIỆU & NGHIỆP VỤ: TẠO KHUNG CA MẪU (CreateShiftTemplateAsync)
+    /// -----------------------------------------------------------------------------------------
+    /// 1. NƠI XUẤT PHÁT:
+    ///    - Client gửi POST /api/shift-templates (CreateShiftTemplateRequest)
+    ///    - Tiếp nhận bởi ShiftTemplatesController.CreateShiftTemplate
+    ///
+    /// 2. CÁC BẢNG CƠ SỞ DỮ LIỆU TÁC ĐỘNG:
+    ///    - Bảng 'branches': Kiểm tra chi nhánh tồn tại và trạng thái khóa (nếu là ca riêng BRANCH).
+    ///    - Bảng 'shift_templates': Kiểm tra trùng khung giờ (StartTime, EndTime) và trùng mã TemplateCode,
+    ///                              sau đó INSERT bản ghi khung ca mới.
+    ///    - Bảng 'system_audit_logs': Ghi nhận lịch sử thao tác tạo khung ca.
+    ///
+    /// 3. CÁC QUY TẮC NGHIỆP VỤ & TÍNH TOÁN (BUSINESS RULES):
+    ///    - BƯỚC 1: Validate tên ca và cú pháp thời gian HH:mm (ShiftCalculationHelper.TryParseTime).
+    ///              Giờ bắt đầu không được trùng giờ kết thúc.
+    ///    - BƯỚC 2: Kiểm tra Phạm vi (Scope = 'GLOBAL' hoặc 'BRANCH').
+    ///              - Nếu Scope = BRANCH: Bắt buộc có BranchId, kiểm tra chi nhánh có tồn tại trong bảng branches.
+    ///                [Quy tắc 11]: Nếu chi nhánh bị khóa (IsBranchLocked), từ chối thêm ca (HTTP 423 Locked).
+    ///              - Nếu Scope = GLOBAL: Gán BranchId = null (áp dụng toàn chuỗi).
+    ///    - BƯỚC 3: [Quy tắc 8 - Chống trùng giờ]:
+    ///              Trong cùng bộ ca (cùng Scope + BranchId), không cho phép 2 ca đang kích hoạt (IsActive)
+    ///              có cùng StartTime và EndTime.
+    ///    - BƯỚC 4: [Quy tắc 7 - Tự sinh TemplateCode]:
+    ///              - Ca riêng BRANCH: Sinh mã theo tiền tố chi nhánh, ví dụ: 'HN01-S1', 'HN01-S2'.
+    ///              - Ca chung GLOBAL: Nếu client không nhập, tự sinh 'CA_01', 'CA_02'...
+    ///    - BƯỚC 5: TÍNH TOÁN GIỜ LÀM & CA QUA ĐÊM (ShiftCalculationHelper.CalculateHours):
+    ///              - IsOvernight: Tính toán ở Server (EndTime < StartTime).
+    ///              - PaidHours: Tổng giờ làm có trả lương (sau khi trừ thời gian nghỉ BreakDuration).
+    ///              - NightHours: Số giờ rơi vào khung ban đêm (22:00 - 06:00).
+    ///              - ShiftType: Tự động phân loại ca Sáng, Chiều, Tối hoặc Đêm dựa trên giờ bắt đầu.
+    ///    - BƯỚC 6: Ghi Entity ShiftTemplate vào Database qua EF Core và lưu SystemAuditLog.
+    ///    - BƯỚC 7: Ánh xạ sang ShiftTemplateDto và trả về kết quả thành công (HTTP 201 Created).
+    /// =========================================================================================
+    /// </summary>
     public async Task<ShiftOperationResult<ShiftTemplateDto>> CreateShiftTemplateAsync(
         CreateShiftTemplateRequest request, ulong? actorId = null, string? ipAddress = null)
     {
+        // --- BƯỚC 1: VALIDATE DỮ LIỆU ĐẦU VÀO VÀ THỜI GIAN ---
         if (string.IsNullOrWhiteSpace(request.Name))
         {
             return ShiftOperationResult<ShiftTemplateDto>.BadRequest("INVALID_DATA", "Tên ca làm việc không được để trống.");
         }
 
+        // Kiểm tra tính hợp lệ của định dạng giờ HH:mm
         if (!ShiftCalculationHelper.TryParseTime(request.StartTime, out var startTime))
         {
             return ShiftOperationResult<ShiftTemplateDto>.BadRequest("INVALID_TIME", "Giờ bắt đầu không đúng định dạng HH:mm.");
@@ -148,6 +186,7 @@ public class ShiftTemplateService : IShiftTemplateService
             return ShiftOperationResult<ShiftTemplateDto>.BadRequest("INVALID_TIME", "Giờ bắt đầu và giờ kết thúc không được trùng nhau.");
         }
 
+        // --- BƯỚC 2: PHÂN LOẠI PHẠM VI (SCOPE) VÀ KIỂM TRA CHI NHÁNH ---
         var scope = (request.Scope ?? "GLOBAL").Trim().ToUpper();
         if (scope != "GLOBAL" && scope != "BRANCH")
         {
@@ -162,13 +201,14 @@ public class ShiftTemplateService : IShiftTemplateService
                 return ShiftOperationResult<ShiftTemplateDto>.BadRequest("BRANCH_REQUIRED", "Ca riêng bắt buộc phải chọn chi nhánh (branchId).");
             }
 
+            // Truy vấn bảng 'branches' để xác minh chi nhánh tồn tại
             branch = await _context.Branches.FirstOrDefaultAsync(b => b.Id == request.BranchId.Value);
             if (branch == null)
             {
                 return ShiftOperationResult<ShiftTemplateDto>.NotFound($"Không tìm thấy chi nhánh với ID {request.BranchId.Value}.");
             }
 
-            // Quy tắc 11: Nếu chi nhánh đang bị khóa, từ chối thêm ca riêng (HTTP 423)
+            // Quy tắc 11: Nếu chi nhánh đang bị khóa hoạt động, từ chối thêm ca riêng (HTTP 423 Locked)
             if (IsBranchLocked(branch))
             {
                 return ShiftOperationResult<ShiftTemplateDto>.Locked("BRANCH_LOCKED", "Chi nhánh đang bị khóa, không thể thêm ca riêng.");
@@ -179,7 +219,8 @@ public class ShiftTemplateService : IShiftTemplateService
             request.BranchId = null;
         }
 
-        // Quy tắc 8: Trong cùng một bộ ca (cùng Scope + BranchId), không cho hai ca trùng hoàn toàn StartTime và EndTime
+        // --- BƯỚC 3: KIỂM TRA TRÙNG LẶP KHUNG GIỜ LÀM VIỆC (QUY TẮC 8) ---
+        // Truy vấn bảng 'shift_templates' để đảm bảo không có 2 ca trùng cả StartTime lẫn EndTime trong cùng phạm vi
         var duplicateTimeExists = await _context.ShiftTemplates
             .AnyAsync(st => st.Scope == scope &&
                             st.BranchId == request.BranchId &&
@@ -192,16 +233,18 @@ public class ShiftTemplateService : IShiftTemplateService
             return ShiftOperationResult<ShiftTemplateDto>.BadRequest("DUPLICATE_SHIFT_TIME", "Trong cùng một bộ ca không được có hai ca trùng hoàn toàn giờ bắt đầu và giờ kết thúc.");
         }
 
-        // Quy tắc 7: TemplateCode không trùng. Ca riêng tự sinh mã theo tiền tố chi nhánh (ví dụ HN01-S1). Ca chung do Admin nhập hoặc tự sinh.
+        // --- BƯỚC 4: TỰ SINH MÃ KHUNG CA (TEMPLATE CODE - QUY TẮC 7) ---
         string templateCode;
         if (scope == "BRANCH")
         {
+            // Ca riêng: Tự sinh mã theo tiền tố mã chi nhánh (ví dụ: HN01-S1, SG02-S2)
             var prefix = !string.IsNullOrWhiteSpace(branch!.BranchCode) ? branch.BranchCode.Trim() : $"BR{branch.Id}";
             var branchShiftsCount = await _context.ShiftTemplates
                 .CountAsync(st => st.BranchId == branch.Id);
             int nextIndex = branchShiftsCount + 1;
             templateCode = $"{prefix}-S{nextIndex}".ToUpper();
 
+            // Vòng lặp đảm bảo mã là duy nhất, không bị trùng với ca đã tồn tại
             while (await _context.ShiftTemplates.AnyAsync(st => st.TemplateCode.ToUpper() == templateCode))
             {
                 nextIndex++;
@@ -210,6 +253,7 @@ public class ShiftTemplateService : IShiftTemplateService
         }
         else
         {
+            // Ca chung toàn chuỗi: Nếu người dùng nhập mã thì kiểm tra trùng lặp, nếu không nhập thì sinh dạng CA_01, CA_02
             if (!string.IsNullOrWhiteSpace(request.TemplateCode))
             {
                 templateCode = request.TemplateCode.Trim().ToUpper();
@@ -231,13 +275,16 @@ public class ShiftTemplateService : IShiftTemplateService
             }
         }
 
-        // 9. IsOvernight luôn do server tính: EndTime < StartTime
+        // --- BƯỚC 5: TÍNH TOÁN CÁC THÔNG SỐ GIỜ LÀM VÀ CA QUA ĐÊM ---
+        // Sử dụng ShiftCalculationHelper: Server tự tính IsOvernight (EndTime < StartTime), giờ trả lương, giờ đêm
         var (paidHours, nightHours, isOvernight) = ShiftCalculationHelper.CalculateHours(startTime, endTime, request.BreakDuration);
 
+        // Tự động phân loại ca Sáng/Chiều/Tối/Đêm dựa vào giờ bắt đầu nếu người dùng không chọn thủ công
         var shiftType = !string.IsNullOrWhiteSpace(request.ShiftType)
             ? request.ShiftType.Trim().ToUpper()
             : ShiftCalculationHelper.InferShiftType(startTime);
 
+        // --- BƯỚC 6: KHỞI TẠO VÀ LƯU BẢN GHI ENTITY VÀO DATABASE ---
         var now = DateTime.UtcNow;
         var template = new ShiftTemplate
         {
@@ -249,17 +296,18 @@ public class ShiftTemplateService : IShiftTemplateService
             ShiftType = shiftType,
             StartTime = startTime,
             EndTime = endTime,
-            IsOvernight = isOvernight,
+            IsOvernight = isOvernight, // Gán giá trị tính toán từ Server
             BreakDurationMinutes = request.BreakDuration,
             IsActive = request.IsActive,
             CreatedAt = now,
             UpdatedAt = now
         };
 
+        // Ghi vào bảng 'shift_templates'
         _context.ShiftTemplates.Add(template);
         await _context.SaveChangesAsync();
 
-        // 12. Ghi SystemAuditLog
+        // Ghi nhật ký kiểm toán vào bảng 'system_audit_logs'
         await LogAuditAsync(
             actorId,
             "CREATE_SHIFT_TEMPLATE",

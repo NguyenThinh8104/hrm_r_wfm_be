@@ -39,15 +39,28 @@ public class TierService : ITierService
         return ApiResponse<TierDto>.Ok(MapToDto(tier), "Lấy thông tin tier thành công");
     }
 
+    // =========================================================================================
+    // NGHIỆP VỤ TẠO PHÂN CẤP CHI NHÁNH (CreateTierAsync)
+    // Nơi xuất phát dữ liệu: Bảng `branch_tiers` trong MySQL (Entity: BranchTierEntity)
+    // Các bước xử lý logic:
+    //   Bước 1: Query EF Core kiểm tra trùng tên phân cấp (_context.BranchTiers.AnyAsync)
+    //   Bước 2: Validate ràng buộc số lượng nhân sự: MaxStaffCount không được nhỏ hơn MinStaffCount
+    //   Bước 3: Khởi tạo đối tượng BranchTierEntity với thời gian UTC chuẩn
+    //   Bước 4: Gọi _context.BranchTiers.Add(tier) và _context.SaveChangesAsync() để thực thi INSERT vào DB
+    //   Bước 5: Map Entity vừa tạo thành TierDto trả về cho Controller
+    // =========================================================================================
     public async Task<ApiResponse<TierDto>> CreateTierAsync(CreateTierDto dto)
     {
+        // 1. Kiểm tra nghiệp vụ: Tên phân cấp (TierName) phải là duy nhất trong toàn hệ thống
         var exists = await _context.BranchTiers.AnyAsync(t => t.TierName == dto.TierName);
         if (exists)
             return ApiResponse<TierDto>.Fail($"Tier với tên '{dto.TierName}' đã tồn tại");
 
+        // 2. Kiểm tra nghiệp vụ: Hạn mức nhân sự tối đa (Max) phải lớn hơn hoặc bằng tối thiểu (Min)
         if (dto.MaxStaffCount.HasValue && dto.MaxStaffCount.Value < dto.MinStaffCount)
             return ApiResponse<TierDto>.Fail("Số nhân sự tối đa không được nhỏ hơn số nhân sự tối thiểu");
 
+        // 3. Khởi tạo Entity lưu trữ vào Database (Table: branch_tiers)
         var tier = new BranchTierEntity
         {
             TierName = dto.TierName,
@@ -61,9 +74,11 @@ public class TierService : ITierService
             UpdatedAt = DateTime.UtcNow
         };
 
+        // 4. Thực thi câu lệnh SQL INSERT INTO `branch_tiers` thông qua EF Core
         _context.BranchTiers.Add(tier);
         await _context.SaveChangesAsync();
 
+        // 5. Đóng gói kết quả DTO trả về cho client
         return ApiResponse<TierDto>.Ok(MapToDto(tier), "Tạo tier mới thành công");
     }
 

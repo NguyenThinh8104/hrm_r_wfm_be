@@ -112,10 +112,35 @@ public class BranchService : IBranchService, IStoreService
     }
 
     /// <summary>
-    /// Thêm mới chi nhánh cửa hàng (Operations Admin).
+    /// =========================================================================================
+    /// LUỒNG DỮ LIỆU & NGHIỆP VỤ: THÊM MỚI CHI NHÁNH CỬA HÀNG (CreateBranchAsync)
+    /// -----------------------------------------------------------------------------------------
+    /// 1. NƠI XUẤT PHÁT:
+    ///    - Client gửi HTTP POST /api/branches kèm body JSON (CreateBranchDto).
+    ///    - Được tiếp nhận bởi BranchesController.CreateBranch.
+    ///
+    /// 2. BẢNG CƠ SỞ DỮ LIỆU TÁC ĐỘNG:
+    ///    - Bảng 'branch_tiers': Truy vấn phân cấp chi nhánh theo TierId để lấy thông tin định biên (MaxStaffCount).
+    ///    - Bảng 'branches': Kiểm tra trùng lặp BranchCode, sau đó INSERT bản ghi mới.
+    ///
+    /// 3. CÁC BƯỚC LOGIC & TÍNH TOÁN:
+    ///    - BƯỚC 1: Kiểm tra bắt buộc các trường Code, Name, Address không được rỗng.
+    ///    - BƯỚC 2: Phân giải phân cấp chi nhánh (Tier Resolution):
+    ///              Truy vấn bảng branch_tiers để liên kết TierId và ánh xạ sang enum BranchTier (để tương thích ngược).
+    ///    - BƯỚC 3: Kiểm tra tính duy nhất của Mã chi nhánh (BranchCode) trong bảng branches.
+    ///    - BƯỚC 4: Khởi tạo Entity Branch:
+    ///              - Mặc định ShiftMode = "GLOBAL" (dùng khung ca hệ thống).
+    ///              - Bán kính chấm công GeofenceRadiusMeters (mặc định 50m).
+    ///              - Định biên nhân sự (StaffCount): Nếu chưa nhập (StaffCount == 0),
+    ///                tự động đồng bộ lấy MaxStaffCount từ bảng branch_tiers đã cấu hình.
+    ///              - Tọa độ địa lý GPS (Point WGS84 SRID 4326): Lưu Longitude & Latitude để phục vụ chấm công Geofence.
+    ///    - BƯỚC 5: Lưu vào Database qua EF Core: _context.Branches.Add(branch) và SaveChangesAsync().
+    ///    - BƯỚC 6: Trả về BranchDto hoàn chỉnh cho Frontend hiển thị.
+    /// =========================================================================================
     /// </summary>
     public async Task<ApiResponse<BranchDto>> CreateBranchAsync(CreateBranchDto dto)
     {
+        // --- BƯỚC 1: VALIDATE DỮ LIỆU ĐẦU VÀO CƠ BẢN ---
         if (string.IsNullOrWhiteSpace(dto.Code))
         {
             return ApiResponse<BranchDto>.Fail("Mã chi nhánh (code) không được để trống.");
@@ -131,15 +156,19 @@ public class BranchService : IBranchService, IStoreService
             return ApiResponse<BranchDto>.Fail("Địa chỉ chi nhánh (address) không được để trống.");
         }
 
+        // --- BƯỚC 2: PHÂN GIẢI PHÂN CẤP CHI NHÁNH (TIER RESOLUTION) ---
+        // Truy vấn bảng 'branch_tiers' để xác định TierId và đồng bộ hóa với enum BranchTier
         BranchTier resolvedTier = BranchTier.Tier2;
         int? resolvedTierId = dto.TierId;
 
         if (dto.TierId.HasValue)
         {
             resolvedTierId = dto.TierId.Value;
+            // Tìm bản ghi phân cấp trong bảng branch_tiers bằng Khóa chính (Id)
             var matchedTier = await _context.BranchTiers.FindAsync(dto.TierId.Value);
             if (matchedTier != null)
             {
+                // Ánh xạ sang enum để hỗ trợ các chức năng cũ
                 if (matchedTier.TierName.Contains("1")) resolvedTier = BranchTier.Tier1;
                 else if (matchedTier.TierName.Contains("3")) resolvedTier = BranchTier.Tier3;
                 else resolvedTier = BranchTier.Tier2;
@@ -151,6 +180,7 @@ public class BranchService : IBranchService, IStoreService
         }
         else if (dto.BranchTier.HasValue)
         {
+            // Trường hợp client cũ gửi lên qua enum BranchTier
             var tierVal = dto.BranchTier.Value;
             var matchedTier = await _context.BranchTiers.FindAsync(tierVal)
                 ?? await _context.BranchTiers.FirstOrDefaultAsync(t => t.TierName.Contains(tierVal.ToString()));
@@ -171,6 +201,8 @@ public class BranchService : IBranchService, IStoreService
             }
         }
 
+        // --- BƯỚC 3: KIỂM TRA TRÙNG LẶP MÃ CHI NHÁNH TRONG CƠ SỞ DỮ LIỆU ---
+        // Truy vấn bảng 'branches' theo BranchCode (viết hoa chuẩn hóa)
         var normalizedCode = dto.Code.Trim().ToUpper();
         var codeExists = await _context.Branches
             .AnyAsync(b => b.BranchCode.ToUpper() == normalizedCode);
@@ -180,6 +212,7 @@ public class BranchService : IBranchService, IStoreService
             return ApiResponse<BranchDto>.Fail($"Mã chi nhánh '{normalizedCode}' đã tồn tại trong hệ thống.");
         }
 
+        // --- BƯỚC 4: KHỞI TẠO ĐỐI TƯỢNG ENTITY 'BRANCH' ĐỂ LƯU VÀO DATABASE ---
         var now = DateTime.UtcNow;
         var branch = new Branch
         {
@@ -190,12 +223,14 @@ public class BranchService : IBranchService, IStoreService
             StaffCount = dto.StaffCount.HasValue && dto.StaffCount.Value > 0 ? dto.StaffCount.Value : 0,
             TierId = resolvedTierId,
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
-            ShiftMode = "GLOBAL",
+            ShiftMode = "GLOBAL", // Khởi tạo chi nhánh mới luôn ở chế độ khung ca hệ thống
             GeofenceRadiusMeters = dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0 ? dto.GeofenceRadiusMeters.Value : 50,
             CreatedAt = now,
             UpdatedAt = now
         };
 
+        // LOGIC TỰ ĐỘNG ĐỒNG BỘ ĐỊNH BIÊN:
+        // Nếu client không truyền định biên (StaffCount == 0), hệ thống tự động lấy MaxStaffCount từ Tier tương ứng
         if (branch.StaffCount == 0 && resolvedTierId.HasValue)
         {
             var matchedTier = await _context.BranchTiers.FindAsync(resolvedTierId.Value);
@@ -205,6 +240,8 @@ public class BranchService : IBranchService, IStoreService
             }
         }
 
+        // LOGIC TỰ ĐỘNG GỢI Ý TIER THEO ĐỊNH BIÊN NHẬP VÀO:
+        // Nếu người dùng nhập StaffCount nhưng không chọn Tier, tự động tìm Tier trong bảng branch_tiers có khoảng min-max phù hợp
         if (dto.StaffCount.HasValue && !dto.TierId.HasValue)
         {
             var matchedTier = await _context.BranchTiers
@@ -219,14 +256,18 @@ public class BranchService : IBranchService, IStoreService
             }
         }
 
+        // TÍNH TOÁN TỌA ĐỘ GPS (WGS84 - SRID 4326):
+        // Chuyển đổi Latitude và Longitude thành Point geometry để phục vụ việc tính khoảng cách Geofence chấm công
         if (dto.Latitude.HasValue && dto.Longitude.HasValue)
         {
             branch.Location = new NetTopologySuite.Geometries.Point(dto.Longitude.Value, dto.Latitude.Value) { SRID = 4326 };
         }
 
+        // --- BƯỚC 5: GHI DỮ LIỆU VÀO DATABASE ---
         _context.Branches.Add(branch);
         await _context.SaveChangesAsync();
 
+        // --- BƯỚC 6: CHUYỂN ĐỔI ENTITY SANG DTO VÀ TRẢ VỀ CHO CLIENT ---
         return ApiResponse<BranchDto>.Ok(MapToBranchDto(branch), "Thêm mới chi nhánh cửa hàng thành công.");
     }
 

@@ -42,19 +42,33 @@ public class TiersController : ControllerBase
         return Ok(result);
     }
 
+    // =========================================================================================
+    // LUỒNG 1: QUẢN LÝ PHÂN CẤP CHI NHÁNH (TIER MANAGEMENT)
+    // Controller: TiersController
+    // Route API: POST /api/tiers hoặc /api/v1/tiers
+    // Mục đích: Tiếp nhận DTO CreateTierDto từ Frontend, validate ModelState và chuyển tiếp sang TierService
+    // Kết quả: Trả về ApiResponse<TierDto> với mã HTTP 201 Created nếu thành công, 400 Bad Request nếu lỗi
+    // =========================================================================================
+
     /// <summary>
-    /// Tạo mới một Tier.
+    /// [POST /api/tiers] - Tạo mới một phân cấp chi nhánh (Tier).
+    /// BƯỚC 1 CỦA LUỒNG: Nhận request JSON từ client, kiểm tra DataAnnotations trên CreateTierDto.
+    /// BƯỚC 2: Gọi ITierService.CreateTierAsync để thực thi logic nghiệp vụ và lưu Database bảng branch_tiers.
     /// </summary>
     [HttpPost]
     [AllowAnonymous]
     public async Task<ActionResult<ApiResponse<TierDto>>> CreateTier([FromBody] CreateTierDto dto)
     {
+        // 1. Kiểm tra tính hợp lệ cơ bản của dữ liệu (DataAnnotations: [Required], [Range]...)
         if (!ModelState.IsValid)
             return BadRequest(ApiResponse<TierDto>.Fail("Dữ liệu đầu vào không hợp lệ"));
 
+        // 2. Chuyển tiếp sang TierService để kiểm tra trùng tên và kiểm tra quy tắc Min/Max staff
         var result = await _tierService.CreateTierAsync(dto);
         if (!result.Success)
             return BadRequest(result);
+
+        // 3. Trả về kết quả thành công với HTTP 201 Created kèm dữ liệu Tier vừa tạo
         return StatusCode(201, result);
     }
 

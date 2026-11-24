@@ -10,9 +10,11 @@ public class BranchHeadcountStatusDto
     public string BranchName { get; set; } = string.Empty;
     public string BranchTierName { get; set; } = string.Empty;
     public int BranchTierValue { get; set; }
+    public int? TierId { get; set; }
+    public string? TierName { get; set; }
     
     /// <summary>
-    /// Phân cấp chi nhánh (Tier 1, Tier 2, Tier 3).
+    /// Phân cấp chi nhánh (Tier 1, Tier 2, Tier 3 hoặc dynamic TierId).
     /// </summary>
     public int BranchTier => BranchTierValue;
 
@@ -80,6 +82,16 @@ public class BranchHeadcountStatusDto
     /// Alias tương thích với Frontend: isStandardQuotaReached
     /// </summary>
     public bool IsStandardQuotaReached => IsQuotaReached;
+
+    /// <summary>
+    /// Đánh dấu quân số chi nhánh vượt quá định biên phân cấp.
+    /// </summary>
+    public bool IsOverQuota => OfficialHeadcount > (EffectiveQuota > 0 ? EffectiveQuota : StandardQuota);
+
+    /// <summary>
+    /// Số lượng nhân sự vượt quá định biên.
+    /// </summary>
+    public int OverQuotaCount => Math.Max(0, OfficialHeadcount - (EffectiveQuota > 0 ? EffectiveQuota : StandardQuota));
 
     /// <summary>
     /// Có thể tạo nhân sự trực tiếp nếu quân số hiện tại nhỏ hơn định biên.

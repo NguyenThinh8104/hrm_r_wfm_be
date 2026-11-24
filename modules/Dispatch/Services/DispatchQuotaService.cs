@@ -96,7 +96,7 @@ public class DispatchQuotaService : IDispatchQuotaService
 
         var employees = await _context.Users
             .Include(u => u.Role)
-            .Where(u => u.HomeBranchId == branchId && u.Status == "ACTIVE")
+            .Where(u => u.HomeBranchId == branchId && u.OriginalHomeBranchId == null && u.Status == "ACTIVE")
             .Where(u => u.Role != null && !excludedRoleCodes.Contains(u.Role.RoleCode))
             .OrderBy(u => u.RoleId)
             .ThenBy(u => u.FullName)

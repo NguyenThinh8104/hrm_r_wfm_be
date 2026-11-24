@@ -27,7 +27,9 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
     /// <param name="additionalBatchCount">Số lượng nhân sự đã hợp lệ tạm thời trong đợt bulk import hiện tại.</param>
     public async Task<HeadcountValidationResult> ValidateHeadcountAsync(ulong branchId, int additionalBatchCount = 0)
     {
-        var branch = await _context.Branches.FindAsync(branchId);
+        var branch = await _context.Branches
+            .Include(b => b.Tier)
+            .FirstOrDefaultAsync(b => b.Id == branchId);
         if (branch == null)
         {
             return HeadcountValidationResult.Fail("Chi nhánh cửa hàng chỉ định không tồn tại.");
@@ -44,27 +46,22 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
         var currentActiveCount = await _context.Users
             .CountAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && u.Status == "ACTIVE");
 
-        var standardQuota = HeadcountConstants.GetStandardQuota(branch.BranchTier);
+        var standardQuota = branch.StaffCount > 0
+            ? branch.StaffCount
+            : (branch.Tier != null && branch.Tier.MaxStaffCount.HasValue && branch.Tier.MaxStaffCount.Value > 0
+                ? branch.Tier.MaxStaffCount.Value
+                : (branch.Tier != null && branch.Tier.MinStaffCount > 0 ? branch.Tier.MinStaffCount : HeadcountConstants.GetStandardQuota(branch.BranchTier)));
         var totalProjectedCount = currentActiveCount + additionalBatchCount;
 
         if (totalProjectedCount >= standardQuota)
         {
-            string upgradeAdvice;
-            if (branch.BranchTier == Domain.Enums.BranchTier.Tier3)
-            {
-                upgradeAdvice = "Chi nhánh hiện là Tier 3 (tối đa 8 nhân sự). Quản trị viên cần nâng phân cấp chi nhánh lên Tier 2 (tối đa 15 nhân sự) để tiếp tục tuyển dụng.";
-            }
-            else if (branch.BranchTier == Domain.Enums.BranchTier.Tier2)
-            {
-                upgradeAdvice = "Chi nhánh hiện là Tier 2 (tối đa 15 nhân sự). Quản trị viên cần nâng phân cấp chi nhánh lên Tier 1 (tối đa 30 nhân sự) để tiếp tục tuyển dụng.";
-            }
-            else
-            {
-                upgradeAdvice = "Chi nhánh đã ở phân cấp tối đa của hệ thống (Tier 1: 30/30 nhân sự kịch trần). Không thể tuyển thêm nhân sự cho chi nhánh này.";
-            }
+            var tierDisplayName = branch.Tier != null && !string.IsNullOrWhiteSpace(branch.Tier.TierName)
+                ? branch.Tier.TierName
+                : $"Tier {(int)branch.BranchTier}";
+            string upgradeAdvice = $"Quản trị viên cần nâng định biên hoặc chuyển phân cấp chi nhánh để tiếp tục bổ sung nhân sự.";
 
             return HeadcountValidationResult.Fail(
-                $"Chi nhánh '{branch.Name}' đã đạt trần định biên ({totalProjectedCount}/{standardQuota} nhân sự theo Tier {(int)branch.BranchTier}). {upgradeAdvice}",
+                $"Chi nhánh '{branch.Name}' đã đạt trần định biên ({totalProjectedCount}/{standardQuota} nhân sự theo {tierDisplayName}). {upgradeAdvice}",
                 currentActiveCount, standardQuota);
         }
 
@@ -111,22 +108,31 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
         var inactiveCount = await _context.Users
             .CountAsync(u => ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && u.Status == "INACTIVE");
 
-        var standardTierQuota = HeadcountConstants.GetStandardQuota(branch.BranchTier);
+        var standardTierQuota = branch.Tier != null && branch.Tier.MaxStaffCount.HasValue && branch.Tier.MaxStaffCount.Value > 0
+            ? branch.Tier.MaxStaffCount.Value
+            : (branch.Tier != null && branch.Tier.MinStaffCount > 0 ? branch.Tier.MinStaffCount : HeadcountConstants.GetStandardQuota(branch.BranchTier));
+
         var effectiveQuota = branch.StaffCount > 0
             ? branch.StaffCount
-            : (branch.Tier != null && branch.Tier.MaxStaffCount.HasValue ? branch.Tier.MaxStaffCount.Value : standardTierQuota);
+            : standardTierQuota;
 
         // Định biên CHỈ áp dụng đối với nhân sự cơ hữu, tránh việc điều động làm sai lệch trần định biên
         var availableQuotaSlots = Math.Max(0, effectiveQuota - officialHeadcount);
+
+        var displayTierName = branch.Tier != null && !string.IsNullOrWhiteSpace(branch.Tier.TierName)
+            ? branch.Tier.TierName
+            : $"Tier {(int)branch.BranchTier}";
 
         var result = new BranchHeadcountStatusDto
         {
             BranchId = branch.Id,
             BranchCode = branch.BranchCode,
             BranchName = branch.Name,
-            BranchTierName = branch.BranchTier.ToString(),
-            BranchTierValue = (int)branch.BranchTier,
-            StandardQuota = branch.Tier != null && branch.Tier.MaxStaffCount.HasValue ? branch.Tier.MaxStaffCount.Value : standardTierQuota,
+            BranchTierName = displayTierName,
+            BranchTierValue = branch.TierId ?? (int)branch.BranchTier,
+            TierId = branch.TierId,
+            TierName = displayTierName,
+            StandardQuota = standardTierQuota,
             StaffCount = branch.StaffCount,
             EffectiveQuota = effectiveQuota,
             CurrentHeadcount = officialHeadcount, // Nhân sự cơ hữu chính thức áp vào định biên

@@ -32,7 +32,31 @@ public class ImportRowErrorDto
     public string? EmployeeCode { get; set; }
     public string? FullName { get; set; }
     public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public string? RoleCode { get; set; }
+    public string? BranchIdentifier { get; set; }
+    public string? EmploymentType { get; set; }
     public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// ID tài khoản đã tồn tại trong CSDL (nếu phát hiện trùng lặp)
+    /// </summary>
+    public ulong? ExistingUserId { get; set; }
+
+    /// <summary>
+    /// Trạng thái của tài khoản đã tồn tại trong CSDL (ACTIVE, INACTIVE, ...)
+    /// </summary>
+    public string? ExistingUserStatus { get; set; }
+
+    /// <summary>
+    /// Cờ đánh dấu có thể bấm để mở khóa tài khoản hay không (khi ExistingUserStatus == INACTIVE)
+    /// </summary>
+    public bool CanUnlock { get; set; }
+
+    public ulong? OldBranchId { get; set; }
+    public string? OldBranchName { get; set; }
+    public ulong? OldRoleId { get; set; }
+    public string? OldRoleCode { get; set; }
 }
 
 /// <summary>

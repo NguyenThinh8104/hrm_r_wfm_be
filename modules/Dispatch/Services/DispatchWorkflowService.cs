@@ -85,10 +85,20 @@ public class DispatchWorkflowService : IDispatchWorkflowService
             return ApiResponse<DispatchRecordDto>.Fail("Một số nhân sự được chọn không tồn tại hoặc tài khoản đang bị khóa.");
         }
 
-        var invalidBranchUser = users.FirstOrDefault(u => u.HomeBranchId != (ulong)request.FromStoreId);
+        var storeManagerUser = users.FirstOrDefault(u => u.Role != null && (u.Role.RoleCode == "STORE_MANAGER" || u.Role.RoleCode == "STOREMANAGER"));
+        if (storeManagerUser != null)
+        {
+            return ApiResponse<DispatchRecordDto>.Fail($"Không thể điều động nhân sự '{storeManagerUser.FullName}': Cửa hàng trưởng là vị trí quản lý vận hành nòng cốt của chi nhánh, không thuộc diện được phép điều động chi viện.");
+        }
+
+        var invalidBranchUser = users.FirstOrDefault(u => u.HomeBranchId != (ulong)request.FromStoreId || u.OriginalHomeBranchId != null);
         if (invalidBranchUser != null)
         {
-            return ApiResponse<DispatchRecordDto>.Fail($"Nhân sự '{invalidBranchUser.FullName}' không thuộc biên chế của chi nhánh hỗ trợ ({fromBranch.Name}).");
+            if (invalidBranchUser.OriginalHomeBranchId != null)
+            {
+                return ApiResponse<DispatchRecordDto>.Fail($"Nhân sự '{invalidBranchUser.FullName}' hiện đang trong thời gian chi viện tạm thời tại chi nhánh khác, không thể tiếp tục điều động.");
+            }
+            return ApiResponse<DispatchRecordDto>.Fail($"Nhân sự '{invalidBranchUser.FullName}' không thuộc biên chế cơ hữu của chi nhánh hỗ trợ ({fromBranch.Name}).");
         }
 
         // Kiểm tra quân số an toàn của chi nhánh cho mượn qua IDispatchQuotaService
@@ -102,6 +112,24 @@ public class DispatchWorkflowService : IDispatchWorkflowService
         {
             return ApiResponse<DispatchRecordDto>.Fail(
                 $"Chi nhánh {fromBranch.Name} chỉ còn lại {quotaCheck.Data.AvailableDispatchQuota} nhân sự khả dụng. Việc điều động quá số lượng này sẽ làm gián đoạn vận hành của chi nhánh hỗ trợ.");
+        }
+
+       
+        foreach (var u in users)
+        {
+            var overlappingDispatch = await _context.TemporaryDispatches
+                .Include(d => d.DispatchEmployees)
+                .FirstOrDefaultAsync(d => (d.Status == "PENDING" || d.Status == "APPROVED" || d.Status == "PARTIAL")
+                                       && d.StartDate <= request.EndDate
+                                       && request.StartDate <= d.EndDate
+                                       && (d.UserId == u.Id || d.DispatchEmployees.Any(de => de.UserId == u.Id && de.Status != "REJECTED")));
+
+            if (overlappingDispatch != null)
+            {
+                var statusText = overlappingDispatch.Status == "PENDING" ? "đang chờ duyệt" : "đang có hiệu lực";
+                return ApiResponse<DispatchRecordDto>.Fail(
+                    $"Nhân sự '{u.FullName}' đã có một lệnh điều động khác {statusText} từ ngày {overlappingDispatch.StartDate:dd/MM/yyyy} đến ngày {overlappingDispatch.EndDate:dd/MM/yyyy}. Khoảng thời gian điều động không được trùng lặp.");
+            }
         }
 
         var firstUser = users.First();
@@ -210,10 +238,20 @@ public class DispatchWorkflowService : IDispatchWorkflowService
 
                 if (review.IsApproved)
                 {
-                    var userToAssign = await _context.Users.FirstOrDefaultAsync(u => u.Id == (ulong)review.EmployeeId && u.Status == "ACTIVE");
+                    var userToAssign = await _context.Users
+                        .Include(u => u.Role)
+                        .FirstOrDefaultAsync(u => u.Id == (ulong)review.EmployeeId && u.Status == "ACTIVE");
                     if (userToAssign == null)
                     {
                         return ApiResponse<bool>.Fail($"Nhân sự ID #{review.EmployeeId} không tồn tại hoặc đã bị khóa.");
+                    }
+                    if (userToAssign.Role != null && (userToAssign.Role.RoleCode == "STORE_MANAGER" || userToAssign.Role.RoleCode == "STOREMANAGER"))
+                    {
+                        return ApiResponse<bool>.Fail($"Không thể phê duyệt điều động cho '{userToAssign.FullName}': Cửa Hàng Trưởng không được phép điều động chi viện.");
+                    }
+                    if (userToAssign.OriginalHomeBranchId != null)
+                    {
+                        return ApiResponse<bool>.Fail($"Nhân sự '{userToAssign.FullName}' hiện đang trong đợt điều động chi viện khác, không thể phê duyệt tiếp.");
                     }
 
                     var conflictingShift = await _context.ShiftAssignments
@@ -285,10 +323,20 @@ public class DispatchWorkflowService : IDispatchWorkflowService
                 if (request.AssignedEmployeeId.HasValue && request.AssignedEmployeeId.Value > 0)
                 {
                     ulong assignedId = (ulong)request.AssignedEmployeeId.Value;
-                    var assignedUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == assignedId && u.Status == "ACTIVE");
+                    var assignedUser = await _context.Users
+                        .Include(u => u.Role)
+                        .FirstOrDefaultAsync(u => u.Id == assignedId && u.Status == "ACTIVE");
                     if (assignedUser == null)
                     {
                         return ApiResponse<bool>.Fail("Nhân sự chỉ định điều động không tồn tại hoặc đã bị khóa.");
+                    }
+                    if (assignedUser.Role != null && (assignedUser.Role.RoleCode == "STORE_MANAGER" || assignedUser.Role.RoleCode == "STOREMANAGER"))
+                    {
+                        return ApiResponse<bool>.Fail($"Không thể chỉ định Cửa Hàng Trưởng '{assignedUser.FullName}' vào lệnh điều động.");
+                    }
+                    if (assignedUser.OriginalHomeBranchId != null)
+                    {
+                        return ApiResponse<bool>.Fail($"Nhân sự '{assignedUser.FullName}' hiện đang trong đợt điều động chi viện khác, không thể chỉ định tiếp.");
                     }
 
                     dispatch.UserId = assignedId;
@@ -311,10 +359,20 @@ public class DispatchWorkflowService : IDispatchWorkflowService
 
                 foreach (var de in dispatch.DispatchEmployees)
                 {
-                    var userToAssign = await _context.Users.FirstOrDefaultAsync(u => u.Id == de.UserId && u.Status == "ACTIVE");
+                    var userToAssign = await _context.Users
+                        .Include(u => u.Role)
+                        .FirstOrDefaultAsync(u => u.Id == de.UserId && u.Status == "ACTIVE");
                     if (userToAssign == null)
                     {
                         return ApiResponse<bool>.Fail($"Nhân sự ID #{de.UserId} không tồn tại hoặc đã bị khóa.");
+                    }
+                    if (userToAssign.Role != null && (userToAssign.Role.RoleCode == "STORE_MANAGER" || userToAssign.Role.RoleCode == "STOREMANAGER"))
+                    {
+                        return ApiResponse<bool>.Fail($"Không thể phê duyệt điều động cho '{userToAssign.FullName}': Cửa Hàng Trưởng không được phép điều động chi viện.");
+                    }
+                    if (userToAssign.OriginalHomeBranchId != null)
+                    {
+                        return ApiResponse<bool>.Fail($"Nhân sự '{userToAssign.FullName}' hiện đang trong đợt điều động chi viện khác, không thể phê duyệt tiếp.");
                     }
 
                     var conflictingShift = await _context.ShiftAssignments
@@ -532,6 +590,25 @@ public class DispatchWorkflowService : IDispatchWorkflowService
         {
             return ApiResponse<DispatchRecordDto>.Fail(
                 $"Chi nhánh {fromBranch.Name} chỉ còn lại {quotaCheck.Data.AvailableDispatchQuota} nhân sự khả dụng. Việc điều động quá số lượng này sẽ làm gián đoạn vận hành của chi nhánh hỗ trợ.");
+        }
+
+        // TC_DSP_011: Kiểm tra rào cản trùng lặp khoảng ngày điều động (chạm biên hoặc giao nhau) cho từng nhân sự khi chỉnh sửa
+        foreach (var u in users)
+        {
+            var overlappingDispatch = await _context.TemporaryDispatches
+                .Include(d => d.DispatchEmployees)
+                .FirstOrDefaultAsync(d => d.Id != dispatch.Id
+                                       && (d.Status == "PENDING" || d.Status == "APPROVED" || d.Status == "PARTIAL")
+                                       && d.StartDate <= request.EndDate
+                                       && request.StartDate <= d.EndDate
+                                       && (d.UserId == u.Id || d.DispatchEmployees.Any(de => de.UserId == u.Id && de.Status != "REJECTED")));
+
+            if (overlappingDispatch != null)
+            {
+                var statusText = overlappingDispatch.Status == "PENDING" ? "đang chờ duyệt" : "đang có hiệu lực";
+                return ApiResponse<DispatchRecordDto>.Fail(
+                    $"Nhân sự '{u.FullName}' đã có một lệnh điều động khác {statusText} từ ngày {overlappingDispatch.StartDate:dd/MM/yyyy} đến ngày {overlappingDispatch.EndDate:dd/MM/yyyy}. Khoảng thời gian điều động không được trùng lặp.");
+            }
         }
 
         dispatch.UserId = users.First().Id;

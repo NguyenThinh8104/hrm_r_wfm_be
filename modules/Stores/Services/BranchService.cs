@@ -31,7 +31,7 @@ public class BranchService : IBranchService, IStoreService
     /// <param name="status">Lọc theo trạng thái hoạt động (ACTIVE / INACTIVE).</param>
     /// <param name="search">Từ khóa tìm kiếm theo mã, tên hoặc địa chỉ.</param>
     /// <param name="tier">Lọc theo phân cấp chi nhánh (1 = Tier1, 2 = Tier2, 3 = Tier3).</param>
-    public async Task<ApiResponse<List<BranchDto>>> GetAllBranchesAsync(string? status = null, string? search = null, BranchTier? tier = null)
+    public async Task<ApiResponse<List<BranchDto>>> GetAllBranchesAsync(string? status = null, string? search = null, int? tier = null)
     {
         var query = _context.Branches.AsQueryable();
 
@@ -42,10 +42,10 @@ public class BranchService : IBranchService, IStoreService
             query = query.Where(b => b.Status.ToUpper() == filterStatus);
         }
 
-        // 2. Lọc theo phân cấp chi nhánh (BranchTier) nếu client yêu cầu
+        // 2. Lọc theo phân cấp chi nhánh (BranchTier / TierId) nếu client yêu cầu
         if (tier.HasValue)
         {
-            query = query.Where(b => b.BranchTier == tier.Value);
+            query = query.Where(b => (b.TierId.HasValue && b.TierId.Value == tier.Value) || (int)b.BranchTier == tier.Value);
         }
 
         // 3. Lọc theo từ khóa tìm kiếm (Mã, Tên hoặc Địa chỉ)
@@ -131,10 +131,44 @@ public class BranchService : IBranchService, IStoreService
             return ApiResponse<BranchDto>.Fail("Địa chỉ chi nhánh (address) không được để trống.");
         }
 
-        // Kiểm tra phân cấp chi nhánh: bắt buộc phải thuộc enum BranchTier hợp lệ (1: Tier 1, 2: Tier 2, 3: Tier 3)
-        if (!Enum.IsDefined(typeof(BranchTier), dto.BranchTier))
+        BranchTier resolvedTier = BranchTier.Tier2;
+        int? resolvedTierId = dto.TierId;
+
+        if (dto.TierId.HasValue)
         {
-            return ApiResponse<BranchDto>.Fail("Phân cấp chi nhánh (BranchTier) không hợp lệ. Chỉ chấp nhận 1 (Tier1), 2 (Tier2), 3 (Tier3).");
+            resolvedTierId = dto.TierId.Value;
+            var matchedTier = await _context.BranchTiers.FindAsync(dto.TierId.Value);
+            if (matchedTier != null)
+            {
+                if (matchedTier.TierName.Contains("1")) resolvedTier = BranchTier.Tier1;
+                else if (matchedTier.TierName.Contains("3")) resolvedTier = BranchTier.Tier3;
+                else resolvedTier = BranchTier.Tier2;
+            }
+            else if (dto.TierId.Value >= 1 && dto.TierId.Value <= 3)
+            {
+                resolvedTier = (BranchTier)dto.TierId.Value;
+            }
+        }
+        else if (dto.BranchTier.HasValue)
+        {
+            var tierVal = dto.BranchTier.Value;
+            var matchedTier = await _context.BranchTiers.FindAsync(tierVal)
+                ?? await _context.BranchTiers.FirstOrDefaultAsync(t => t.TierName.Contains(tierVal.ToString()));
+            if (matchedTier != null)
+            {
+                resolvedTierId = matchedTier.Id;
+                if (matchedTier.TierName.Contains("1")) resolvedTier = BranchTier.Tier1;
+                else if (matchedTier.TierName.Contains("3")) resolvedTier = BranchTier.Tier3;
+                else resolvedTier = BranchTier.Tier2;
+            }
+            else
+            {
+                resolvedTierId = tierVal;
+                if (tierVal >= 1 && tierVal <= 3)
+                {
+                    resolvedTier = (BranchTier)tierVal;
+                }
+            }
         }
 
         var normalizedCode = dto.Code.Trim().ToUpper();
@@ -152,15 +186,24 @@ public class BranchService : IBranchService, IStoreService
             BranchCode = normalizedCode,
             Name = dto.Name.Trim(),
             Address = dto.Address.Trim(),
-            BranchTier = dto.BranchTier, // Map phân cấp chi nhánh từ CreateBranchDto vào entity
+            BranchTier = resolvedTier, // Map phân cấp chi nhánh từ CreateBranchDto vào entity
             StaffCount = dto.StaffCount.HasValue && dto.StaffCount.Value > 0 ? dto.StaffCount.Value : 0,
-            TierId = dto.TierId,
+            TierId = resolvedTierId,
             Status = string.IsNullOrWhiteSpace(dto.Status) ? "ACTIVE" : dto.Status.Trim().ToUpper(),
             ShiftMode = "GLOBAL",
             GeofenceRadiusMeters = dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0 ? dto.GeofenceRadiusMeters.Value : 50,
             CreatedAt = now,
             UpdatedAt = now
         };
+
+        if (branch.StaffCount == 0 && resolvedTierId.HasValue)
+        {
+            var matchedTier = await _context.BranchTiers.FindAsync(resolvedTierId.Value);
+            if (matchedTier != null && matchedTier.MaxStaffCount.HasValue && matchedTier.MaxStaffCount.Value > 0)
+            {
+                branch.StaffCount = matchedTier.MaxStaffCount.Value;
+            }
+        }
 
         if (dto.StaffCount.HasValue && !dto.TierId.HasValue)
         {
@@ -193,6 +236,9 @@ public class BranchService : IBranchService, IStoreService
     public async Task<ApiResponse<BranchDto>> UpdateBranchAsync(ulong id, UpdateBranchDto dto)
     {
         var branch = await _context.Branches
+            .Include(b => b.Tier)
+            .Include(b => b.Kiosks)
+            .Include(b => b.ShiftTemplates)
             .FirstOrDefaultAsync(b => b.Id == id);
 
         if (branch == null)
@@ -200,49 +246,91 @@ public class BranchService : IBranchService, IStoreService
             return ApiResponse<BranchDto>.Fail("Không tìm thấy chi nhánh cửa hàng cần cập nhật.");
         }
 
-        if (string.IsNullOrWhiteSpace(dto.Name))
+        if (!string.IsNullOrWhiteSpace(dto.Name))
         {
-            return ApiResponse<BranchDto>.Fail("Tên chi nhánh không được để trống.");
+            branch.Name = dto.Name.Trim();
         }
 
-        if (string.IsNullOrWhiteSpace(dto.Address))
+        if (!string.IsNullOrWhiteSpace(dto.Address))
         {
-            return ApiResponse<BranchDto>.Fail("Địa chỉ chi nhánh không được để trống.");
+            branch.Address = dto.Address.Trim();
         }
 
-        // Nếu client gửi cập nhật phân cấp chi nhánh: kiểm tra tính hợp lệ của enum trước khi cập nhật
-        if (dto.BranchTier.HasValue)
-        {
-            if (!Enum.IsDefined(typeof(BranchTier), dto.BranchTier.Value))
-            {
-                return ApiResponse<BranchDto>.Fail("Phân cấp chi nhánh (BranchTier) không hợp lệ. Chỉ chấp nhận 1 (Tier1), 2 (Tier2), 3 (Tier3).");
-            }
-            branch.BranchTier = dto.BranchTier.Value; // Cập nhật phân cấp chi nhánh mới
-        }
-
-        branch.Name = dto.Name.Trim();
-        branch.Address = dto.Address.Trim();
-        if (dto.StaffCount.HasValue)
-        {
-            branch.StaffCount = dto.StaffCount.Value;
-            if (!dto.TierId.HasValue)
-            {
-                var matchedTier = await _context.BranchTiers
-                    .Where(t => t.MinStaffCount <= dto.StaffCount.Value && (!t.MaxStaffCount.HasValue || t.MaxStaffCount.Value >= dto.StaffCount.Value))
-                    .OrderByDescending(t => t.MinStaffCount)
-                    .FirstOrDefaultAsync();
-
-                if (matchedTier != null)
-                {
-                    branch.TierId = matchedTier.Id;
-                    branch.Tier = matchedTier;
-                }
-            }
-        }
+        // Cập nhật phân cấp chi nhánh: hỗ trợ cả TierId động (Tier 4, Tier 5, ...) lẫn Enum chuẩn (Tier 1..3)
+        BranchTierEntity? matchedTier = null;
         if (dto.TierId.HasValue)
         {
             branch.TierId = dto.TierId.Value;
+            matchedTier = await _context.BranchTiers.FindAsync(dto.TierId.Value);
+            if (matchedTier != null)
+            {
+                branch.Tier = matchedTier;
+            }
+
+            if (dto.TierId.Value >= 1 && dto.TierId.Value <= 3)
+            {
+                branch.BranchTier = (BranchTier)dto.TierId.Value;
+            }
+            else if (matchedTier != null)
+            {
+                if (matchedTier.TierName.Contains("1")) branch.BranchTier = BranchTier.Tier1;
+                else if (matchedTier.TierName.Contains("3")) branch.BranchTier = BranchTier.Tier3;
+                else branch.BranchTier = BranchTier.Tier2;
+            }
+            else
+            {
+                branch.BranchTier = BranchTier.Tier2;
+            }
         }
+        else if (dto.BranchTier.HasValue)
+        {
+            var tierVal = dto.BranchTier.Value;
+            matchedTier = await _context.BranchTiers.FindAsync(tierVal)
+                ?? await _context.BranchTiers.FirstOrDefaultAsync(t => t.TierName.Contains(tierVal.ToString()));
+
+            if (matchedTier != null)
+            {
+                branch.TierId = matchedTier.Id;
+                branch.Tier = matchedTier;
+                if (matchedTier.TierName.Contains("1")) branch.BranchTier = BranchTier.Tier1;
+                else if (matchedTier.TierName.Contains("3")) branch.BranchTier = BranchTier.Tier3;
+                else branch.BranchTier = BranchTier.Tier2;
+            }
+            else
+            {
+                branch.TierId = tierVal;
+                if (tierVal >= 1 && tierVal <= 3)
+                {
+                    branch.BranchTier = (BranchTier)tierVal;
+                }
+                else
+                {
+                    branch.BranchTier = BranchTier.Tier2;
+                }
+            }
+        }
+
+        // Cập nhật định biên nhân sự (StaffCount): ưu tiên DTO, fallback theo MaxStaffCount của Tier mới
+        if (dto.StaffCount.HasValue && dto.StaffCount.Value > 0)
+        {
+            branch.StaffCount = dto.StaffCount.Value;
+        }
+        else if (matchedTier != null && matchedTier.MaxStaffCount.HasValue && matchedTier.MaxStaffCount.Value > 0)
+        {
+            branch.StaffCount = matchedTier.MaxStaffCount.Value;
+        }
+        else if (branch.StaffCount == 0 && branch.TierId.HasValue)
+        {
+            if (branch.Tier == null)
+            {
+                branch.Tier = await _context.BranchTiers.FindAsync(branch.TierId.Value);
+            }
+            if (branch.Tier != null && branch.Tier.MaxStaffCount.HasValue && branch.Tier.MaxStaffCount.Value > 0)
+            {
+                branch.StaffCount = branch.Tier.MaxStaffCount.Value;
+            }
+        }
+
         if (dto.Latitude.HasValue && dto.Longitude.HasValue)
         {
             branch.Location = new NetTopologySuite.Geometries.Point(dto.Longitude.Value, dto.Latitude.Value) { SRID = 4326 };
@@ -250,10 +338,6 @@ public class BranchService : IBranchService, IStoreService
         if (dto.GeofenceRadiusMeters.HasValue && dto.GeofenceRadiusMeters.Value > 0)
         {
             branch.GeofenceRadiusMeters = dto.GeofenceRadiusMeters.Value;
-        }
-        if (dto.StaffCount.HasValue)
-        {
-            branch.StaffCount = Math.Max(0, dto.StaffCount.Value);
         }
         branch.UpdatedAt = DateTime.UtcNow;
 
@@ -283,13 +367,29 @@ public class BranchService : IBranchService, IStoreService
         var newQuota = HeadcountConstants.GetStandardQuota(newTier);
 
         branch.BranchTier = newTier;
+        var matchedTier = await _context.BranchTiers
+            .FirstOrDefaultAsync(t => t.TierName.Contains(((int)newTier).ToString()));
+        if (matchedTier != null)
+        {
+            branch.TierId = matchedTier.Id;
+            branch.Tier = matchedTier;
+            if (matchedTier.MaxStaffCount.HasValue && matchedTier.MaxStaffCount.Value > 0)
+            {
+                newQuota = matchedTier.MaxStaffCount.Value;
+            }
+        }
+        branch.StaffCount = newQuota;
         branch.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
+        var displayTierLabel = matchedTier != null && !string.IsNullOrWhiteSpace(matchedTier.TierName)
+            ? matchedTier.TierName
+            : $"Tier {(int)newTier}";
+
         return ApiResponse<BranchDto>.Ok(
             MapToBranchDto(branch),
-            $"Đã nâng cấp chi nhánh '{branch.Name}' từ Tier {(int)oldTier} lên Tier {(int)newTier} thành công! Định biên chuẩn mới là {newQuota} nhân sự.");
+            $"Đã nâng cấp chi nhánh '{branch.Name}' lên {displayTierLabel} thành công! Định biên chuẩn mới là {newQuota} nhân sự.");
     }
 
     /// <summary>

@@ -1,0 +1,73 @@
+﻿Test Case ID	Test Case Description	Test Case Procedure	Expected Results	Pre-conditions	Round 1	Test date	Tester	Round 2	Test date	Tester	Round 3	Test date	Tester	Note
+Scenario A	Branch Tier Master - All Functional, Boundary & Error Cases												
+TC_TIER_01	[Happy Path] Verify successful creation of a standard Branch Tier with full valid data	"1. Navigate to menu ""Phân Cấp Chi Nhánh"" (/branch-tiers).
+2. Click button ""+ Thêm Phân Cấp Mới"".
+3. Fill Tier Name: ""Tier 1 - Cửa Hàng Flagship"".
+4. Fill Min Staff = 10, Max Staff = 30.
+5. Fill Description, Conditions & Benefits.
+6. Click ""Lưu Phân Cấp""."	"Modal closes; Success toast displayed: ""Thêm mới phân cấp thành công!""; New tier appears in table with exact quotas (10 - 30 nhân sự)."	Account has Operations Admin role; /branch-tiers loaded.	Passed			Passed			Pending			Evidence: [tier](https://drive.google.com/drive/folders/1Tzb6IivhDWf5PNPsk6wTUInKBDINEDEf?usp=drive_link)
+TC_TIER_02	[Happy Path / Edge] Verify creating Tier with empty Max Staff (Unlimited) and Fixed Quota (Min == Max)	"1. Open Tier modal, input Tier Name: ""Tier Hub - Không Giới Hạn"", Min Staff: 5, leave Max Staff blank -> Click ""Lưu Phân Cấp"".
+2. Reopen modal, input Tier Name: ""Tier Fixed"", Min Staff: 8, Max Staff: 8 -> Click ""Lưu Phân Cấp""."	"Both tiers saved successfully:
+- Tier Hub saves Max as null; List renders Max as ""Không giới hạn"" (badge ""5+"").
+- Tier Fixed saves with exact quota min=8, max=8 without error."	Tier modal is open.	Passed			Passed			Pending			Evidence: [tier](https://drive.google.com/drive/folders/1Tzb6IivhDWf5PNPsk6wTUInKBDINEDEf?usp=drive_link)
+TC_TIER_03	[Validation] Verify validation for empty/overlength Tier Name and non-integer headcount inputs	"1. Leave Tier Name blank (or whitespace) -> Click ""Lưu Phân Cấp"".
+2. Enter a string of 150 characters into Tier Name (> 100 chars).
+3. In Min/Max Staff, enter non-numeric chars (""abc#!"") or decimal numbers (3.5, 7.8)."	"System blocks submission and displays inline errors:
+- ""Tên phân cấp không được để trống"" / ""Tên phân cấp tối đa 100 ký tự"".
+- Non-numeric rejected; ""Số lượng nhân sự phải là số nguyên từ 0 trở lên""."	Tier modal is open.	Passed			Passed			Pending			Evidence: [tier](https://drive.google.com/drive/folders/1Tzb6IivhDWf5PNPsk6wTUInKBDINEDEf?usp=drive_link)
+TC_TIER_04	[Boundary & Logic] Verify negative headcount prevention and quota violation when Max < Min	"1. In Tier modal, input valid Tier Name.
+2. In Min Staff, enter negative number: -5 -> Click ""Lưu Phân Cấp"".
+3. Set Min Staff = 15, Max Staff = 5 (Max < Min) -> Click ""Lưu Phân Cấp""."	"Submission blocked with inline validation errors:
+- ""Số nhân sự tối thiểu phải từ 0 trở lên"".
+- ""Số nhân sự tối đa không được nhỏ hơn số tối thiểu""."	Tier modal is open.	Passed			Passed			Pending			Evidence: [tier](https://drive.google.com/drive/folders/1Tzb6IivhDWf5PNPsk6wTUInKBDINEDEf?usp=drive_link)
+TC_TIER_05	[Conflict & Security] Verify duplicate tier name rejection (409), XSS protection, and modal cancel reset	"1. Input duplicate Tier Name that already exists in DB -> Click ""Lưu Phân Cấp"".
+2. Enter ""<script>alert('XSS')</script>"" in Tier Name & Description -> Click Save and inspect list.
+3. Fill dirty data into fields then click Cancel / ""X"", then reopen modal."	"- Server returns HTTP 409 Conflict: ""Tên phân cấp đã tồn tại trong hệ thống"".
+- HTML/JS tags are sanitized and rendered as harmless plain text.
+- Modal closes cleanly; form resets to blank pristine state upon reopening."	At least 1 Tier exists in database.	Passed			Passed			Pending			Evidence: [tier](https://drive.google.com/drive/folders/1Tzb6IivhDWf5PNPsk6wTUInKBDINEDEf?usp=drive_link)
+Scenario B	Branch Master Creation - All Functional, GPS & Boundary Cases												
+TC_BR_01	[Happy Path] Verify successful branch creation with Code, Name, Address, Tier, and default Geofence radius	"1. Navigate to /branches and click ""Thêm Chi Nhánh Mới"".
+2. Enter Code: ""CH05"", Name: ""Cửa Hàng Hoàn Kiếm"", Address: ""15 Đinh Tiên Hoàng"".
+3. Select Tier 1, Pin GPS (21.0285, 105.8542), Radius = 100m.
+4. Click ""Lưu Chi Nhánh""."	"Modal closes; Success toast displayed: ""Thêm chi nhánh mới thành công!""; CH05 appears in branch table with green status ""Hoạt động"" and 100m radius."	Account has Operations Admin role; At least 1 Tier exists.	Passed			Passed			Pending			Evidence: 📁 branch_create_success
+TC_BR_02	[Happy Path / Map] Verify Leaflet map picker synchronization (Address search & Pin drag updates coordinates)	"1. In Branch Form modal, type ""Hồ Con Rùa"" into map search box.
+2. Click search result and drag pin on map to a new location.
+3. Verify Latitude & Longitude inputs automatically update in real-time."	Map pans smoothly; Pin moves to chosen point; Coordinates text fields automatically synchronize with map pin position.	Branch modal is open; Leaflet Map initialized.	Passed			Passed			Pending			Evidence: 📁 branch_map_sync
+TC_BR_03	[Validation] Verify mandatory field requirements, minimum lengths, and branch code regex format	"1. Open branch modal and click ""Lưu Chi Nhánh"" with all fields empty.
+2. Enter Branch Code = ""A"" (1 char), Branch Name = ""HN"" (2 chars).
+3. In Branch Code field, enter spaces or accented letters: ""CH 01@!"" or ""HÀNỘI_01""."	"Submit blocked; Form displays inline errors:
+- Mandatory field warnings for Code, Name, Address.
+- ""Mã chi nhánh tối thiểu 2 ký tự."", ""Tên chi nhánh tối thiểu 3 ký tự."".
+- ""Mã chi nhánh chỉ được chứa chữ cái không dấu, số và dấu gạch ngang""."	Branch modal is open.	Passed			Passed			Pending			Evidence: 📁 branch_validation_rules
+TC_BR_04	[Boundary] Verify GPS coordinate out-of-bound errors and Geofence radius auto-clamping (<20m, >1000m)	"1. In Latitude enter 95.5 (out of -90..90), Longitude enter 195.0 (out of -180..180).
+2. Enter Geofence Radius = 5m (< 20m) -> Click Save and inspect payload.
+3. Enter Geofence Radius = 5000m (> 1000m) -> Click Save and inspect payload."	"- Validation errors: ""Vĩ độ không hợp lệ (-90 đến 90)"", ""Kinh độ không hợp lệ (-180 đến 180)"".
+- Radius auto-clamping: values < 20m clamped to default 100m; values > 1000m clamped to 1000m."	Branch modal is open.	Passed			Passed			Pending			Evidence: 📁 branch_boundary_clamping
+TC_BR_05	[Conflict & Security] Verify duplicate code rejection (409), XSS protection, and network error handling (500)	"1. Enter duplicate Branch Code: ""CH01"" (already exists in DB) -> Click ""Lưu Chi Nhánh"".
+2. Enter ""<script>alert(1)</script>"" in Name & Address -> Save and verify table/popup.
+3. Disconnect network or simulate 500 Internal Server Error when saving."	"- Server returns HTTP 409 Conflict: ""Mã chi nhánh đã tồn tại trên hệ thống""; Modal stays open.
+- XSS scripts sanitized; Renders safely as text on Table and Leaflet Popups.
+- Friendly error alert displayed; Form input state is preserved."	Branch CH01 already exists in database.	Passed			Passed			Pending			Evidence: 📁 branch_conflict_security
+Scenario C	Shift Template Master - All Single, Batch, Overnight & Lock Cases												
+TC_ST_01	[Happy Path] Verify creating Global Daytime Shift and Overnight Shift crossing midnight	"1. Scope: Global, Name: ""Ca Hành Chính"", Start: 08:00, End: 17:00, Break: 60m -> Click ""Lưu Khung Ca"".
+2. Scope: Global, Name: ""Ca Đêm Toàn Hệ Thống"", Start: 22:00, End: 06:00, Break: 30m -> Click ""Lưu Khung Ca""."	"- Daytime shift: Paid Hours = 8.0h, Night Hours = 0h.
+- Overnight shift: Badge ""Ca xuyên đêm"" displayed, Paid Hours = 7.5h, Night Hours = 6.0h; Both saved successfully."	Account has HR/Operations Admin role; /shifts/master loaded.	Passed			Passed			Pending			Evidence: 📁 shift_create_day_night
+TC_ST_02	[Happy Path / Scope] Verify creating Custom Branch Shift and Batch Shift creation mode	"1. Scope: ""Chi nhánh riêng"", Branch: ""CH01"", Name: ""Ca Sớm Riêng CH01"" (05:30 - 13:30) -> Click Save.
+2. Toggle to ""Tạo hàng loạt (Batch)"": Row 1 (06:00 - 14:00), Row 2 (14:00 - 22:00) -> Click ""Lưu Danh Sách Ca""."	"- Custom shift created with branchId = CH01, only applied to CH01 roster.
+- Batch creation succeeds in single transaction; both shifts render in table without conflicts."	Branch CH01 status is ACTIVE; No conflicting shifts in DB.	Passed			Passed			Pending			Evidence: 📁 shift_scope_and_batch
+TC_ST_03	[Validation] Verify empty shift name, zero duration (Start == End), and shift under minimum duration (< 1h)	"1. Leave ""Tên khung ca làm việc"" blank -> Click ""Lưu Khung Ca"".
+2. Set Start Time = 08:00, End Time = 08:00 (Zero duration: 0h).
+3. Set Start Time = 09:00, End Time = 09:30 (30 mins duration < 1 hour)."	"Submit blocked; Form displays inline errors:
+- ""Vui lòng nhập tên khung ca làm việc.""
+- ""Giờ kết thúc không được trùng với giờ bắt đầu (ca phải >= 1 giờ).""
+- ""Thời lượng ca làm việc tối thiểu phải từ 1 tiếng trở lên""."	Shift modal is open in Single mode.	Passed			Passed			Pending			Evidence: 📁 shift_validation_duration
+TC_ST_04	[Logic Rule] Verify negative break time, break exceeding shift duration, and missing branch selection	"1. In Break Duration field, input negative value: -15 mins.
+2. Set 4h shift (08:00 - 12:00) and Break Duration = 240 mins (or 300 mins).
+3. Set Scope = ""Chi nhánh riêng"" but leave Branch dropdown unselected -> Click Save."	"Form submission blocked with inline errors:
+- ""Thời gian nghỉ không được nhỏ hơn 0 phút.""
+- ""Thời gian nghỉ phải nhỏ hơn tổng thời lượng ca; Số giờ công phải lớn hơn 0.""
+- ""Vui lòng chọn chi nhánh áp dụng khung ca riêng."""	Shift modal is open.	Passed			Passed			Pending			Evidence: 📁 shift_logic_break_rules
+TC_ST_05	[Conflict & Business Rule] Verify real-time shift overlap detection (Single & Batch) and locked branch restriction	"1. Enter shift overlapping existing shift in same scope (e.g. 08:00 - 12:00 overlaps 06:00 - 14:00).
+2. In Batch mode, draft 2 internal overlapping rows (06:00 - 14:00 and 10:00 - 18:00).
+3. Select Scope = Custom Branch and pick branch ""CH01"" (currently LOCKED status)."	"- Realtime overlap alert triggers; Save button blocked in both Single and Batch modes.
+- Locked branch enforcement blocks submit: ""Chi nhánh đang bị tạm khóa. Vui lòng mở khóa chi nhánh trước khi tạo ca riêng."""	Shift Ca Sáng exists in DB; Branch CH01 status is LOCKED.	Passed			Passed			Pending			Evidence: 📁 shift_overlap_and_lock

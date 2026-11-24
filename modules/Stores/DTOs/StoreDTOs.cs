@@ -28,13 +28,15 @@ public class BranchDto
     /// <summary>
     /// Tên chuỗi hiển thị tương ứng của phân cấp (ví dụ: "Cấp 1 - Lớn", "Cấp 2 - Tiêu chuẩn", "Cấp 3 - Nhỏ").
     /// </summary>
-    public string BranchTierName => BranchTier switch
-    {
-        BranchTier.Tier1 => "Cấp 1 - Lớn",
-        BranchTier.Tier2 => "Cấp 2 - Tiêu chuẩn",
-        BranchTier.Tier3 => "Cấp 3 - Nhỏ",
-        _ => "Không xác định"
-    };
+    public string BranchTierName => Tier != null && !string.IsNullOrWhiteSpace(Tier.TierName)
+        ? Tier.TierName
+        : BranchTier switch
+        {
+            BranchTier.Tier1 => "Cấp 1 - Lớn",
+            BranchTier.Tier2 => "Cấp 2 - Tiêu chuẩn",
+            BranchTier.Tier3 => "Cấp 3 - Nhỏ",
+            _ => "Không xác định"
+        };
     /// <summary>
     /// Số lượng nhân sự định biên tùy chỉnh (0 = dùng mặc định theo BranchTier).
     /// </summary>
@@ -92,11 +94,9 @@ public class CreateBranchDto
     public double? Longitude { get; set; }
     public int? GeofenceRadiusMeters { get; set; }
     /// <summary>
-    /// Phân cấp chi nhánh (Bắt buộc): 1 = Tier 1 (Cấp 1 - Lớn), 2 = Tier 2 (Cấp 2 - Tiêu chuẩn), 3 = Tier 3 (Cấp 3 - Nhỏ).
+    /// Phân cấp chi nhánh: 1 = Tier 1 (Cấp 1 - Lớn), 2 = Tier 2 (Cấp 2 - Tiêu chuẩn), 3 = Tier 3 (Cấp 3 - Nhỏ) hoặc dynamic TierId.
     /// </summary>
-    [Required(ErrorMessage = "Phân cấp chi nhánh (BranchTier) là bắt buộc.")]
-    [EnumDataType(typeof(BranchTier), ErrorMessage = "Phân cấp chi nhánh không hợp lệ. Chỉ chấp nhận 1 (Tier1), 2 (Tier2), 3 (Tier3).")]
-    public BranchTier BranchTier { get; set; } = BranchTier.Tier2;
+    public int? BranchTier { get; set; } = (int)Domain.Enums.BranchTier.Tier2;
 
     /// <summary>
     /// Định biên tùy chỉnh (Tùy chọn, mặc định = 0 để áp dụng theo BranchTier).
@@ -116,8 +116,21 @@ public class CreateBranchDto
     public string? BranchName { get => Name; set => Name = value ?? string.Empty; }
     /// <summary>
     /// Alias nhận diện giá trị phân cấp nếu client gửi qua trường "Tier".
+    /// Hỗ trợ cả TierId động (Tier 4, Tier 5, ...) hoặc enum chuẩn (1, 2, 3).
     /// </summary>
-    public BranchTier? Tier { get => BranchTier; set { if (value.HasValue) BranchTier = value.Value; } }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public object? Tier 
+    { 
+        get => TierId ?? BranchTier; 
+        set 
+        { 
+            if (value != null && int.TryParse(value.ToString(), out var intVal))
+            {
+                TierId = intVal;
+                BranchTier = intVal;
+            }
+        } 
+    }
 
     public string? AllowedIp { get => KioskAllowedIp; set => KioskAllowedIp = value; }
     public string? AllowedBrowser { get => KioskAllowedBrowser; set => KioskAllowedBrowser = value; }
@@ -130,18 +143,17 @@ public class CreateBranchDto
 /// </summary>
 public class UpdateBranchDto
 {
-    public string Name { get; set; } = string.Empty;
-    public string Address { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? Address { get; set; }
     public string? Phone { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public int? GeofenceRadiusMeters { get; set; }
     public int? TierId { get; set; }
     /// <summary>
-    /// Phân cấp chi nhánh mới (Tùy chọn): 1 = Tier 1 (Lớn), 2 = Tier 2 (Tiêu chuẩn), 3 = Tier 3 (Nhỏ).
+    /// Phân cấp chi nhánh mới: 1 = Tier 1 (Lớn), 2 = Tier 2 (Tiêu chuẩn), 3 = Tier 3 (Nhỏ) hoặc dynamic TierId.
     /// </summary>
-    [EnumDataType(typeof(BranchTier), ErrorMessage = "Phân cấp chi nhánh không hợp lệ. Chỉ chấp nhận 1 (Tier1), 2 (Tier2), 3 (Tier3).")]
-    public BranchTier? BranchTier { get; set; }
+    public int? BranchTier { get; set; }
 
     /// <summary>
     /// Cập nhật định biên nhân sự tùy chỉnh (0 = dùng mặc định theo BranchTier).
@@ -158,8 +170,21 @@ public class UpdateBranchDto
 
     /// <summary>
     /// Alias nhận diện giá trị phân cấp nếu client gửi qua trường "Tier".
+    /// Hỗ trợ cả TierId động (Tier 4, Tier 5, ...) hoặc enum chuẩn (1, 2, 3).
     /// </summary>
-    public BranchTier? Tier { get => BranchTier; set => BranchTier = value; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public object? Tier 
+    { 
+        get => TierId ?? BranchTier; 
+        set 
+        { 
+            if (value != null && int.TryParse(value.ToString(), out var intVal))
+            {
+                TierId = intVal;
+                BranchTier = intVal;
+            }
+        } 
+    }
 
     public string? AllowedIp { get => KioskAllowedIp; set => KioskAllowedIp = value; }
     public string? AllowedBrowser { get => KioskAllowedBrowser; set => KioskAllowedBrowser = value; }

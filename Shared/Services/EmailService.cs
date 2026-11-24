@@ -564,4 +564,111 @@ public class EmailService : IEmailService
             return false;
         }
     }
+
+    public async Task<bool> SendProfileUpdateNotificationEmailAsync(
+        string recipientEmail, 
+        string recipientName, 
+        string employeeCode, 
+        IReadOnlyDictionary<string, (string OldVal, string NewVal)> changedFields, 
+        string reason)
+    {
+        try
+        {
+            var smtpServer = _configuration["EmailSettings:SmtpServer"] ?? "smtp.gmail.com";
+            var smtpPort = int.Parse(_configuration["EmailSettings:SmtpPort"] ?? "587");
+            var senderEmail = _configuration["EmailSettings:SenderEmail"] ?? "";
+            var senderName = _configuration["EmailSettings:SenderName"] ?? "RWFM Enterprise";
+            var senderPassword = _configuration["EmailSettings:SenderPassword"] ?? "";
+            var enableSsl = bool.Parse(_configuration["EmailSettings:EnableSsl"] ?? "true");
+            var loginUrl = _configuration["ClientApp:LoginUrl"] ?? "http://localhost:5173/login";
+
+            using var message = new MailMessage();
+            message.From = new MailAddress(senderEmail, senderName);
+            message.To.Add(new MailAddress(recipientEmail, recipientName));
+            message.Subject = $"[RWFM Enterprise] Thông báo điều chỉnh thông tin hồ sơ nhân sự ({employeeCode})";
+            message.IsBodyHtml = true;
+            message.Priority = MailPriority.High;
+
+            var rowsHtml = new System.Text.StringBuilder();
+            foreach (var kvp in changedFields)
+            {
+                var fieldName = System.Net.WebUtility.HtmlEncode(kvp.Key);
+                var oldVal = System.Net.WebUtility.HtmlEncode(kvp.Value.OldVal ?? "—");
+                var newVal = System.Net.WebUtility.HtmlEncode(kvp.Value.NewVal ?? "—");
+                rowsHtml.Append($@"
+                    <tr style='border-bottom: 1px solid #e2e8f0;'>
+                        <td style='padding: 8px 12px; font-weight: 600; color: #1e293b;'>{fieldName}</td>
+                        <td style='padding: 8px 12px; color: #64748b; text-decoration: line-through;'>{oldVal}</td>
+                        <td style='padding: 8px 12px; color: #0d9488; font-weight: bold;'>{newVal}</td>
+                    </tr>");
+            }
+
+            message.Body = $@"
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 10px; background-color: #ffffff;'>
+                <div style='text-align: center; padding-bottom: 16px; border-bottom: 2px solid #2563eb;'>
+                    <h2 style='color: #1e3a8a; margin: 0; font-size: 22px;'>RWFM Enterprise</h2>
+                    <p style='color: #64748b; font-size: 13px; margin-top: 4px;'>Hệ thống Quản trị Nhân sự & Lập lịch Vận hành Chuỗi</p>
+                </div>
+                
+                <div style='margin-top: 20px;'>
+                    <p style='font-size: 15px; color: #1e293b;'>Kính gửi <strong>{recipientName}</strong> (Mã NV: <strong>{employeeCode}</strong>),</p>
+                    <p style='color: #475569; line-height: 1.6;'>
+                        Hệ thống xin thông báo: Thông tin hồ sơ nhân sự của bạn vừa được Quản trị viên cập nhật thành công trên hệ thống. Chi tiết thay đổi như sau:
+                    </p>
+                </div>
+
+                <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0;'>
+                    <table style='width: 100%; border-collapse: collapse; font-size: 13.5px;'>
+                        <thead>
+                            <tr style='background-color: #f1f5f9; text-align: left;'>
+                                <th style='padding: 8px 12px; color: #475569;'>Trường Thông Tin</th>
+                                <th style='padding: 8px 12px; color: #475569;'>Giá Trị Cũ</th>
+                                <th style='padding: 8px 12px; color: #475569;'>Giá Trị Mới</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rowsHtml}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style='background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; margin: 18px 0; border-radius: 4px;'>
+                    <p style='margin: 0; font-size: 13.5px; color: #1e40af;'>
+                        <strong>Lý do điều chỉnh:</strong> {System.Net.WebUtility.HtmlEncode(reason)}
+                    </p>
+                    <p style='margin: 4px 0 0 0; font-size: 12px; color: #64748b;'>
+                        Thời gian ghi nhận: {DateTime.UtcNow.AddHours(7):dd/MM/yyyy HH:mm:ss} (Giờ VN)
+                    </p>
+                </div>
+
+                <div style='text-align: center; margin: 20px 0;'>
+                    <a href='{loginUrl}' style='background-color: #2563eb; color: #ffffff; padding: 10px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>Kiểm Tra Hồ Sơ</a>
+                </div>
+
+                <p style='font-size: 12.5px; color: #64748b; line-height: 1.5;'>
+                    Nếu có bất kỳ thắc mắc nào liên quan đến thông tin được điều chỉnh, bạn vui lòng liên hệ ngay với Quản trị viên hoặc Bộ phận Nhân sự.
+                </p>
+                <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
+                <p style='font-size: 12px; color: #94a3b8; text-align: center;'>Email được gửi tự động từ Hệ thống Quản trị Nhân sự RWFM Enterprise.</p>
+            </div>";
+
+            using var client = new SmtpClient(smtpServer, smtpPort)
+            {
+                EnableSsl = enableSsl,
+                UseDefaultCredentials = false,
+                Credentials = new NetworkCredential(senderEmail, senderPassword),
+                DeliveryMethod = SmtpDeliveryMethod.Network,
+                Timeout = 15000
+            };
+
+            await client.SendMailAsync(message);
+            _logger.LogInformation("Gửi email thông báo cập nhật hồ sơ thành công tới {Email}", recipientEmail);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi khi gửi email thông báo cập nhật hồ sơ tới {Email}", recipientEmail);
+            return false;
+        }
+    }
 }

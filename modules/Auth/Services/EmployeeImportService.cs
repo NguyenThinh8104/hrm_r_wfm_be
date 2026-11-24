@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -416,7 +417,10 @@ public class EmployeeImportService : IEmployeeImportService
 
         // 2. Pre-fetch danh mục
         var existingUsers = await _context.Users.AsNoTracking().ToListAsync();
-        var existingCodes = new HashSet<string>(existingUsers.Select(u => u.EmployeeCode.ToUpper()), StringComparer.OrdinalIgnoreCase);
+        var existingUsersByCode = existingUsers
+            .Where(u => !string.IsNullOrWhiteSpace(u.EmployeeCode))
+            .ToDictionary(u => u.EmployeeCode.Trim().ToUpper(), u => u, StringComparer.OrdinalIgnoreCase);
+        var existingCodes = new HashSet<string>(existingUsersByCode.Keys, StringComparer.OrdinalIgnoreCase);
         var existingEmails = new HashSet<string>(existingUsers.Select(u => u.Email.ToLower()), StringComparer.OrdinalIgnoreCase);
         var existingPhones = new HashSet<string>(existingUsers.Select(u => u.Phone), StringComparer.OrdinalIgnoreCase);
 
@@ -459,7 +463,7 @@ public class EmployeeImportService : IEmployeeImportService
                 continue;
             }
 
-            if (!r.Email.Contains("@") || !r.Email.Contains("."))
+            if (!Regex.IsMatch(r.Email.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
             {
                 result.Errors.Add(new ImportRowErrorDto { RowNumber = r.RowNumber, EmployeeCode = r.EmployeeCode, FullName = r.FullName, Email = r.Email, ErrorMessage = $"Email '{r.Email}' không đúng định dạng." });
                 continue;
@@ -476,9 +480,31 @@ public class EmployeeImportService : IEmployeeImportService
                 continue;
             }
 
+            // Chuẩn hóa và xác thực định dạng số điện thoại di động Việt Nam (10 chữ số, đầu 03, 05, 07, 08, 09 hoặc +84)
+            var cleanPhone = Regex.Replace(r.Phone.Trim(), @"[\s\.\-\(\)]", "");
+            if (cleanPhone.StartsWith("+84"))
+            {
+                cleanPhone = "0" + cleanPhone.Substring(3);
+            }
+            else if (cleanPhone.StartsWith("84") && cleanPhone.Length == 11)
+            {
+                cleanPhone = "0" + cleanPhone.Substring(2);
+            }
+
+            if (!Regex.IsMatch(cleanPhone, @"^0[35789][0-9]{8}$"))
+            {
+                result.Errors.Add(new ImportRowErrorDto { 
+                    RowNumber = r.RowNumber, 
+                    EmployeeCode = r.EmployeeCode, 
+                    FullName = r.FullName, 
+                    Email = r.Email, 
+                    ErrorMessage = $"Số điện thoại '{r.Phone}' không hợp lệ (Số điện thoại Việt Nam bắt buộc phải gồm 10 chữ số và bắt đầu bằng đầu số 03, 05, 07, 08, 09. VD: 0912345678)." });
+                continue;
+            }
+
             var normalizedCode = r.EmployeeCode.Trim().ToUpper();
             var normalizedEmail = r.Email.Trim().ToLower();
-            var normalizedPhone = r.Phone.Trim();
+            var normalizedPhone = cleanPhone;
 
             // Kiểm tra trùng lặp trong tệp tin
             if (seenCodesInFile.Contains(normalizedCode))
@@ -513,14 +539,30 @@ public class EmployeeImportService : IEmployeeImportService
             }
 
             // Kiểm tra trùng lặp với CSDL
-            if (existingCodes.Contains(normalizedCode))
+            if (existingUsersByCode.TryGetValue(normalizedCode, out var matchedExistingUser))
             {
+                bool isInactive = string.Equals(matchedExistingUser.Status, "INACTIVE", StringComparison.OrdinalIgnoreCase);
                 result.Errors.Add(new ImportRowErrorDto { 
                     RowNumber = r.RowNumber, 
                     EmployeeCode = normalizedCode, 
                     FullName = r.FullName, 
                     Email = r.Email, 
-                    ErrorMessage = $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống." });
+                    Phone = cleanPhone,
+                    RoleCode = r.RoleCode,
+                    BranchIdentifier = r.BranchIdentifier,
+                    EmploymentType = r.EmploymentType,
+                    ErrorMessage = isInactive
+                        ? $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống nhưng tài khoản đang bị KHÓA (Inactive). Bạn có thể bấm vào mã nhân viên hoặc dùng hàng đợi để mở khóa & cập nhật lại hồ sơ."
+                        : $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống.",
+                    ExistingUserId = matchedExistingUser.Id,
+                    ExistingUserStatus = matchedExistingUser.Status,
+                    CanUnlock = isInactive,
+                    OldBranchId = matchedExistingUser.HomeBranchId,
+                    OldBranchName = matchedExistingUser.HomeBranchId.HasValue && branchesById.TryGetValue(matchedExistingUser.HomeBranchId.Value, out var ob) ? ob.Name : null,
+                    OldRoleId = matchedExistingUser.RoleId,
+                    OldRoleCode = roles.FirstOrDefault(x => x.Id == matchedExistingUser.RoleId)?.RoleCode
+                });
+                    
                 continue;
             }
             if (existingEmails.Contains(normalizedEmail))
@@ -595,11 +637,11 @@ public class EmployeeImportService : IEmployeeImportService
             validRowsToProcess.Add((r, targetRole, targetBranch));
         }
 
-        // Danh sách các chi nhánh đã có Cửa hàng trưởng ACTIVE
+        
         var branchesWithActiveManagerList = await _context.Users
             .Include(u => u.Role)
-            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && u.HomeBranchId != null)
-            .Select(u => u.HomeBranchId!.Value)
+            .Where(u => u.Role.RoleCode == "STORE_MANAGER" && u.Status == "ACTIVE" && (u.OriginalHomeBranchId != null || u.HomeBranchId != null))
+            .Select(u => (u.OriginalHomeBranchId ?? u.HomeBranchId)!.Value)
             .ToListAsync();
         var branchesWithActiveManager = branchesWithActiveManagerList.ToHashSet();
 

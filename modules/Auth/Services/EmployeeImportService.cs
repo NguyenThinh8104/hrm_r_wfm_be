@@ -547,12 +547,20 @@ public class EmployeeImportService : IEmployeeImportService
                     EmployeeCode = normalizedCode, 
                     FullName = r.FullName, 
                     Email = r.Email, 
+                    Phone = cleanPhone,
+                    RoleCode = r.RoleCode,
+                    BranchIdentifier = r.BranchIdentifier,
+                    EmploymentType = r.EmploymentType,
                     ErrorMessage = isInactive
-                        ? $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống nhưng tài khoản đang bị KHÓA (Inactive). Bạn có thể bấm vào mã nhân viên để mở khóa kích hoạt lại tài khoản này."
+                        ? $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống nhưng tài khoản đang bị KHÓA (Inactive). Bạn có thể bấm vào mã nhân viên hoặc dùng hàng đợi để mở khóa & cập nhật lại hồ sơ."
                         : $"Mã nhân viên '{normalizedCode}' đã tồn tại trong hệ thống.",
                     ExistingUserId = matchedExistingUser.Id,
                     ExistingUserStatus = matchedExistingUser.Status,
-                    CanUnlock = isInactive
+                    CanUnlock = isInactive,
+                    OldBranchId = matchedExistingUser.HomeBranchId,
+                    OldBranchName = matchedExistingUser.HomeBranchId.HasValue && branchesById.TryGetValue(matchedExistingUser.HomeBranchId.Value, out var ob) ? ob.Name : null,
+                    OldRoleId = matchedExistingUser.RoleId,
+                    OldRoleCode = roles.FirstOrDefault(x => x.Id == matchedExistingUser.RoleId)?.RoleCode
                 });
                     
                 continue;

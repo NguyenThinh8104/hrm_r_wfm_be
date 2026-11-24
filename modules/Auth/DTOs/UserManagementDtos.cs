@@ -71,12 +71,14 @@ public class CreateEmployeeDto
 public class UpdateEmployeeDto
 {
     public string FullName { get; set; } = string.Empty;
+    public string? Email { get; set; }
     public string Phone { get; set; } = string.Empty;
     public byte RoleId { get; set; }
     public string EmploymentType { get; set; } = "FULL_TIME";
     public string? ContractType { get; set; }
     public ulong HomeBranchId { get; set; }
     public string? Status { get; set; }
+    public string? Reason { get; set; }
 }
 
 public class UpdateStatusDto

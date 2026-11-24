@@ -587,6 +587,21 @@ public class UserService : IUserService
         if (normalizedPhone != user.Phone && await _context.Users.AnyAsync(u => u.Phone == normalizedPhone && u.Id != user.Id))
             return ApiResponse<EmployeeDetailDto>.Fail($"Số điện thoại '{normalizedPhone}' đã được sử dụng bởi người khác.");
 
+        // Kiểm tra và cập nhật Email nếu có thay đổi
+        string? cleanEmail = null;
+        if (!string.IsNullOrWhiteSpace(dto.Email))
+        {
+            cleanEmail = dto.Email.Trim().ToLower();
+            if (!Regex.IsMatch(cleanEmail, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            {
+                return ApiResponse<EmployeeDetailDto>.Fail($"Email '{dto.Email}' không đúng định dạng.");
+            }
+            if (cleanEmail != user.Email.ToLower() && await _context.Users.AnyAsync(u => u.Email.ToLower() == cleanEmail && u.Id != user.Id))
+            {
+                return ApiResponse<EmployeeDetailDto>.Fail($"Địa chỉ email '{cleanEmail}' đã được sử dụng bởi người khác.");
+            }
+        }
+
         ulong targetBranchId = (normalizedActorRole != "STORE_MANAGER" && normalizedActorRole != "STOREMANAGER" && dto.HomeBranchId > 0)
             ? dto.HomeBranchId
             : user.HomeBranchId ?? 0;
@@ -611,6 +626,7 @@ public class UserService : IUserService
         var oldValues = new
         {
             user.FullName,
+            user.Email,
             user.Phone,
             Role = user.Role.RoleCode,
             user.EmploymentType,
@@ -618,11 +634,44 @@ public class UserService : IUserService
             user.Status
         };
 
-        user.FullName = dto.FullName.Trim();
-        user.Phone = normalizedPhone;
-        user.RoleId = dto.RoleId;
+        var changedFields = new Dictionary<string, (string OldVal, string NewVal)>();
+        var oldEmail = user.Email;
+        var oldRoleName = user.Role?.RoleName ?? user.Role?.RoleCode ?? "Nhân viên";
+        var oldBranchName = user.HomeBranch?.Name ?? $"Chi nhánh #{user.HomeBranchId}";
+        var oldContractType = user.EmploymentType == "PART_TIME" ? "Bán thời gian (Part-time)" : "Toàn thời gian (Full-time)";
+
+        if (!string.Equals(user.FullName, dto.FullName.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            changedFields["Họ và Tên"] = (user.FullName, dto.FullName.Trim());
+            user.FullName = dto.FullName.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(cleanEmail) && !string.Equals(user.Email.ToLower(), cleanEmail, StringComparison.OrdinalIgnoreCase))
+        {
+            changedFields["Địa Chỉ Email"] = (user.Email, cleanEmail);
+            user.Email = cleanEmail;
+        }
+
+        if (!string.Equals(user.Phone, normalizedPhone, StringComparison.OrdinalIgnoreCase))
+        {
+            changedFields["Số Điện Thoại"] = (user.Phone, normalizedPhone);
+            user.Phone = normalizedPhone;
+        }
+
+        if (user.RoleId != targetRole.Id)
+        {
+            changedFields["Vai Trò (Chức Danh)"] = (oldRoleName, targetRole.RoleName ?? targetRole.RoleCode);
+            user.RoleId = targetRole.Id;
+        }
+
         var effectiveEmploymentType = !string.IsNullOrWhiteSpace(dto.ContractType) ? dto.ContractType : dto.EmploymentType;
-        user.EmploymentType = string.Equals(effectiveEmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME";
+        var normalizedType = string.Equals(effectiveEmploymentType, "PART_TIME", StringComparison.OrdinalIgnoreCase) ? "PART_TIME" : "FULL_TIME";
+        var newContractLabel = normalizedType == "PART_TIME" ? "Bán thời gian (Part-time)" : "Toàn thời gian (Full-time)";
+        if (!string.Equals(user.EmploymentType, normalizedType, StringComparison.OrdinalIgnoreCase))
+        {
+            changedFields["Hình Thức Hợp Đồng"] = (oldContractType, newContractLabel);
+            user.EmploymentType = normalizedType;
+        }
 
         if (normalizedActorRole != "STORE_MANAGER" && normalizedActorRole != "STOREMANAGER")
         {
@@ -662,6 +711,7 @@ public class UserService : IUserService
                         $"Không thể điều chuyển nhân sự: Chi nhánh đích '{targetBranch.Name}' đã đạt giới hạn định biên tối đa ({quotaResult.EffectiveQuota} nhân sự). Vui lòng nâng định biên Tier trước khi tiếp nhận nhân sự.");
                 }
 
+                changedFields["Chi Nhánh Công Tác"] = (oldBranchName, targetBranch.Name);
                 user.HomeBranchId = dto.HomeBranchId;
             }
         }
@@ -683,7 +733,49 @@ public class UserService : IUserService
                     }
                 }
             }
-            user.Status = newStatus;
+            if (!string.Equals(user.Status, newStatus, StringComparison.OrdinalIgnoreCase))
+            {
+                changedFields["Trạng Thái Tài Khoản"] = (user.Status == "ACTIVE" ? "Đang hoạt động" : "Đã khóa", newStatus == "ACTIVE" ? "Đang hoạt động" : "Đã khóa");
+                user.Status = newStatus;
+            }
+        }
+
+        // Kiểm tra xem có trường thông tin nào thực sự thay đổi không
+        if (changedFields.Count == 0)
+        {
+            return ApiResponse<EmployeeDetailDto>.Ok(new EmployeeDetailDto
+            {
+                Id = user.Id,
+                EmployeeCode = user.EmployeeCode,
+                FullName = user.FullName,
+                Email = user.Email,
+                Phone = user.Phone,
+                RoleId = user.RoleId,
+                RoleName = user.Role?.RoleName ?? user.Role?.RoleCode ?? "Nhân viên",
+                RoleCode = user.Role?.RoleCode ?? "",
+                HomeBranchId = user.HomeBranchId,
+                BranchCode = user.HomeBranch?.BranchCode,
+                BranchName = user.HomeBranch?.Name,
+                EmploymentType = user.EmploymentType,
+                ContractType = user.EmploymentType,
+                Status = user.Status,
+                CreatedAt = user.CreatedAt,
+                UpdatedAt = user.UpdatedAt
+            }, "Hồ sơ nhân sự không có thông tin nào thay đổi.");
+        }
+
+        // Bắt buộc lý do khi có thay đổi thông tin (tự động gán nếu là tái tuyển dụng / kích hoạt lại)
+        var effectiveReason = dto.Reason?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(effectiveReason) || effectiveReason.Length < 5)
+        {
+            if (user.Status != "ACTIVE" && dto.Status == "ACTIVE")
+            {
+                effectiveReason = "Tái tuyển dụng và kích hoạt lại hồ sơ nhân sự";
+            }
+            else
+            {
+                return ApiResponse<EmployeeDetailDto>.Fail("Vui lòng nhập lý do điều chỉnh hồ sơ nhân sự (tối thiểu 5 ký tự) để lưu vết kiểm toán và gửi email thông báo.");
+            }
         }
 
         user.UpdatedAt = DateTime.UtcNow;
@@ -692,12 +784,49 @@ public class UserService : IUserService
         await LogAuditAsync(actorId, "UPDATE_EMPLOYEE", "users", user.Id, oldValues, new
         {
             user.FullName,
+            user.Email,
             user.Phone,
             Role = targetRole.RoleCode,
             user.EmploymentType,
             user.HomeBranchId,
-            user.Status
+            user.Status,
+            Reason = effectiveReason
         }, ipAddress);
+
+        // Kích hoạt gửi email thông báo điều chỉnh thông tin hồ sơ
+        var targetRecipientEmail = !string.IsNullOrWhiteSpace(cleanEmail) ? cleanEmail : user.Email;
+        var reasonTrimmed = effectiveReason;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var fieldsMap = changedFields.Count > 0 
+                    ? changedFields 
+                    : new Dictionary<string, (string OldVal, string NewVal)> { { "Thông tin hồ sơ", ("Đã ghi nhận", "Đã cập nhật lại") } };
+
+                await _emailService.SendProfileUpdateNotificationEmailAsync(
+                    targetRecipientEmail,
+                    user.FullName,
+                    user.EmployeeCode,
+                    fieldsMap,
+                    reasonTrimmed);
+
+                // Nếu địa chỉ email bị đổi, gửi thêm 1 bản đến email cũ để đảm bảo an ninh
+                if (!string.IsNullOrWhiteSpace(oldEmail) && !string.Equals(oldEmail, targetRecipientEmail, StringComparison.OrdinalIgnoreCase))
+                {
+                    await _emailService.SendProfileUpdateNotificationEmailAsync(
+                        oldEmail,
+                        user.FullName,
+                        user.EmployeeCode,
+                        fieldsMap,
+                        reasonTrimmed);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Lỗi khi gửi email thông báo cập nhật hồ sơ cho {EmployeeCode}", user.EmployeeCode);
+            }
+        });
 
         return ApiResponse<EmployeeDetailDto>.Ok(new EmployeeDetailDto
         {

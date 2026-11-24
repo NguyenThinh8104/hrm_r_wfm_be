@@ -119,6 +119,12 @@ public class ShiftService : IShiftService
     public Task<ApiResponse<bool>> PublishWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong publishedByUserId)
         => _scheduleService.PublishWeeklyScheduleAsync(branchId, weekStartDate, publishedByUserId);
 
+    public Task<ApiResponse<bool>> DeleteWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong userId)
+        => _scheduleService.DeleteWeeklyScheduleAsync(branchId, weekStartDate, userId);
+
+    public Task<ApiResponse<bool>> DeleteWeeklyAssignmentsAsync(ulong branchId, DateOnly weekStartDate, ulong userId)
+        => _scheduleService.DeleteWeeklyAssignmentsAsync(branchId, weekStartDate, userId);
+
     public Task<ApiResponse<bool>> DeleteShiftAssignmentAsync(ulong assignmentId)
         => _scheduleService.DeleteShiftAssignmentAsync(assignmentId);
 

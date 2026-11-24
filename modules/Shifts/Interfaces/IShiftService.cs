@@ -160,6 +160,17 @@ public interface IShiftService
     Task<ApiResponse<bool>> PublishWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong publishedByUserId);
 
     /// <summary>
+    /// Xóa toàn bộ định mức và thời khóa biểu của tuần (chỉ áp dụng cho lịch DRAFT chưa công bố) để đưa về trạng thái chưa tạo ca ban đầu.
+    /// </summary>
+    Task<ApiResponse<bool>> DeleteWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong userId);
+
+    /// <summary>
+    /// Xóa toàn bộ các phân công ca làm việc (ShiftAssignments) của một tuần ở trạng thái DRAFT
+    /// nhưng GIỮ NGUYÊN các khung ca (WorkSchedules) và định mức nhân sự (ShiftQuota).
+    /// </summary>
+    Task<ApiResponse<bool>> DeleteWeeklyAssignmentsAsync(ulong branchId, DateOnly weekStartDate, ulong userId);
+
+    /// <summary>
     /// Xóa/Hủy 1 phân công ca làm việc của nhân viên.
     /// </summary>
     Task<ApiResponse<bool>> DeleteShiftAssignmentAsync(ulong assignmentId);

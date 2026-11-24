@@ -117,6 +117,21 @@ public class DispatchWorkflowService : IDispatchWorkflowService
        
         foreach (var u in users)
         {
+            // Kiểm tra lịch làm việc (ca trực) của nhân sự tại chi nhánh hỗ trợ trong khoảng thời gian xin điều động
+            var conflictingShift = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule).ThenInclude(s => s.ShiftTemplate)
+                .FirstOrDefaultAsync(sa => sa.UserId == u.Id
+                                        && sa.Schedule.WorkDate >= request.StartDate
+                                        && sa.Schedule.WorkDate <= request.EndDate
+                                        && sa.Status != "CANCELLED");
+
+            if (conflictingShift != null)
+            {
+                var shiftName = conflictingShift.Schedule.ShiftTemplate?.Name ?? "ca làm việc";
+                return ApiResponse<DispatchRecordDto>.Fail(
+                    $"Nhân sự '{u.FullName}' đã có lịch làm việc ('{shiftName}' ngày {conflictingShift.Schedule.WorkDate:dd/MM/yyyy}) trong khoảng thời gian điều động. Không thể tạo đơn xin mượn nhân sự đã có lịch trực.");
+            }
+
             var overlappingDispatch = await _context.TemporaryDispatches
                 .Include(d => d.DispatchEmployees)
                 .FirstOrDefaultAsync(d => (d.Status == "PENDING" || d.Status == "APPROVED" || d.Status == "PARTIAL")
@@ -595,6 +610,21 @@ public class DispatchWorkflowService : IDispatchWorkflowService
         // TC_DSP_011: Kiểm tra rào cản trùng lặp khoảng ngày điều động (chạm biên hoặc giao nhau) cho từng nhân sự khi chỉnh sửa
         foreach (var u in users)
         {
+            // Kiểm tra lịch làm việc (ca trực) của nhân sự khi chỉnh sửa đơn xin điều động
+            var conflictingShift = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule).ThenInclude(s => s.ShiftTemplate)
+                .FirstOrDefaultAsync(sa => sa.UserId == u.Id
+                                        && sa.Schedule.WorkDate >= request.StartDate
+                                        && sa.Schedule.WorkDate <= request.EndDate
+                                        && sa.Status != "CANCELLED");
+
+            if (conflictingShift != null)
+            {
+                var shiftName = conflictingShift.Schedule.ShiftTemplate?.Name ?? "ca làm việc";
+                return ApiResponse<DispatchRecordDto>.Fail(
+                    $"Nhân sự '{u.FullName}' đã có lịch làm việc ('{shiftName}' ngày {conflictingShift.Schedule.WorkDate:dd/MM/yyyy}) trong khoảng thời gian điều động. Không thể cập nhật đơn xin mượn nhân sự đã có lịch trực.");
+            }
+
             var overlappingDispatch = await _context.TemporaryDispatches
                 .Include(d => d.DispatchEmployees)
                 .FirstOrDefaultAsync(d => d.Id != dispatch.Id

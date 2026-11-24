@@ -162,14 +162,19 @@ public class DispatchController : ControllerBase
     /// </summary>
     [HttpGet("branch-employees/{branchId:long}")]
     public async Task<ActionResult<ApiResponse<List<DispatchEmployeeOptionDto>>>> GetBranchEmployeesForDispatch(
-        [FromRoute] ulong branchId)
+        [FromRoute] ulong branchId,
+        [FromQuery] string? startDate,
+        [FromQuery] string? endDate)
     {
         if (branchId == 0)
         {
             return BadRequest(ApiResponse<List<DispatchEmployeeOptionDto>>.Fail("Vui lòng cung cấp mã chi nhánh (branchId)."));
         }
 
-        var result = await _quotaService.GetBranchEmployeesForDispatchAsync(branchId);
+        DateOnly? parsedStartDate = !string.IsNullOrEmpty(startDate) && DateOnly.TryParse(startDate, out var sDate) ? sDate : null;
+        DateOnly? parsedEndDate = !string.IsNullOrEmpty(endDate) && DateOnly.TryParse(endDate, out var eDate) ? eDate : null;
+
+        var result = await _quotaService.GetBranchEmployeesForDispatchAsync(branchId, parsedStartDate, parsedEndDate);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

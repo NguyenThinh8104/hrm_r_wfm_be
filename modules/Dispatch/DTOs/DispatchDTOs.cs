@@ -106,6 +106,8 @@ public class DispatchEmployeeOptionDto
     public string PositionName { get; set; } = string.Empty;
     public string RoleCode { get; set; } = string.Empty;
     public ulong HomeBranchId { get; set; }
+    public bool HasScheduleConflict { get; set; }
+    public string? ConflictShiftDetail { get; set; }
 }
 
 /// <summary>

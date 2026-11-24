@@ -84,7 +84,10 @@ public class DispatchQuotaService : IDispatchQuotaService
     }
 
     /// <inheritdoc />
-    public async Task<ApiResponse<List<DispatchEmployeeOptionDto>>> GetBranchEmployeesForDispatchAsync(ulong branchId)
+    public async Task<ApiResponse<List<DispatchEmployeeOptionDto>>> GetBranchEmployeesForDispatchAsync(
+        ulong branchId, 
+        DateOnly? startDate = null, 
+        DateOnly? endDate = null)
     {
         var branch = await _context.Branches.FindAsync(branchId);
         if (branch == null)
@@ -111,6 +114,31 @@ public class DispatchQuotaService : IDispatchQuotaService
                 HomeBranchId = u.HomeBranchId ?? branchId
             })
             .ToListAsync();
+
+        // Kiểm tra lịch làm việc (ca trực) của nhân sự nếu có truyền khoảng thời gian điều động
+        if (startDate.HasValue && endDate.HasValue && employees.Any())
+        {
+            var userIds = employees.Select(e => e.Id).ToList();
+            var assignments = await _context.ShiftAssignments
+                .Include(sa => sa.Schedule).ThenInclude(s => s.ShiftTemplate)
+                .Where(sa => userIds.Contains(sa.UserId)
+                          && sa.Schedule.WorkDate >= startDate.Value
+                          && sa.Schedule.WorkDate <= endDate.Value
+                          && sa.Status != "CANCELLED")
+                .OrderBy(sa => sa.Schedule.WorkDate)
+                .ToListAsync();
+
+            foreach (var emp in employees)
+            {
+                var conflictingShift = assignments.FirstOrDefault(a => a.UserId == emp.Id);
+                if (conflictingShift != null)
+                {
+                    emp.HasScheduleConflict = true;
+                    var shiftName = conflictingShift.Schedule.ShiftTemplate?.Name ?? "Ca trực";
+                    emp.ConflictShiftDetail = $"{shiftName} ({conflictingShift.Schedule.WorkDate:dd/MM/yyyy})";
+                }
+            }
+        }
 
         return ApiResponse<List<DispatchEmployeeOptionDto>>.Ok(employees, "Lấy danh sách nhân sự chi viện thành công.");
     }

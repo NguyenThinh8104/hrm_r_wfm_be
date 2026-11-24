@@ -21,6 +21,10 @@ public interface IDispatchQuotaService
     /// <summary>
     /// Lấy danh sách nhân sự của chi nhánh phục vụ điều động chi viện liên chi nhánh (UC 4.1).
     /// Tự động loại trừ các chức danh quản lý (Store Manager, Operations Admin, Business Owner).
+    /// Hỗ trợ kiểm tra lịch làm việc (ca trực) của nhân sự trong khoảng thời gian điều động nếu cung cấp startDate & endDate.
     /// </summary>
-    Task<ApiResponse<List<DispatchEmployeeOptionDto>>> GetBranchEmployeesForDispatchAsync(ulong branchId);
+    Task<ApiResponse<List<DispatchEmployeeOptionDto>>> GetBranchEmployeesForDispatchAsync(
+        ulong branchId, 
+        DateOnly? startDate = null, 
+        DateOnly? endDate = null);
 }

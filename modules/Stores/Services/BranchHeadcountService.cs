@@ -85,21 +85,21 @@ public class BranchHeadcountService : IBranchHeadcountService, IStoreHeadcountSe
         // 1. Quân số cơ hữu chính thức thuộc biên chế của chi nhánh (Status == 'ACTIVE')
         var officialHeadcount = await _context.Users
             .CountAsync(u =>
-            ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) && 
+            ((u.OriginalHomeBranchId != null ? u.OriginalHomeBranchId == branchId : u.HomeBranchId == branchId)) &&
             u.Status == "ACTIVE");
 
         // 2. Số lượng nhân sự từ chi nhánh khác sang hỗ trợ tạm thời (chi viện)
         var dispatchedInCount = await _context.Users
-            .CountAsync(u => 
-            u.HomeBranchId == branchId && 
+            .CountAsync(u =>
+            u.HomeBranchId == branchId &&
             u.OriginalHomeBranchId != null &&
             u.OriginalHomeBranchId != branchId &&
             u.Status == "ACTIVE");
 
         // 3. Số lượng nhân sự cơ hữu của chi nhánh đang đi điều động hỗ trợ nơi khác
         var dispatchedOutCount = await _context.Users
-            .CountAsync(u => 
-            u.OriginalHomeBranchId == branchId && 
+            .CountAsync(u =>
+            u.OriginalHomeBranchId == branchId &&
             u.HomeBranchId != branchId &&
             u.Status == "ACTIVE");
 

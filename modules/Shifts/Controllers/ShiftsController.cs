@@ -380,7 +380,7 @@ public class ShiftsController : ControllerBase
             return BadRequest(ApiResponse<bool>.Fail("Định dạng ngày bắt đầu tuần không hợp lệ (YYYY-MM-DD)."));
         }
 
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value
             ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         ulong.TryParse(empIdClaim, out var userId);
 
@@ -407,7 +407,7 @@ public class ShiftsController : ControllerBase
             return BadRequest(ApiResponse<bool>.Fail("Định dạng ngày bắt đầu tuần không hợp lệ (YYYY-MM-DD)."));
         }
 
-        var empIdClaim = User.FindFirst("EmployeeId")?.Value 
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value
             ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         ulong.TryParse(empIdClaim, out var userId);
 

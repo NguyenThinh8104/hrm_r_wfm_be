@@ -109,7 +109,8 @@ public class ShiftSwapsController : ControllerBase
     /// </summary>
     [HttpGet("swap-requests/{storeId}")]
     [Authorize(Roles = "STORE_MANAGER,OPERATIONS_ADMIN,BUSINESS_OWNER,StoreManager,OperationsAdmin,BusinessOwner,Admin,ADMIN")]
-    public async Task<ActionResult<ApiResponse<List<ShiftSwapRequestDto>>>> GetSwapRequests(int storeId)
+    public async Task<ActionResult<ApiResponse<StoreSwapRequestsPageDto>>> GetSwapRequests(
+        int storeId, [FromQuery] StoreSwapRequestsQueryDto query, CancellationToken cancellationToken)
     {
         var role = (User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty).Trim().ToUpperInvariant();
         bool isGlobal = role == "OPERATIONS_ADMIN" || role == "BUSINESS_OWNER" || role == "ADMIN" ||
@@ -123,9 +124,16 @@ public class ShiftSwapsController : ControllerBase
             {
                 effectiveBranchId = userBranchId;
             }
+            else
+            {
+                return Forbid();
+            }
         }
 
-        var result = await _swapService.GetSwapRequestsByStoreAsync(effectiveBranchId);
+        if (effectiveBranchId <= 0)
+            return BadRequest(ApiResponse<StoreSwapRequestsPageDto>.Fail("Chi nhánh không hợp lệ."));
+
+        var result = await _swapService.GetSwapRequestsByStoreAsync(effectiveBranchId, query, cancellationToken);
         return Ok(result);
     }
 

@@ -843,51 +843,34 @@ public class ShiftSwapService : IShiftSwapService
     /// <summary>
     /// Lấy danh sách các yêu cầu đổi/chuyển/nghỉ ca của toàn chi nhánh (cho Quản lý cửa hàng duyệt).
     /// </summary>
-    public async Task<ApiResponse<List<ShiftSwapRequestDto>>> GetSwapRequestsByStoreAsync(int storeId)
+    public async Task<ApiResponse<StoreSwapRequestsPageDto>> GetSwapRequestsByStoreAsync(
+        int storeId, StoreSwapRequestsQueryDto query, CancellationToken cancellationToken = default)
     {
-        // LAZY AUTO-EXPIRY: Tự động hết hạn các đơn chờ mà ngày ca trực đã qua hoặc bằng hôm nay
+        var branchRequests = _context.ShiftSwapRequests.AsNoTracking()
+            .Where(s => (s.Schedule != null && s.Schedule.BranchId == (ulong)storeId)
+                     || (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.BranchId == (ulong)storeId));
+
+        // Preserve automatic expiry before computing either statistics or the requested page.
         var today = DateOnly.FromDateTime(DateTime.Today);
-        var expiredRequests = await _context.ShiftSwapRequests
-            .Include(s => s.RequestingAssignment)
-                .ThenInclude(sa => sa.Schedule)
-            .Include(s => s.Schedule)
+        await branchRequests
             .Where(s => (s.Status == "PENDING" || s.Status == "PENDING_PEER")
                      && ((s.RequestingAssignment != null && s.RequestingAssignment.Schedule.WorkDate <= today)
-                      || (s.Schedule != null && s.Schedule.WorkDate <= today))
-                     && ((s.Schedule != null && s.Schedule.BranchId == (ulong)storeId)
-                      || (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.BranchId == (ulong)storeId)))
-            .ToListAsync();
+                      || (s.Schedule != null && s.Schedule.WorkDate <= today)))
+            .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.Status, "EXPIRED"), cancellationToken);
 
-        if (expiredRequests.Any())
-        {
-            foreach (var r in expiredRequests)
+        var statistics = await branchRequests.GroupBy(s => 1)
+            .Select(group => new StoreSwapRequestStatisticsDto
             {
-                r.Status = "EXPIRED";
-            }
-            await _context.SaveChangesAsync();
-        }
-        var requests = await _context.ShiftSwapRequests
-            .Include(s => s.RequesterUser)
-                .ThenInclude(u => u.Role)
-            .Include(s => s.Schedule)
-                .ThenInclude(sc => sc.ShiftTemplate)
-            .Include(s => s.RequestingAssignment)
-                .ThenInclude(sa => sa.User)
-                    .ThenInclude(u => u.Role)
-            .Include(s => s.RequestingAssignment)
-                .ThenInclude(sa => sa.AssignedRole)
-            .Include(s => s.RequestingAssignment)
-                .ThenInclude(sa => sa.Schedule)
-                    .ThenInclude(sc => sc.ShiftTemplate)
-            .Include(s => s.TargetUser)
-                .ThenInclude(u => u.Role)
-            .Include(s => s.TargetAssignment)
-                .ThenInclude(sa => sa.Schedule)
-                    .ThenInclude(sc => sc.ShiftTemplate)
-            .Include(s => s.ReviewedByUser)
-            .Where(s => (s.Schedule != null && s.Schedule.BranchId == (ulong)storeId) 
-                     || (s.RequestingAssignment != null && s.RequestingAssignment.Schedule.BranchId == (ulong)storeId))
-            .OrderByDescending(s => s.CreatedAt)
+                TotalCount = group.Count(),
+                PendingCount = group.Count(s => s.Status == "PENDING"),
+                ApprovedCount = group.Count(s => s.Status == "APPROVED"),
+                RejectedCount = group.Count(s => s.Status == "REJECTED"),
+                ExpiredCount = group.Count(s => s.Status == "EXPIRED" || s.Status == "EXPRIED")
+            })
+            .SingleOrDefaultAsync(cancellationToken) ?? new StoreSwapRequestStatisticsDto();
+
+        // IQueryable keeps status/search/count/paging in the database.
+        var requestsQuery = branchRequests
             .Select(s => new ShiftSwapRequestDto
             {
                 SwapRequestId = (int)s.Id,
@@ -924,14 +907,45 @@ public class ShiftSwapService : IShiftSwapService
                     ? $"{s.TargetAssignment.Schedule.ShiftTemplate.StartTime:HH\\:mm} - {s.TargetAssignment.Schedule.ShiftTemplate.EndTime:HH\\:mm}"
                     : null,
                 Reason = s.Reason,
-                Status = s.Status,
+                Status = s.Status == "EXPRIED" ? "EXPIRED" : s.Status,
                 ReviewedByName = s.ReviewedByUser != null ? s.ReviewedByUser.FullName : null,
                 ReviewedAt = s.ReviewedAt,
                 CreatedAt = s.CreatedAt
-            })
-            .ToListAsync();
+            });
+        var status = query.Status.ToUpperInvariant();
+        if (status != "ALL")
+        {
+            requestsQuery = requestsQuery.Where(s => s.Status == status);
+        }
+        var search = query.Search?.Trim().ToLowerInvariant();
+        if (!string.IsNullOrEmpty(search))
+        {
+            requestsQuery = requestsQuery.Where(s =>
+                s.RequesterName.ToLower().Contains(search) ||
+                s.RequesterRoleName.ToLower().Contains(search) ||
+                s.RequesterShiftName.ToLower().Contains(search) ||
+                (s.TargetName != null && s.TargetName.ToLower().Contains(search)) ||
+                (s.Reason != null && s.Reason.ToLower().Contains(search)));
+        }
 
-        return ApiResponse<List<ShiftSwapRequestDto>>.Ok(requests);
+        var totalItems = await requestsQuery.CountAsync(cancellationToken);
+        var lastPage = Math.Max(1, (int)Math.Ceiling((double)totalItems / query.PageSize));
+        var page = Math.Min(query.Page, lastPage);
+        var items = await requestsQuery
+            .OrderByDescending(s => s.CreatedAt)
+            .ThenByDescending(s => s.SwapRequestId)
+            .Skip((page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken);
+
+        return ApiResponse<StoreSwapRequestsPageDto>.Ok(new StoreSwapRequestsPageDto
+        {
+            Items = items,
+            TotalItems = totalItems,
+            Page = page,
+            PageSize = query.PageSize,
+            Statistics = statistics
+        });
     }
 
     /// <summary>

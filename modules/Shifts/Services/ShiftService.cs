@@ -168,8 +168,8 @@ public class ShiftService : IShiftService
     public Task<ApiResponse<bool>> CancelSwapRequestAsync(int requesterEmployeeId, int swapRequestId)
         => _swapService.CancelSwapRequestAsync(requesterEmployeeId, swapRequestId);
 
-    public Task<ApiResponse<List<ShiftSwapRequestDto>>> GetSwapRequestsByStoreAsync(int storeId)
-        => _swapService.GetSwapRequestsByStoreAsync(storeId);
+    public Task<ApiResponse<StoreSwapRequestsPageDto>> GetSwapRequestsByStoreAsync(int storeId, StoreSwapRequestsQueryDto query, CancellationToken cancellationToken = default)
+        => _swapService.GetSwapRequestsByStoreAsync(storeId, query, cancellationToken);
 
     public Task<ApiResponse<List<ShiftSwapRequestDto>>> GetMySwapRequestsAsync(int employeeId)
         => _swapService.GetMySwapRequestsAsync(employeeId);

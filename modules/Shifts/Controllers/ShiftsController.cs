@@ -363,6 +363,60 @@ public class ShiftsController : ControllerBase
     }
 
     /// <summary>
+    /// [Store Manager] Xóa toàn bộ định mức và thời khóa biểu của tuần (chỉ áp dụng khi DRAFT)
+    /// để đưa về trạng thái chưa tạo ca ban đầu.
+    /// </summary>
+    [HttpDelete("schedules/weekly")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteWeeklySchedule(
+        [FromQuery] ulong branchId,
+        [FromQuery] string weekStartDate)
+    {
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(branchId);
+        if (!ok) return forbid!;
+
+        if (!DateOnly.TryParse(weekStartDate, out var sDate))
+        {
+            return BadRequest(ApiResponse<bool>.Fail("Định dạng ngày bắt đầu tuần không hợp lệ (YYYY-MM-DD)."));
+        }
+
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        ulong.TryParse(empIdClaim, out var userId);
+
+        var result = await _shiftService.DeleteWeeklyScheduleAsync(effId, sDate, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// [Store Manager] Xóa toàn bộ phân công ca của tuần (chỉ áp dụng khi DRAFT)
+    /// nhưng giữ nguyên khung ca và định mức nhân sự.
+    /// </summary>
+    [HttpDelete("assignments/weekly")]
+    [Authorize(Roles = "STORE_MANAGER,SHIFT_LEADER,OPERATIONS_ADMIN,BUSINESS_OWNER")]
+    public async Task<ActionResult<ApiResponse<bool>>> DeleteWeeklyAssignments(
+        [FromQuery] ulong branchId,
+        [FromQuery] string weekStartDate)
+    {
+        var (ok, msg, forbid, effId) = await CheckBranchAccessAsync(branchId);
+        if (!ok) return forbid!;
+
+        if (!DateOnly.TryParse(weekStartDate, out var sDate))
+        {
+            return BadRequest(ApiResponse<bool>.Fail("Định dạng ngày bắt đầu tuần không hợp lệ (YYYY-MM-DD)."));
+        }
+
+        var empIdClaim = User.FindFirst("EmployeeId")?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        ulong.TryParse(empIdClaim, out var userId);
+
+        var result = await _shiftService.DeleteWeeklyAssignmentsAsync(effId, sDate, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// [Store Manager] Xóa/Hủy 1 phân công ca làm việc của nhân viên.
     /// </summary>
     [HttpDelete("assignments/{assignmentId}")]

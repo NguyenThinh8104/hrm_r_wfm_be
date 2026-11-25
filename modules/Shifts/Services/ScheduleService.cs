@@ -1370,6 +1370,123 @@ public class ScheduleService : IScheduleService
     }
 
     /// <summary>
+    /// Xóa toàn bộ khung lịch, định mức và phân ca của một tuần ở trạng thái DRAFT (chưa công bố)
+    /// để đưa bảng lịch về trạng thái chưa tạo ca ban đầu.
+    /// </summary>
+    public async Task<ApiResponse<bool>> DeleteWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong userId)
+    {
+        var weekEndDate = weekStartDate.AddDays(6);
+        var schedules = await _context.WorkSchedules
+            .Include(ws => ws.ShiftAssignments)
+            .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
+            .ToListAsync();
+
+        if (!schedules.Any())
+        {
+            return ApiResponse<bool>.Fail($"Không có khung lịch làm việc nào trong tuần từ {weekStartDate:dd/MM/yyyy} để xóa.");
+        }
+
+        var publishedCount = schedules.Count(ws => ws.Status == "PUBLISHED");
+        if (publishedCount > 0)
+        {
+            return ApiResponse<bool>.Fail("Không thể xóa lịch tuần đã công bố. Chỉ có thể xóa khi toàn bộ lịch ở trạng thái CHƯA CÔNG BỐ (DRAFT).");
+        }
+
+        var scheduleIds = schedules.Select(ws => ws.Id).ToList();
+        var assignmentIds = schedules.SelectMany(ws => ws.ShiftAssignments).Select(sa => sa.Id).ToList();
+
+        var relatedSwaps = await _context.ShiftSwapRequests
+            .Where(sr => (sr.ScheduleId.HasValue && scheduleIds.Contains(sr.ScheduleId.Value)) ||
+                         (sr.RequestingAssignmentId.HasValue && assignmentIds.Contains(sr.RequestingAssignmentId.Value)) ||
+                         (sr.TargetAssignmentId.HasValue && assignmentIds.Contains(sr.TargetAssignmentId.Value)))
+            .ToListAsync();
+
+        if (relatedSwaps.Any())
+        {
+            _context.ShiftSwapRequests.RemoveRange(relatedSwaps);
+        }
+
+        if (assignmentIds.Any())
+        {
+            var assignments = await _context.ShiftAssignments
+                .Where(sa => scheduleIds.Contains(sa.ScheduleId))
+                .ToListAsync();
+
+            if (assignments.Any())
+            {
+                _context.ShiftAssignments.RemoveRange(assignments);
+            }
+        }
+
+        _context.WorkSchedules.RemoveRange(schedules);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Người dùng {UserId} đã xóa toàn bộ khung lịch tuần {WeekStart} - {WeekEnd} của chi nhánh {BranchId}",
+            userId, weekStartDate, weekEndDate, branchId);
+
+        return ApiResponse<bool>.Ok(true, $"Đã xóa toàn bộ định mức và thời khóa biểu của tuần từ {weekStartDate:dd/MM/yyyy} đến {weekEndDate:dd/MM/yyyy} thành công!");
+    }
+
+    /// <summary>
+    /// Xóa toàn bộ các phân công ca làm việc (ShiftAssignments) của một tuần ở trạng thái DRAFT
+    /// nhưng GIỮ NGUYÊN các khung ca (WorkSchedules) và định mức nhân sự (ShiftQuota).
+    /// </summary>
+    public async Task<ApiResponse<bool>> DeleteWeeklyAssignmentsAsync(ulong branchId, DateOnly weekStartDate, ulong userId)
+    {
+        var weekEndDate = weekStartDate.AddDays(6);
+        var schedules = await _context.WorkSchedules
+            .Include(ws => ws.ShiftAssignments)
+            .Where(ws => ws.BranchId == branchId && ws.WorkDate >= weekStartDate && ws.WorkDate <= weekEndDate)
+            .ToListAsync();
+
+        if (!schedules.Any())
+        {
+            return ApiResponse<bool>.Fail($"Không có lịch làm việc nào trong tuần từ {weekStartDate:dd/MM/yyyy}.");
+        }
+
+        var publishedCount = schedules.Count(ws => ws.Status == "PUBLISHED");
+        if (publishedCount > 0)
+        {
+            return ApiResponse<bool>.Fail("Không thể xóa phân công của lịch tuần đã công bố. Chỉ có thể xóa khi toàn bộ lịch ở trạng thái CHƯA CÔNG BỐ (DRAFT).");
+        }
+
+        var scheduleIds = schedules.Select(ws => ws.Id).ToList();
+        var assignmentIds = schedules.SelectMany(ws => ws.ShiftAssignments).Select(sa => sa.Id).ToList();
+
+        if (!assignmentIds.Any())
+        {
+            return ApiResponse<bool>.Ok(true, "Tuần này hiện chưa có phân công ca nào để xóa.");
+        }
+
+        var relatedSwaps = await _context.ShiftSwapRequests
+            .Where(sr => (sr.ScheduleId.HasValue && scheduleIds.Contains(sr.ScheduleId.Value)) ||
+                         (sr.RequestingAssignmentId.HasValue && assignmentIds.Contains(sr.RequestingAssignmentId.Value)) ||
+                         (sr.TargetAssignmentId.HasValue && assignmentIds.Contains(sr.TargetAssignmentId.Value)))
+            .ToListAsync();
+
+        if (relatedSwaps.Any())
+        {
+            _context.ShiftSwapRequests.RemoveRange(relatedSwaps);
+        }
+
+        var assignments = await _context.ShiftAssignments
+            .Where(sa => scheduleIds.Contains(sa.ScheduleId))
+            .ToListAsync();
+
+        if (assignments.Any())
+        {
+            _context.ShiftAssignments.RemoveRange(assignments);
+        }
+
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Người dùng {UserId} đã xóa toàn bộ {Count} phân công ca làm việc của tuần {WeekStart} - {WeekEnd} tại chi nhánh {BranchId}",
+            userId, assignments.Count, weekStartDate, weekEndDate, branchId);
+
+        return ApiResponse<bool>.Ok(true, $"Đã xóa thành công {assignments.Count} lượt phân công ca trong tuần! Định mức ca vẫn được giữ nguyên.");
+    }
+
+    /// <summary>
     /// Xóa/Hủy 1 phân công ca làm việc của nhân viên.
     /// </summary>
     public async Task<ApiResponse<bool>> DeleteShiftAssignmentAsync(ulong assignmentId)

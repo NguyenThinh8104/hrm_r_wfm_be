@@ -34,6 +34,8 @@ public interface IScheduleService
     Task<ApiResponse<List<ShiftAssignmentDto>>> AssignFullTimeBatchAsync(AssignFullTimeBatchDto dto);
     Task<ApiResponse<ScheduleConflictCheckResultDto>> CheckWeeklyConflictsAsync(ulong branchId, DateOnly weekStartDate);
     Task<ApiResponse<bool>> PublishWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong publishedByUserId);
+    Task<ApiResponse<bool>> DeleteWeeklyScheduleAsync(ulong branchId, DateOnly weekStartDate, ulong userId);
+    Task<ApiResponse<bool>> DeleteWeeklyAssignmentsAsync(ulong branchId, DateOnly weekStartDate, ulong userId);
     Task<ApiResponse<bool>> DeleteShiftAssignmentAsync(ulong assignmentId);
     Task<ApiResponse<AutoScheduleResultDto>> AutoScheduleWeeklyAsync(AutoScheduleWeeklyDto dto, ulong userId);
     Task<ApiResponse<AccessibleBranchesDto>> GetAccessibleBranchesAsync(ulong userId, string role, ulong? storeId);

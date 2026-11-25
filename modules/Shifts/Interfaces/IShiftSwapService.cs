@@ -33,7 +33,7 @@ public interface IShiftSwapService
     /// <summary>
     /// Lấy danh sách danh mục các yêu cầu đổi ca trong cửa hàng.
     /// </summary>
-    Task<ApiResponse<List<ShiftSwapRequestDto>>> GetSwapRequestsByStoreAsync(int storeId);
+    Task<ApiResponse<StoreSwapRequestsPageDto>> GetSwapRequestsByStoreAsync(int storeId, StoreSwapRequestsQueryDto query, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Lấy danh sách các yêu cầu đổi/chuyển ca của chính nhân viên (đã gửi hoặc được nhờ).
